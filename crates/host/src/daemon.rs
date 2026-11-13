@@ -29,7 +29,7 @@ use tokio::sync::{mpsc, watch};
 use tokio::task::JoinSet;
 use tokio::time::Instant;
 
-use crate::claude::{Conversation, Launch};
+use crate::claude::{Conversation, Launch, SignInWith};
 use crate::decode::{self, Refusal};
 use crate::desktop;
 use crate::external::wire::{ControlPeek, PeekedKind, PeekedSubtype, SessionId, TaskId};
@@ -688,6 +688,8 @@ enum ToHub {
 struct Kept {
     cwd: PathBuf,
     session: Option<SessionId>,
+    /// What it was started signed in with: a window attaching to it is told.
+    sign_in: SignInWith,
     /// The window and key it is shown under.
     shown: Option<(WindowId, Generation)>,
 }
@@ -860,6 +862,7 @@ impl Hub {
                             Conversation::Continue(session) => Some(session.clone()),
                             Conversation::New(_) | Conversation::Fork { .. } => None,
                         },
+                        sign_in: launch.sign_in,
                         shown: Some((window, key)),
                     },
                 );
@@ -956,6 +959,7 @@ impl Hub {
                 id: *id,
                 session: kept.session.clone(),
                 cwd: kept.cwd.clone(),
+                sign_in: kept.sign_in,
                 attached: kept.shown.is_some(),
             })
             .collect()
@@ -1592,6 +1596,35 @@ mod tests {
         );
         assert_eq!(hub.ended(hosted), vec![Step::Changed]);
         assert!(hub.list().is_empty());
+    }
+
+    /// A window attaching to a running session hears what it was started signed in with, not
+    /// what the window last started.
+    #[test]
+    fn the_hub_lists_each_sessions_sign_in() {
+        let window = WindowId(1);
+        let first_key = Generation::default().next();
+        let second_key = first_key.next();
+        let mut hub = Hub::default();
+        hub.handle(
+            window,
+            Ask::Start {
+                key: first_key,
+                launch: launch(),
+            },
+        );
+        hub.handle(
+            window,
+            Ask::Start {
+                key: second_key,
+                launch: Launch {
+                    sign_in: SignInWith::ApiKey,
+                    ..launch()
+                },
+            },
+        );
+        let sign_ins: Vec<SignInWith> = hub.list().iter().map(|listed| listed.sign_in).collect();
+        assert_eq!(sign_ins, [SignInWith::Account, SignInWith::ApiKey]);
     }
 
     #[test]

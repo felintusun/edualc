@@ -1990,6 +1990,11 @@ impl<F: Frontend> App<F> {
         self.status.mode_choice = None;
         // A wait for the limit belongs to the session whose turn it stopped.
         self.status.limit_wait = LimitWait::Idle;
+        // So does its sign-in: one running elsewhere is taken to be on the user's own.
+        self.status.sign_in_with = claude::SignInWith::Account;
+        // A session that was to be continued once its sign-in was picked isn't, once another is
+        // shown.
+        self.choosing_sign_in = None;
         self.status.context_tokens = 0;
         self.status.cost_usd = 0.0;
         self.status.worktree = None;
@@ -2097,6 +2102,7 @@ impl<F: Frontend> App<F> {
             .map(|session| session.title.clone());
         self.reset_session(Some(id.clone()), title);
         self.status.backend = sessions::backend_of(&sessions::locate(&self.cwd, &id));
+        self.status.sign_in_with = hosted.sign_in;
         self.load_session(id, self.cwd.clone());
         self.generation = self.generation.next();
         match Claude::attach(&self.link, self.generation, hosted.id) {
