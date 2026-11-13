@@ -240,8 +240,10 @@ continue a Claude Code session while a key is kept, edualc asks which of the two
 - **F6 and Shift+F6** move from one area to the next. **Ctrl+K** jumps to the sessions' filter.
 - **In the conversation,** the arrow keys, Page Up, Page Down, Home and End scroll.
 - **When Claude asks something,** the focus moves into the question, never onto Allow, unless
-  you're writing a draft. Up and Down move through the options, Space picks one, Enter picks one
-  and goes to the next question, and Left and Right move between questions.
+  you're writing a draft. Up and Down move through the options, and Space picks one. Enter goes
+  to the next question, picking the option you're on when the question takes one answer. On the
+  last question, Enter sends your answers. Left and Right move between questions. After you
+  click a question's tab, Back or Next, the arrow keys work in that question's options.
 
 ## Settings
 

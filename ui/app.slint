@@ -944,6 +944,11 @@ component PromptBar inherits Rectangle {
         root.grab-pending = true;
         root.grab-serial += 1;
     }
+    // To the question at `to`, however it was asked for, the keys with it.
+    function show-question(to: int) {
+        root.current = clamp(to, 0, Prompt.questions.length - 1);
+        root.grab();
+    }
     property <int> wanted: Focus.wanted-serial;
     changed wanted => {
         if Focus.pending && Focus.wanted == FocusArea.writing {
@@ -1000,6 +1005,11 @@ component PromptBar inherits Rectangle {
             if Prompt.queued > 0: Small {
                 text: "\{Prompt.queued} more waiting";
                 vertical-alignment: center;
+            }
+            // Up here, not beside the answers, so the row of answers fits the card.
+            if Prompt.kind == PromptKind.plan: TextButton {
+                text: Prompt.reviewing ? "Show the conversation" : "Review the plan";
+                clicked => { Prompt.reviewing = !Prompt.reviewing; }
             }
         }
         if Prompt.kind == PromptKind.tool: VerticalLayout {
@@ -1091,7 +1101,7 @@ component PromptBar inherits Rectangle {
                         accessible-item-selected: q == root.current;
                         accessible-item-index: q;
                         accessible-item-count: Prompt.questions.length;
-                        clicked => { root.current = q; }
+                        clicked => { root.show-question(q); }
                         HorizontalLayout {
                             padding-left: Theme.space-m;
                             padding-right: Theme.space-m;
@@ -1143,8 +1153,9 @@ component PromptBar inherits Rectangle {
                         HorizontalLayout {
                             spacing: Theme.space-m;
                             // One stop for Tab: Up and Down go through the options and Space
-                            // picks one; Enter picks one too, and for a single choice goes on to
-                            // the next question. Left and Right go between the questions.
+                            // picks one. Enter goes on to the next question, picking the option
+                            // first for a single choice, and on the last question it answers.
+                            // Left and Right go between the questions.
                             options := FocusScope {
                                 property <int> at: 0;
                                 property <int> grab: root.grab-serial;
@@ -1169,10 +1180,14 @@ component PromptBar inherits Rectangle {
                                     self.at = o;
                                     self.pick();
                                 }
-                                // To the question at `to`, the keys with it.
-                                function go(to: int) {
-                                    root.current = clamp(to, 0, Prompt.questions.length - 1);
-                                    root.grab();
+                                // On to the next question, or the answer after the last; not
+                                // before the prompt is armed, as its buttons aren't.
+                                function go-on() {
+                                    if q < Prompt.questions.length - 1 {
+                                        root.show-question(q + 1);
+                                    } else if root.armed {
+                                        Prompt.answer(Prompt.request);
+                                    }
                                 }
                                 init => { self.take(); }
                                 changed grab => { self.take(); }
@@ -1190,22 +1205,18 @@ component PromptBar inherits Rectangle {
                                         return accept;
                                     }
                                     if event.text == Key.Return {
-                                        if question.multi {
+                                        if !question.multi && !question.options[self.at].selected {
                                             self.pick();
-                                        } else {
-                                            if !question.options[self.at].selected {
-                                                self.pick();
-                                            }
-                                            self.go(q + 1);
                                         }
+                                        self.go-on();
                                         return accept;
                                     }
                                     if event.text == Key.RightArrow {
-                                        self.go(q + 1);
+                                        root.show-question(q + 1);
                                         return accept;
                                     }
                                     if event.text == Key.LeftArrow {
-                                        self.go(q - 1);
+                                        root.show-question(q - 1);
                                         return accept;
                                     }
                                     return reject;
@@ -1281,12 +1292,12 @@ component PromptBar inherits Rectangle {
                 alignment: start;
                 if root.current > 0: TextButton {
                     text: "Back";
-                    clicked => { root.current -= 1; }
+                    clicked => { root.show-question(root.current - 1); }
                 }
                 if root.current < Prompt.questions.length - 1: TextButton {
                     text: "Next";
                     primary: true;
-                    clicked => { root.current += 1; }
+                    clicked => { root.show-question(root.current + 1); }
                 }
                 if root.current >= Prompt.questions.length - 1: TextButton {
                     enabled: root.armed;
@@ -1320,6 +1331,7 @@ component PromptBar inherits Rectangle {
             }
             HorizontalLayout {
                 spacing: Theme.space-s;
+                alignment: start;
                 TextButton {
                     enabled: root.armed;
                     text: "Approve, accept edits";
@@ -1332,6 +1344,7 @@ component PromptBar inherits Rectangle {
                 TextButton {
                     enabled: root.armed;
                     text: "Approve, ask before edits";
+                    may-shorten: true;
                     clicked => {
                         Prompt.approve-plan(Prompt.request, false, overall.text);
                         overall.text = "";
@@ -1344,13 +1357,6 @@ component PromptBar inherits Rectangle {
                         Prompt.deny(Prompt.request, overall.text);
                         overall.text = "";
                     }
-                }
-                Rectangle {
-                    horizontal-stretch: 1;
-                }
-                TextButton {
-                    text: Prompt.reviewing ? "Show the conversation" : "Review the plan";
-                    clicked => { Prompt.reviewing = !Prompt.reviewing; }
                 }
             }
         }
