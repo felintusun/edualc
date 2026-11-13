@@ -920,7 +920,7 @@ dependencies = [
 [[package]]
 name = "const-field-offset"
 version = "0.2.1"
-source = "git+https://github.com/felintusun/slint?rev=37854dae34adb168c5f11c6666a1fc732190a5be#37854dae34adb168c5f11c6666a1fc732190a5be"
+source = "git+https://github.com/barafael/slint?rev=9d7cc772c0f48032e077637f1bed18191de5ad12#9d7cc772c0f48032e077637f1bed18191de5ad12"
 dependencies = [
  "const-field-offset-macro",
  "field-offset",
@@ -929,7 +929,7 @@ dependencies = [
 [[package]]
 name = "const-field-offset-macro"
 version = "0.2.1"
-source = "git+https://github.com/felintusun/slint?rev=37854dae34adb168c5f11c6666a1fc732190a5be#37854dae34adb168c5f11c6666a1fc732190a5be"
+source = "git+https://github.com/barafael/slint?rev=9d7cc772c0f48032e077637f1bed18191de5ad12#9d7cc772c0f48032e077637f1bed18191de5ad12"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -2064,8 +2064,8 @@ checksum = "48ce8546b993eaf241d69ded33b1be6d205dd9857ec879d9d18bd05d3676e144"
 
 [[package]]
 name = "i-slint-backend-linuxkms"
-version = "1.19.0"
-source = "git+https://github.com/felintusun/slint?rev=37854dae34adb168c5f11c6666a1fc732190a5be#37854dae34adb168c5f11c6666a1fc732190a5be"
+version = "1.20.0"
+source = "git+https://github.com/barafael/slint?rev=9d7cc772c0f48032e077637f1bed18191de5ad12#9d7cc772c0f48032e077637f1bed18191de5ad12"
 dependencies = [
  "calloop 0.14.5",
  "cfg_aliases",
@@ -2087,8 +2087,8 @@ dependencies = [
 
 [[package]]
 name = "i-slint-backend-selector"
-version = "1.19.0"
-source = "git+https://github.com/felintusun/slint?rev=37854dae34adb168c5f11c6666a1fc732190a5be#37854dae34adb168c5f11c6666a1fc732190a5be"
+version = "1.20.0"
+source = "git+https://github.com/barafael/slint?rev=9d7cc772c0f48032e077637f1bed18191de5ad12#9d7cc772c0f48032e077637f1bed18191de5ad12"
 dependencies = [
  "cfg_aliases",
  "i-slint-backend-linuxkms",
@@ -2101,8 +2101,8 @@ dependencies = [
 
 [[package]]
 name = "i-slint-backend-winit"
-version = "1.19.0"
-source = "git+https://github.com/felintusun/slint?rev=37854dae34adb168c5f11c6666a1fc732190a5be#37854dae34adb168c5f11c6666a1fc732190a5be"
+version = "1.20.0"
+source = "git+https://github.com/barafael/slint?rev=9d7cc772c0f48032e077637f1bed18191de5ad12#9d7cc772c0f48032e077637f1bed18191de5ad12"
 dependencies = [
  "accesskit",
  "accesskit_winit",
@@ -2143,8 +2143,8 @@ dependencies = [
 
 [[package]]
 name = "i-slint-common"
-version = "1.19.0"
-source = "git+https://github.com/felintusun/slint?rev=37854dae34adb168c5f11c6666a1fc732190a5be#37854dae34adb168c5f11c6666a1fc732190a5be"
+version = "1.20.0"
+source = "git+https://github.com/barafael/slint?rev=9d7cc772c0f48032e077637f1bed18191de5ad12#9d7cc772c0f48032e077637f1bed18191de5ad12"
 dependencies = [
  "derive_more",
  "euclid",
@@ -2161,8 +2161,8 @@ dependencies = [
 
 [[package]]
 name = "i-slint-compiler"
-version = "1.19.0"
-source = "git+https://github.com/felintusun/slint?rev=37854dae34adb168c5f11c6666a1fc732190a5be#37854dae34adb168c5f11c6666a1fc732190a5be"
+version = "1.20.0"
+source = "git+https://github.com/barafael/slint?rev=9d7cc772c0f48032e077637f1bed18191de5ad12#9d7cc772c0f48032e077637f1bed18191de5ad12"
 dependencies = [
  "annotate-snippets",
  "by_address",
@@ -2199,8 +2199,8 @@ dependencies = [
 
 [[package]]
 name = "i-slint-core"
-version = "1.19.0"
-source = "git+https://github.com/felintusun/slint?rev=37854dae34adb168c5f11c6666a1fc732190a5be#37854dae34adb168c5f11c6666a1fc732190a5be"
+version = "1.20.0"
+source = "git+https://github.com/barafael/slint?rev=9d7cc772c0f48032e077637f1bed18191de5ad12#9d7cc772c0f48032e077637f1bed18191de5ad12"
 dependencies = [
  "accesskit",
  "bitflags 2.13.2",
@@ -2251,8 +2251,8 @@ dependencies = [
 
 [[package]]
 name = "i-slint-core-macros"
-version = "1.19.0"
-source = "git+https://github.com/felintusun/slint?rev=37854dae34adb168c5f11c6666a1fc732190a5be#37854dae34adb168c5f11c6666a1fc732190a5be"
+version = "1.20.0"
+source = "git+https://github.com/barafael/slint?rev=9d7cc772c0f48032e077637f1bed18191de5ad12#9d7cc772c0f48032e077637f1bed18191de5ad12"
 dependencies = [
  "quote",
  "serde_json",
@@ -2261,8 +2261,8 @@ dependencies = [
 
 [[package]]
 name = "i-slint-renderer-femtovg"
-version = "1.19.0"
-source = "git+https://github.com/felintusun/slint?rev=37854dae34adb168c5f11c6666a1fc732190a5be#37854dae34adb168c5f11c6666a1fc732190a5be"
+version = "1.20.0"
+source = "git+https://github.com/barafael/slint?rev=9d7cc772c0f48032e077637f1bed18191de5ad12#9d7cc772c0f48032e077637f1bed18191de5ad12"
 dependencies = [
  "const-field-offset",
  "femtovg",
@@ -2280,8 +2280,8 @@ dependencies = [
 
 [[package]]
 name = "i-slint-renderer-skia"
-version = "1.19.0"
-source = "git+https://github.com/felintusun/slint?rev=37854dae34adb168c5f11c6666a1fc732190a5be#37854dae34adb168c5f11c6666a1fc732190a5be"
+version = "1.20.0"
+source = "git+https://github.com/barafael/slint?rev=9d7cc772c0f48032e077637f1bed18191de5ad12#9d7cc772c0f48032e077637f1bed18191de5ad12"
 dependencies = [
  "bytemuck",
  "cfg_aliases",
@@ -2317,8 +2317,8 @@ dependencies = [
 
 [[package]]
 name = "i-slint-renderer-software"
-version = "1.19.0"
-source = "git+https://github.com/felintusun/slint?rev=37854dae34adb168c5f11c6666a1fc732190a5be#37854dae34adb168c5f11c6666a1fc732190a5be"
+version = "1.20.0"
+source = "git+https://github.com/barafael/slint?rev=9d7cc772c0f48032e077637f1bed18191de5ad12#9d7cc772c0f48032e077637f1bed18191de5ad12"
 dependencies = [
  "bytemuck",
  "clru",
@@ -4736,9 +4736,9 @@ checksum = "33f4fe9184a62d842c9ef383018f3306d8ba224fd9d836f56d7288308847c256"
 
 [[package]]
 name = "skia-bindings"
-version = "0.156.0"
+version = "0.157.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3fdac65e59d2ee3d2307397cc0a6a5156e4364debf3db465af1a8fd8252781f1"
+checksum = "3930c7f5e8d813364d74c3b17b227f3bb3a84504f93bb1f8c222d8fd5a7d9c6f"
 dependencies = [
  "bindgen",
  "cc",
@@ -4753,9 +4753,9 @@ dependencies = [
 
 [[package]]
 name = "skia-safe"
-version = "0.156.0"
+version = "0.157.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "38c60bc899f4b9e23eba0223187ff572b25d26155d0176b26e9b3a743f1e75b1"
+checksum = "dc1c946dbc1a10b6b1ace7e368ea71f96c81448bbf55effcad0a9a3a392358eb"
 dependencies = [
  "bitflags 2.13.2",
  "skia-bindings",
@@ -4780,8 +4780,8 @@ checksum = "0c790de23124f9ab44544d7ac05d60440adc586479ce501c1d6d7da3cd8c9cf5"
 
 [[package]]
 name = "slint"
-version = "1.19.0"
-source = "git+https://github.com/felintusun/slint?rev=37854dae34adb168c5f11c6666a1fc732190a5be#37854dae34adb168c5f11c6666a1fc732190a5be"
+version = "1.20.0"
+source = "git+https://github.com/barafael/slint?rev=9d7cc772c0f48032e077637f1bed18191de5ad12#9d7cc772c0f48032e077637f1bed18191de5ad12"
 dependencies = [
  "const-field-offset",
  "i-slint-backend-linuxkms",
@@ -4799,8 +4799,8 @@ dependencies = [
 
 [[package]]
 name = "slint-build"
-version = "1.19.0"
-source = "git+https://github.com/felintusun/slint?rev=37854dae34adb168c5f11c6666a1fc732190a5be#37854dae34adb168c5f11c6666a1fc732190a5be"
+version = "1.20.0"
+source = "git+https://github.com/barafael/slint?rev=9d7cc772c0f48032e077637f1bed18191de5ad12#9d7cc772c0f48032e077637f1bed18191de5ad12"
 dependencies = [
  "derive_more",
  "fontique",
@@ -4811,8 +4811,8 @@ dependencies = [
 
 [[package]]
 name = "slint-macros"
-version = "1.19.0"
-source = "git+https://github.com/felintusun/slint?rev=37854dae34adb168c5f11c6666a1fc732190a5be#37854dae34adb168c5f11c6666a1fc732190a5be"
+version = "1.20.0"
+source = "git+https://github.com/barafael/slint?rev=9d7cc772c0f48032e077637f1bed18191de5ad12#9d7cc772c0f48032e077637f1bed18191de5ad12"
 dependencies = [
  "i-slint-compiler",
  "proc-macro2",
@@ -5672,7 +5672,7 @@ checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 [[package]]
 name = "vtable"
 version = "0.5.1"
-source = "git+https://github.com/felintusun/slint?rev=37854dae34adb168c5f11c6666a1fc732190a5be#37854dae34adb168c5f11c6666a1fc732190a5be"
+source = "git+https://github.com/barafael/slint?rev=9d7cc772c0f48032e077637f1bed18191de5ad12#9d7cc772c0f48032e077637f1bed18191de5ad12"
 dependencies = [
  "const-field-offset",
  "portable-atomic",
@@ -5683,7 +5683,7 @@ dependencies = [
 [[package]]
 name = "vtable-macro"
 version = "0.5.1"
-source = "git+https://github.com/felintusun/slint?rev=37854dae34adb168c5f11c6666a1fc732190a5be#37854dae34adb168c5f11c6666a1fc732190a5be"
+source = "git+https://github.com/barafael/slint?rev=9d7cc772c0f48032e077637f1bed18191de5ad12#9d7cc772c0f48032e077637f1bed18191de5ad12"
 dependencies = [
  "proc-macro2",
  "quote",
