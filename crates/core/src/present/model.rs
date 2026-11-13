@@ -414,6 +414,7 @@ pub struct Session {
     pub limit_five_hour: f32,
     pub limit_five_hour_resets: String,
     pub limit_seven_day: f32,
+    pub limits_note: String,
     pub email: String,
     pub organization: String,
     pub provider: String,

@@ -207,6 +207,11 @@ pub(crate) fn wire(window: &AppWindow, events: &Sender<Event>) {
         }
     });
     sessions.on_cancel_continue(actions.on(|| Action::ContinueWith(None)));
+    sessions.on_new_api_key_session(
+        actions.on_text(|model| {
+            Action::NewApiKeySession(Some(model).filter(|model| !model.is_empty()))
+        }),
+    );
     let preferences = window.global::<Preferences>();
     preferences.on_store_api_key(actions.on_text(Action::StoreApiKey));
     preferences.on_remove_api_key(actions.on(|| Action::RemoveApiKey));

@@ -42,6 +42,8 @@ export global Session {
     in property <float> limit-five-hour: -1;
     in property <string> limit-five-hour-resets;
     in property <float> limit-seven-day: -1;
+    // Said where the plan's bars would be, without any: why a session has none, or "Usage".
+    in property <string> limits-note: "Usage";
     in property <string> email;
     in property <string> organization;
     in property <string> provider;
@@ -156,6 +158,10 @@ export global Sessions {
     // The New session menu offers Claude Code with the API key while the keyring keeps one.
     in property <bool> api-key-kept;
     callback new-session(Program);
+    // The dialog that starts a Claude Code session with the API key: what it costs, and the
+    // model, an alias Claude Code takes ("opus"), or empty for the model menu's.
+    in-out property <bool> api-key-dialog;
+    callback new-api-key-session(string);
     callback open(string);
     // A Claude Code session to continue, by its title, waits for the user to pick what it
     // signs in with; empty while none does.

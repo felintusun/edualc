@@ -224,8 +224,10 @@ message again.
 
 **An Anthropic API key.** Paste a key from the Anthropic Console in Settings, and edualc keeps it
 in your desktop's keyring (the Secret Service), not in a file. The New session menu then offers
-"Claude Code with the API key": that session signs in with the key, billed by the token, and
-your other sessions keep your own sign-in. Only edualc's daemon reads the key back, as it starts
+"Claude Code with the API key…", which opens a dialog that says what it costs and lets you pick
+the model before it starts. That session signs in with the key, billed by the token, and your
+other sessions keep your own sign-in. Its sidebar foot shows no plan limits, as it isn't on your
+plan. Only edualc's daemon reads the key back, as it starts
 such a session, and hands it to that one Claude Code process (`ANTHROPIC_API_KEY`). When you
 continue a Claude Code session while a key is kept, edualc asks which of the two to use.
 
@@ -266,6 +268,9 @@ its program: a new session with the other program starts with that program's def
   message other sessions too; agy itself asks your permission before it sends.
 - **Continuing:** agy sessions are listed in the sidebar and continue like Claude Code's. Their
   transcripts are kept in `~/.local/state/edualc/agy/`.
+- **Permission modes:** agy takes a mode as a turn starts. Switch during a turn, and the window
+  says that agy uses the new mode from your next prompt.
+- **Usage:** agy reports no usage limits, so the sidebar foot shows none for its sessions.
 - **Not available with agy:** shell commands (`!`) and the trust question.
 
 ## Look

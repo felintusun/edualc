@@ -395,6 +395,9 @@ pub enum Action {
     Interrupt,
     /// A new session, running this program, signed in so if it is Claude Code.
     NewSession(claude::Backend, claude::SignInWith),
+    /// A new Claude Code session with the API key, with this model (an alias Claude Code
+    /// takes), or the model menu's.
+    NewApiKeySession(Option<String>),
     /// The session waiting for it continues signed in so; none: it isn't continued.
     ContinueWith(Option<claude::SignInWith>),
     /// An Anthropic API key, as pasted, for the keyring.
@@ -555,6 +558,17 @@ pub struct Status {
 }
 
 impl Status {
+    /// The plan's limits, for a session the plan pays for: agy and the API key don't, so a
+    /// Claude Code session's limits aren't theirs.
+    pub(crate) fn plan_limits(&self) -> Option<Limits> {
+        match (self.backend, self.sign_in_with) {
+            (claude::Backend::Claude, claude::SignInWith::Account) => Some(self.limits),
+            (claude::Backend::Claude, claude::SignInWith::ApiKey) | (claude::Backend::Agy, _) => {
+                None
+            }
+        }
+    }
+
     /// The model picked for the program the session runs; none if it was picked for the other.
     pub(crate) fn chosen_model(&self) -> Option<&str> {
         self.model_choice
@@ -1304,6 +1318,15 @@ impl<F: Frontend> App<F> {
             Action::Send(text) => self.send(&text),
             Action::Interrupt => self.interrupt(),
             Action::NewSession(backend, sign_in) => self.new_session(backend, sign_in),
+            Action::NewApiKeySession(model) => {
+                if let Some(model) = model {
+                    self.status.model_choice = Some(ModelChoice {
+                        backend: claude::Backend::Claude,
+                        model,
+                    });
+                }
+                self.new_session(claude::Backend::Claude, claude::SignInWith::ApiKey);
+            }
             Action::ContinueWith(sign_in) => self.continue_with(sign_in),
             Action::StoreApiKey(text) => self.store_api_key(&text),
             Action::RemoveApiKey => self.ask_desktop(Act::RemoveApiKey, Acting::ApiKey),
@@ -2541,6 +2564,14 @@ impl<F: Frontend> App<F> {
             &ControlRequest::SetPermissionMode { mode },
             Request::Mode(mode),
         );
+        // agy takes a mode as a turn starts: the turn under way keeps the one it began with.
+        if self.status.backend == claude::Backend::Agy && self.status.turns > 0 {
+            self.chat.info(format!(
+                "agy switches to “{}” from your next prompt; this turn goes on in the mode it started in.",
+                mode.label()
+            ));
+            self.view.scroll_to_end();
+        }
     }
 
     /// Lists the slash commands the draft could become.
@@ -3168,6 +3199,34 @@ pub fn answer_as<T: serde::de::DeserializeOwned>(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The plan's limits show for a Claude Code session on the user's own sign-in only: agy
+    /// and the API key aren't on the plan, so its limits would mislead there.
+    #[test]
+    fn only_a_session_on_the_plan_shows_its_limits() {
+        let used = LimitUse {
+            used: 0.9,
+            resets_at: None,
+        };
+        let mut status = Status {
+            limits: Limits {
+                five_hour: Some(used),
+                seven_day: None,
+            },
+            ..Status::default()
+        };
+        assert!(
+            status
+                .plan_limits()
+                .and_then(|limits| limits.five_hour)
+                .is_some()
+        );
+        status.sign_in_with = claude::SignInWith::ApiKey;
+        assert!(status.plan_limits().is_none());
+        status.backend = claude::Backend::Agy;
+        status.sign_in_with = claude::SignInWith::Account;
+        assert!(status.plan_limits().is_none());
+    }
 
     /// A model picked for one program is started with that program's sessions only: a new
     /// session running the other program gets its own default, and one running the first

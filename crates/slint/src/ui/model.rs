@@ -657,6 +657,9 @@ pub(super) fn apply_session(
     if old.is_none_or(|old| old.limit_seven_day != new.limit_seven_day) {
         global.set_limit_seven_day(new.limit_seven_day.to_slint(images));
     }
+    if old.is_none_or(|old| old.limits_note != new.limits_note) {
+        global.set_limits_note(new.limits_note.to_slint(images));
+    }
     if old.is_none_or(|old| old.email != new.email) {
         global.set_email(new.email.to_slint(images));
     }

@@ -649,19 +649,26 @@ impl<F: Frontend> Presenter<F> {
             String::new()
         };
         session.cost = cost;
-        // Unknown shows as nothing (less than 0), not as an empty bar. The limits are Claude's
-        // plan's: an agy session shows none, not Claude's under agy's name.
-        let claude = status.backend == crate::claude::Backend::Claude;
-        let limit = |limit: Option<LimitUse>| limit.filter(|_| claude);
+        // Unknown shows as nothing (less than 0), not as an empty bar.
         let used = |limit: Option<LimitUse>| limit.map_or(-1.0, |limit| limit.used);
         let resets = |limit: Option<LimitUse>| {
             limit
                 .and_then(|limit| limit.resets_at)
                 .map_or_else(String::new, |at| reset_text(at, false))
         };
-        session.limit_five_hour = used(limit(status.limits.five_hour));
-        session.limit_five_hour_resets = resets(limit(status.limits.five_hour));
-        session.limit_seven_day = used(limit(status.limits.seven_day));
+        let limits = status.plan_limits().unwrap_or_default();
+        session.limit_five_hour = used(limits.five_hour);
+        session.limit_five_hour_resets = resets(limits.five_hour);
+        session.limit_seven_day = used(limits.seven_day);
+        // What stands where the bars would, without any.
+        match (status.backend, status.sign_in_with) {
+            (crate::claude::Backend::Agy, _) => "agy reports no usage limits",
+            (crate::claude::Backend::Claude, crate::claude::SignInWith::ApiKey) => {
+                "API key · billed by the token"
+            }
+            (crate::claude::Backend::Claude, crate::claude::SignInWith::Account) => "Usage",
+        }
+        .clone_into(&mut session.limits_note);
         let account = &status.account;
         session.email = account.email.as_str().into();
         session.organization = account.organization.as_str().into();
@@ -1417,13 +1424,16 @@ fn limits_section(report: Option<&wire::UsageReport>, status: &Status) -> StatSe
                 limit_row(&label, LimitUse::from(limit))
             })
             .collect(),
-        Some(_) | None => [
-            ("This session window (5 hours)", status.limits.five_hour),
-            ("This week", status.limits.seven_day),
-        ]
-        .into_iter()
-        .filter_map(|(label, limit)| Some(limit_row(label, limit?)))
-        .collect(),
+        Some(_) | None => {
+            let limits = status.plan_limits().unwrap_or_default();
+            [
+                ("This session window (5 hours)", limits.five_hour),
+                ("This week", limits.seven_day),
+            ]
+            .into_iter()
+            .filter_map(|(label, limit)| Some(limit_row(label, limit?)))
+            .collect()
+        }
     };
     // The plan as Claude Code names it ("max"), its first letter raised: "Max plan".
     let plan = &status.account.subscription_type;

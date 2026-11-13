@@ -10,7 +10,7 @@ import { EntryView } from "transcript.slint";
 import { Heron, HeronMark } from "heron.slint";
 import { PeekPanel } from "peek.slint";
 import { PlanReview } from "plan.slint";
-import { SettingsPanel } from "settings.slint";
+import { Choice, SettingsPanel } from "settings.slint";
 import { SidePanel } from "side.slint";
 import { UsagePanel } from "usage.slint";
 
@@ -341,7 +341,7 @@ component Sidebar inherits Rectangle {
     // Claude Code with the API key while the keyring keeps one.
     property <[{program: Program, title: string}]> programs: Sessions.api-key-kept ? [
         { program: Program.claude, title: "Claude Code" },
-        { program: Program.claude-api-key, title: "Claude Code with the API key" },
+        { program: Program.claude-api-key, title: "Claude Code with the API key…" },
         { program: Program.agy, title: "agy" },
     ] : [
         { program: Program.claude, title: "Claude Code" },
@@ -349,6 +349,14 @@ component Sidebar inherits Rectangle {
     ];
     // The program the arrow keys are on while the New session menu is open.
     property <int> new-highlighted;
+    // A program picked in the menu: Claude Code with the API key asks first, in its dialog.
+    function start(program: Program) {
+        if program == Program.claude-api-key {
+            Sessions.api-key-dialog = true;
+        } else {
+            Sessions.new-session(program);
+        }
+    }
     callback hide;
     // No narrower than its header's buttons (their size grows with the zoom): a narrow window
     // took it below them, and they spilled over the conversation's title.
@@ -472,7 +480,7 @@ component Sidebar inherits Rectangle {
                     }
                     if event.text == Key.Return || event.text == " " {
                         new-menu.close();
-                        Sessions.new-session(root.programs[root.new-highlighted].program);
+                        root.start(root.programs[root.new-highlighted].program);
                         return accept;
                     }
                     return reject;
@@ -496,7 +504,7 @@ component Sidebar inherits Rectangle {
                         highlighted: index == root.new-highlighted;
                         tab-stop: false;
                         accessible-label: "New \{item.title} session";
-                        clicked => { Sessions.new-session(item.program); }
+                        clicked => { root.start(item.program); }
                         HorizontalLayout {
                             padding: Theme.space-s;
                             padding-left: Theme.space-m;
@@ -697,7 +705,8 @@ component Sidebar inherits Rectangle {
                         used: Session.limit-seven-day;
                     }
                     if Session.limit-five-hour < 0 && Session.limit-seven-day < 0: Caption {
-                        text: "Usage";
+                        text: Session.limits-note;
+                        wrap: word-wrap;
                     }
                 }
             }
@@ -2074,6 +2083,103 @@ component TrustBar inherits Rectangle {
 
 // How to sign in: Claude Code behind a pipe can't, though it tells the user to run `/login`. It
 // reads the sign-in as it starts, so trying again starts it again.
+// Starts a Claude Code session with the API key, once the user has seen what it costs and
+// picked its model. Esc or Cancel closes it; Enter starts.
+component ApiKeySessionDialog inherits Rectangle {
+    // The models offered: an alias Claude Code takes, or empty for the model menu's.
+    property <[{title: string, detail: string, model: string}]> models: [
+        { title: "As the model menu says", detail: "The model this window uses for Claude Code", model: "" },
+        { title: "Opus", detail: "The most capable, and the most expensive per token", model: "opus" },
+        { title: "Sonnet", detail: "Capable, at a lower price per token", model: "sonnet" },
+        { title: "Haiku", detail: "The fastest and cheapest", model: "haiku" },
+    ];
+    property <int> picked: 0;
+    function start() {
+        Sessions.api-key-dialog = false;
+        Sessions.new-api-key-session(root.models[root.picked].model);
+    }
+    border-radius: Theme.radius-l;
+    border-width: 1px;
+    border-color: Theme.divider;
+    background: Theme.surface;
+    drop-shadow-blur: 24px;
+    drop-shadow-color: Theme.shadow;
+    // Clicks on the dialog stay with it.
+    TouchArea { }
+    FocusScope {
+        init => { self.focus(); }
+        key-pressed(event) => {
+            if event.text == Key.Escape {
+                Sessions.api-key-dialog = false;
+                return accept;
+            }
+            if event.text == Key.Return {
+                root.start();
+                return accept;
+            }
+            if event.text == Key.UpArrow {
+                root.picked = max(0, root.picked - 1);
+                return accept;
+            }
+            if event.text == Key.DownArrow {
+                root.picked = min(root.models.length - 1, root.picked + 1);
+                return accept;
+            }
+            return reject;
+        }
+    }
+    content := VerticalLayout {
+        padding: Theme.space-l;
+        spacing: Theme.space-s;
+        HorizontalLayout {
+            spacing: Theme.space-s;
+            Icon {
+                source: @image-url("@lucide/key-round.svg");
+                tint: Theme.claude;
+                y: (parent.height - self.height) / 2;
+            }
+            Title {
+                text: "New Claude Code session with the API key";
+                vertical-alignment: center;
+                horizontal-stretch: 1;
+                wrap: word-wrap;
+            }
+        }
+        Small {
+            text: "It signs in with the Anthropic API key kept in your keyring. Anthropic bills each token it uses to the key's account, not to your plan. Your other sessions keep your own sign-in.";
+            wrap: word-wrap;
+        }
+        Small {
+            text: "In " + Session.cwd;
+            overflow: elide;
+        }
+        Caption {
+            text: "Model";
+        }
+        for model[index] in root.models: Choice {
+            title: model.title;
+            detail: model.detail;
+            chosen: index == root.picked;
+            tab-stop: false;
+            clicked => { root.picked = index; }
+        }
+        HorizontalLayout {
+            alignment: end;
+            spacing: Theme.space-s;
+            padding-top: Theme.space-s;
+            TextButton {
+                text: "Cancel";
+                clicked => { Sessions.api-key-dialog = false; }
+            }
+            TextButton {
+                text: "Start";
+                primary: true;
+                clicked => { root.start(); }
+            }
+        }
+    }
+}
+
 // A Claude Code session to continue, while the keyring keeps an API key: the user picks
 // whether it signs in as they do in the terminal, or with the key, billed by the token.
 component SignInChoiceBar inherits Rectangle {
@@ -2859,6 +2965,25 @@ export component AppWindow inherits Window {
                                 height: parent.height;
                                 close => { root.close-settings(); }
                             }
+                        }
+                    }
+                    // Starting a session with the API key, over the conversation as the settings
+                    // are.
+                    if Sessions.api-key-dialog: Rectangle {
+                        x: 0;
+                        y: 0;
+                        width: parent.width;
+                        height: parent.height;
+                        background: Theme.dim;
+                        TouchArea {
+                            clicked => { Sessions.api-key-dialog = false; }
+                            scroll-event(event) => { return accept; }
+                        }
+                        dialog := ApiKeySessionDialog {
+                            width: min(parent.width - 2 * Theme.space-xl, 560px);
+                            height: self.preferred-height;
+                            x: (parent.width - self.width) / 2;
+                            y: max(Theme.space-xl, (parent.height - self.height) / 3);
                         }
                     }
                     if !transcript.follow && !(Prompt.kind == PromptKind.plan && Prompt.reviewing): IconButton {

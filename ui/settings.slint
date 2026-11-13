@@ -8,7 +8,7 @@ import { Focus, Preferences } from "state.slint";
 import { AreaFence, Caption, Field, Icon, IconButton, Pressable, Small, TextButton, Title } from "widgets.slint";
 
 // One of a setting's choices: its name, what it means, and whether it is the one in use.
-component Choice inherits Pressable {
+export component Choice inherits Pressable {
     in property <string> title;
     in property <string> detail;
     in property <bool> chosen;
