@@ -1246,36 +1246,80 @@ dependencies = [
  "clap_mangen",
  "derive_more",
  "dirs",
- "getrandom 0.3.4",
- "image",
- "jiff",
- "landlock",
- "libc",
+ "edualc-core",
  "lucide-static-svg",
- "open",
- "petname",
- "postcard",
  "proptest",
- "pulldown-cmark",
- "rfd",
- "rustix 1.1.6",
- "seccompiler",
  "serde",
  "serde_json",
- "sha2",
- "similar",
  "slint",
  "slint-build",
  "strum 0.27.2",
- "subtle",
  "syntect",
  "thiserror 2.0.21",
- "tokio",
  "tracing",
  "tracing-subscriber",
  "two-face",
  "uuid",
  "web-time",
+]
+
+[[package]]
+name = "edualc-core"
+version = "0.1.0"
+dependencies = [
+ "async-channel",
+ "base64",
+ "derive_more",
+ "dirs",
+ "gloo-timers",
+ "image",
+ "jiff",
+ "landlock",
+ "libc",
+ "petname",
+ "postcard",
+ "proptest",
+ "pulldown-cmark",
+ "rustix 1.1.6",
+ "seccompiler",
+ "serde",
+ "serde_json",
+ "similar",
+ "slint",
+ "strum 0.27.2",
+ "thiserror 2.0.21",
+ "tokio",
+ "tracing",
+ "uuid",
+ "web-time",
+]
+
+[[package]]
+name = "edualc-host"
+version = "0.1.0"
+dependencies = [
+ "async-channel",
+ "base64",
+ "clap",
+ "dirs",
+ "edualc-core",
+ "getrandom 0.3.4",
+ "jiff",
+ "open",
+ "postcard",
+ "proptest",
+ "rfd",
+ "rustix 1.1.6",
+ "serde",
+ "serde_json",
+ "sha2",
+ "strum 0.27.2",
+ "subtle",
+ "thiserror 2.0.21",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
  "zeroize",
 ]
 
@@ -1759,6 +1803,16 @@ name = "glob"
 version = "0.3.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e4eba85ea1d0a966a983acd07deee566e67395d2d96b6fb39e62b5a833f1eb0b"
+
+[[package]]
+name = "gloo-timers"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bbb143cf96099802033e0d4f4963b19fd2e0b728bcf076cd9cf7f6634f092994"
+dependencies = [
+ "js-sys",
+ "wasm-bindgen",
+]
 
 [[package]]
 name = "glow"
@@ -5602,6 +5656,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5a6580f308b1fad9207618087a65c04e7a10bc77e02c8e84e9b00dd4b12fa0bb"
 dependencies = [
  "js-sys",
+ "serde",
  "wasm-bindgen",
 ]
 
