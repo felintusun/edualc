@@ -3,14 +3,12 @@
 //! (`edualc --agy-adapter`) in place of `claude`; it speaks stream-json on its stdio as `claude`
 //! does, so the daemon and the window need nothing of their own for it (see `translate`).
 //!
-//! agy runs as it would in a terminal, with a data folder of its own per project (see `home`).
-//! The adapter, the daemon's child, serves the session's inbox and publishes its record (see
+//! agy runs as it would in a terminal, with its data in the user's `~/.gemini`. The adapter, the daemon's child, serves the session's inbox and publishes its record (see
 //! `inbox`), so other sessions message it as they message each other, and carries the messages
 //! agy sends with edualc's tool (see `tool`, `outbox`). It keeps the session's transcript, in Claude
 //! Code's format, under edualc's state folder (see `sessions::agy_projects`), for the session
 //! to be listed and continued: agy's own history is a database of its own.
 
-mod home;
 mod inbox;
 mod outbox;
 mod tool;
@@ -32,7 +30,6 @@ use tokio::sync::mpsc;
 
 use crate::external::wire::SessionId;
 use crate::sessions::{self, MessagingName};
-use home::AgyHome;
 use outbox::{Job, Outcome, Places, SendArguments};
 use translate::{CallId, Effect, Start, ToolServer, Translator};
 
@@ -83,10 +80,6 @@ enum Error {
     Start(#[source] std::io::Error),
     #[error(transparent)]
     Inbox(#[from] inbox::Error),
-    #[error("no folder for edualc's state: neither XDG_STATE_HOME nor HOME is set")]
-    NoState,
-    #[error("couldn't make the project's agy home: {0}")]
-    Home(#[from] home::Error),
     #[error("couldn't run: {0}")]
     Runtime(#[source] std::io::Error),
 }
@@ -184,26 +177,10 @@ fn on_path(program: &str) -> Option<PathBuf> {
 }
 
 /// agy, started with `acp` on its stdio.
-fn start_agy(cwd: &Path, start: &Start) -> Result<Child, Error> {
+fn start_agy(cwd: &Path) -> Result<Child, Error> {
     let agy = on_path("agy").ok_or(Error::NoAgy)?;
-    // agy keeps its data in the project's own agy home, seeded with the user's configuration
-    // (see `home::prepare_agy`): what an agy session writes there, the user's agy outside
-    // edualc doesn't read.
-    let home = AgyHome::of(cwd).ok_or(Error::NoState)?;
-    home::prepare_agy(&home)?;
-    if let Start::Resume(agys) = start {
-        match uuid::Uuid::parse_str(agys) {
-            Ok(conversation) => {
-                if home::bring_agy_conversation(&home, &conversation)? {
-                    tracing::info!(%conversation, "the conversation was brought into the agy home");
-                }
-            }
-            Err(error) => tracing::warn!(%error, "agy's conversation id isn't one"),
-        }
-    }
     Command::new(&agy)
         .args(["acp", "--disable-telemetry"])
-        .arg(format!("--gemini-dir={}", home.path().display()))
         .current_dir(cwd)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -247,7 +224,7 @@ async fn adapt(args: Args) -> Result<(), Error> {
     let tools = UnixListener::bind(own.tool()).map_err(Error::Folder)?;
     let inbox = inbox::Inbox::open(&id, &cwd, &name)?;
     tracing::info!(inbox = %inbox.socket().display(), %name, "the session's inbox is open");
-    let mut agy = start_agy(&cwd, &start)?;
+    let mut agy = start_agy(&cwd)?;
     let program = std::env::current_exe().map_err(Error::Start)?;
     let mut translator = Translator::new(
         id.clone(),
