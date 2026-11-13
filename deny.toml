@@ -3,9 +3,14 @@
 # Docs: https://embarkstudios.github.io/cargo-deny/
 
 [graph]
-# edualc is Linux-only (Landlock, seccomp, its daemon's Unix socket); other platforms' crates in the
-# resolved graph are never built.
-targets = ["x86_64-unknown-linux-gnu", "aarch64-unknown-linux-gnu"]
+# edualc is Linux's (Landlock, seccomp, its daemon's Unix socket) and, as its app, Android's;
+# other platforms' crates in the resolved graph are never built.
+targets = [
+  "x86_64-unknown-linux-gnu",
+  "aarch64-unknown-linux-gnu",
+  "aarch64-linux-android",
+  "x86_64-linux-android",
+]
 
 [advisories]
 # Unmaintained, with no maintained release to move to: inside Slint at its pinned revision, each
@@ -18,6 +23,11 @@ ignore = [
   { id = "RUSTSEC-2026-0372", reason = "zvariant_derive, folded into zbus: Slint's accessibility (AT-SPI) stack" },
   { id = "RUSTSEC-2026-0441", reason = "pin-utils, unmaintained: Slint's macros block on futures with spin_on" },
   { id = "RUSTSEC-2025-0141", reason = "bincode 1, unmaintained and called complete by its authors: syntect reads its bundled grammars with it" },
+  # Inside Dioxus's renderer for the Android app (`dioxus/mobile`, dioxus-desktop), until Dioxus
+  # moves past them.
+  { id = "RUSTSEC-2024-0436", reason = "paste, unmaintained: a proc-macro of image's AVIF and EXR decoders, which dioxus-desktop turns on" },
+  { id = "RUSTSEC-2025-0057", reason = "fxhash, unmaintained: the selectors crate in kuchikiki, which wry's Android backend parses HTML with" },
+  { id = "RUSTSEC-2024-0370", reason = "proc-macro-error, unmaintained: gtk-rs 0.18's macros, wry's Linux backend, which edualc never builds (its `mobile` feature is Android's)" },
 ]
 
 [licenses]
@@ -38,17 +48,23 @@ allow = [
   # says it is "Incompatible With Secondary Licenses", which none of its files does.
   "MPL-2.0",
   "GPL-3.0-or-later", # edualc, niri-ipc
+  # Through Dioxus's fullstack: xxhash-rust (Boost, OSI and FSF approved), and webpki-roots'
+  # certificate list (CDLA-Permissive-2.0, a data licence that puts nothing on the program).
+  "BSL-1.0",
+  "CDLA-Permissive-2.0",
   "GPL-3.0-only",     # Slint, chosen among its three licenses
 ]
 
 [bans]
 multiple-versions = "warn"
 wildcards = "deny"
+# The workspace's crates depend on one another by path, with no version to name.
+allow-wildcard-paths = true
 highlight = "all"
 
 [sources]
 unknown-registry = "deny"
 unknown-git = "deny"
 # Slint at a pinned commit of the user's fork, which carries fixes not yet upstream (see
-# Cargo.toml).
-allow-git = ["https://github.com/slint-ui/slint", "https://github.com/felintusun/slint"]
+# crates/slint/Cargo.toml).
+allow-git = ["https://github.com/slint-ui/slint", "https://github.com/barafael/slint"]

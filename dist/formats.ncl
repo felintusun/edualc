@@ -60,15 +60,18 @@ let rfc2822 = fun date => let d = dated date in "%{d.weekday}, %{d.day} %{d.mont
 let rpm_date = fun date => let d = dated date in "%{d.weekday} %{d.month} %{d.day} %{d.year}" in
 
 let doc_dir = "/usr/share/doc/%{p.name}" in
+let page_dir = "/usr/share/%{p.name}" in
 let licenses_dir = "/usr/share/licenses/%{p.name}" in
 # Where each role's files go in `format`'s package, or that it doesn't ship them.
 let folder
-  : [| 'Debian, 'Fedora, 'Arch, 'Tarball |] -> [| 'Program, 'DesktopEntry, 'Icon, 'Metainfo, 'Manual, 'Documentation, 'Notices, 'License |] -> [| 'Into String, 'Left |]
+  : [| 'Debian, 'Fedora, 'Arch, 'Tarball |] -> [| 'Program, 'UserUnit, 'PageFiles, 'DesktopEntry, 'Icon, 'Metainfo, 'Manual, 'Documentation, 'Notices, 'License |] -> [| 'Into String, 'Left |]
   = fun format role =>
     let usual = fun dir =>
       role
       |> match {
         'Program => 'Into "/usr/bin",
+        'UserUnit => 'Into "/usr/lib/systemd/user",
+        'PageFiles => 'Into page_dir,
         'DesktopEntry => 'Into "/usr/share/applications",
         'Icon => 'Into "/usr/share/icons/hicolor/scalable/apps",
         'Metainfo => 'Into "/usr/share/metainfo",
@@ -90,11 +93,13 @@ let folder
     }
 in
 let mode_of
-  : [| 'Program, 'DesktopEntry, 'Icon, 'Metainfo, 'Manual, 'Documentation, 'Notices, 'License |] -> String
+  : [| 'Program, 'UserUnit, 'PageFiles, 'DesktopEntry, 'Icon, 'Metainfo, 'Manual, 'Documentation, 'Notices, 'License |] -> String
   = fun role =>
     role
     |> match {
       'Program => "0755",
+      'UserUnit => "0644",
+      'PageFiles => "0644",
       'DesktopEntry => "0644",
       'Icon => "0644",
       'Metainfo => "0644",
@@ -107,7 +112,7 @@ in
 # The files `format` ships, each with where it goes, its mode, and whether to gzip it (Debian's
 # manual pages; rpmbuild and makepkg compress theirs).
 let staged
-  : [| 'Debian, 'Fedora, 'Arch, 'Tarball |] -> Array { source : String, role : [| 'Program, 'DesktopEntry, 'Icon, 'Metainfo, 'Manual, 'Documentation, 'Notices, 'License |] } -> Array { source : String, role : [| 'Program, 'DesktopEntry, 'Icon, 'Metainfo, 'Manual, 'Documentation, 'Notices, 'License |], path : String, mode : String, gzip : Bool }
+  : [| 'Debian, 'Fedora, 'Arch, 'Tarball |] -> Array { source : String, role : [| 'Program, 'UserUnit, 'PageFiles, 'DesktopEntry, 'Icon, 'Metainfo, 'Manual, 'Documentation, 'Notices, 'License |] } -> Array { source : String, role : [| 'Program, 'UserUnit, 'PageFiles, 'DesktopEntry, 'Icon, 'Metainfo, 'Manual, 'Documentation, 'Notices, 'License |], path : String, mode : String, gzip : Bool }
   = fun format files =>
     files
     |> std.array.filter_map (fun file =>
@@ -131,7 +136,14 @@ let shipped = fun format => staged format p.files in
 # Lines installing the files `format` ships from under `from` into the tree under `into`.
 let install = fun format from into =>
   shipped format
-  |> std.array.map (fun file => "install -Dm%{file.mode} %{from}%{file.source} %{into}%{file.path}")
+  |> std.array.map (fun file =>
+    file.role
+    |> match {
+      # A folder: the page's files, named by their contents, so not listed one by one.
+      'PageFiles => "mkdir -p %{into}%{file.path} && cp -r %{from}%{file.source}/. %{into}%{file.path}/ && find %{into}%{file.path} -type d -exec chmod 0755 {} + && find %{into}%{file.path} -type f -exec chmod %{file.mode} {} +",
+      _ => "install -Dm%{file.mode} %{from}%{file.source} %{into}%{file.path}",
+    }
+  )
   |> lines
 in
 
@@ -139,7 +151,7 @@ let newest = std.array.first p.releases in
 let licence = std.record.get p.license schema.licences in
 let maintainer = "%{p.maintainer.name} <%{p.maintainer.email}>" in
 let release_url = fun version => "%{p.homepage}/releases/tag/v%{version}" in
-let debian_program = std.array.first (std.array.filter (fun file => file.role == 'Program) (shipped 'Debian)) in
+let debian_programs = std.array.filter (fun file => file.role == 'Program) (shipped 'Debian) in
 let debian_notices = std.array.first (std.array.filter (fun file => file.role == 'Notices) (shipped 'Debian)) in
 # An XML element in the shape Nushell's `to xml` takes.
 let element = fun name attrs children => { tag = name, attributes = attrs, content = children } in
@@ -150,9 +162,9 @@ let text_element = fun tag text => element tag {} [text] in
   version = p.version,
   # The newest release's day: the changelogs' date, and the packages' files' times.
   date = newest.date,
-  # Where the program is in the Debian package's tree, for dpkg-shlibdeps.
-  program = debian_program.path,
-  # What the program may link (dist/build.nu's `check-linked`).
+  # Where the programs are in the Debian package's tree, for dpkg-shlibdeps.
+  programs = std.array.map (fun file => file.path) debian_programs,
+  # What the programs may link (dist/build.nu's `check-linked`).
   linked = std.array.map (fun library => library.soname) p.linked,
 
   desktop =
@@ -279,6 +291,8 @@ let text_element = fun tag text => element tag {} [text] in
             'License => "%license " ++ file.path,
             'Manual => file.path ++ "*",
             'Program => file.path,
+            'UserUnit => file.path,
+            'PageFiles => file.path,
             'DesktopEntry => file.path,
             'Icon => file.path,
             'Metainfo => file.path,
@@ -328,12 +342,18 @@ let text_element = fun tag text => element tag {} [text] in
           export RUSTUP_TOOLCHAIN=stable
           export CARGO_TARGET_DIR=target
           cargo build --frozen --release
+          # edualcd with its page: the server, and the public/ folder it serves
+          dx bundle --frozen -p edualc-server --platform web --fullstack --profile web
+          cp target/dx/edualcd/release/web/server target/release/edualcd
+          rm -rf target/release/public
+          cp -r target/dx/edualcd/release/web/public target/release/public
         }
 
         check() {
           cd "%{dir}"
           export RUSTUP_TOOLCHAIN=stable
           cargo test --frozen
+          cargo test --frozen -p edualc-server --features server
         }
 
         package() {
@@ -347,7 +367,7 @@ let text_element = fun tag text => element tag {} [text] in
       # releases.json (`just release-checksum`); null before.
       tagged =
         if std.record.has_field "source_sha256" newest then
-          header { pkgname = p.name, name_line = "", desc_suffix = "", makedepends = ["cargo"] }
+          header { pkgname = p.name, name_line = "", desc_suffix = "", makedepends = ["cargo", "dioxus-cli"] }
           ++ "\n"
           ++ m%"
             source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
@@ -363,7 +383,7 @@ let text_element = fun tag text => element tag {} [text] in
           pkgname = "%{p.name}-git",
           name_line = "\n_name=%{p.name}",
           desc_suffix = " (main branch)",
-          makedepends = ["cargo", "git"],
+          makedepends = ["cargo", "dioxus-cli", "git"],
         }
         ++ "\n"
         ++ m%"
@@ -386,6 +406,10 @@ let text_element = fun tag text => element tag {} [text] in
       # run time used, and lists the dynamic loader as unused.
       namcap_expected =
         (named "arch" p.opened |> std.array.map (fun name => "Dependency included, but may not be needed \\('%{name}'\\)"))
-        @ ["Unused shared library '/usr/lib(64)?/ld-linux-[a-z0-9_-]+\\.so\\.[0-9]' by file \\('usr/bin/%{p.name}'\\)"],
+        @ (
+          std.array.map
+            (fun file => "Unused shared library '/usr/lib(64)?/ld-linux-[a-z0-9_-]+\\.so\\.[0-9]' by file \\('%{std.string.substring 1 (std.string.length file.path) file.path}'\\)")
+            (std.array.filter (fun file => file.role == 'Program) (shipped 'Arch))
+        ),
     },
 }

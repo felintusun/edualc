@@ -14,7 +14,8 @@ const kept = {
 #
 # Commands that build write into a new folder under target/packaging and print its path; the
 # tools' own output goes to stderr. The packages' dates are the newest release's day in
-# dist/releases.json, or SOURCE_DATE_EPOCH. deb, rpm and tarball package target/release/edualc.
+# dist/releases.json, or SOURCE_DATE_EPOCH. deb, rpm and tarball package target/release/edualc and edualcd, and the page edualcd serves
+# (target/release/public).
 def main []: nothing -> nothing {
     help main
 }
@@ -57,12 +58,17 @@ def stage [
     for file in $files {
         let target = $tree | path join ($file.path | str trim --left --char "/")
         mkdir ($target | path dirname)
-        if $file.gzip {
+        if $file.role == "PageFiles" {
+            # A folder, the page's files: made as they are, each file with the role's mode.
+            ^cp -r $"($file.source)/." $target
+            ^find $target -type f -exec chmod $file.mode "{}" "+"
+        } else if $file.gzip {
             open --raw $file.source | ^gzip -9n | save --raw $target
+            ^chmod $file.mode $target
         } else {
             open --raw $file.source | save --raw $target
+            ^chmod $file.mode $target
         }
-        ^chmod $file.mode $target
     }
     ^find $tree -type d -exec chmod 0755 "{}" "+"
 }
@@ -108,7 +114,7 @@ def "main write-kept" []: nothing -> nothing {
 # then writes the release's PKGBUILD.
 def "main release-checksum" []: nothing -> nothing {
     at-root
-    let package = open Cargo.toml | get package
+    let package = open Cargo.toml | get workspace.package | insert name "edualc"
     let releases = open dist/releases.json
     if ($releases | first | get version) != $package.version {
         error make { msg: $"dist/releases.json doesn't start with ($package.version)" }
@@ -180,15 +186,18 @@ def "main check" []: nothing -> nothing {
     ^appstreamcli validate --no-net --pedantic assets/io.github.felintusun.edualc.metainfo.xml
 }
 
-# Checks that `program` links only the libraries dist/package.ncl lists under `linked`.
-def "main check-linked" [program: path = "target/release/edualc"]: nothing -> nothing {
+# Checks that each of `programs` links only the libraries dist/package.ncl lists under `linked`.
+def "main check-linked" [...programs: path]: nothing -> nothing {
     at-root
+    let programs = if ($programs | is-empty) { ["target/release/edualc", "target/release/edualcd"] } else { $programs }
     let linked = (main generate | path join formats.json | open $in | get linked)
-    let needed = ^readelf -d $program | lines | parse --regex '\(NEEDED\)\s+Shared library: \[(?<soname>[^\]]+)\]' | get soname
-    print --stderr ...$needed
-    let unlisted = $needed | where $it not-in $linked
-    if ($unlisted | is-not-empty) {
-        error make { msg: $"($program) links ($unlisted | str join ', '), which dist/package.ncl doesn't list" }
+    for program in $programs {
+        let needed = ^readelf -d $program | lines | parse --regex '\(NEEDED\)\s+Shared library: \[(?<soname>[^\]]+)\]' | get soname
+        print --stderr ...$needed
+        let unlisted = $needed | where $it not-in $linked
+        if ($unlisted | is-not-empty) {
+            error make { msg: $"($program) links ($unlisted | str join ', '), which dist/package.ncl doesn't list" }
+        }
     }
 }
 
@@ -253,7 +262,7 @@ def "main deb" []: nothing -> path {
     ^chmod 0644 $"($docs)/copyright" $"($docs)/changelog.Debian.gz"
     do {
         cd $work
-        ^dpkg-shlibdeps -Tdebian/substvars $"debian/($name)($formats.program)"
+        ^dpkg-shlibdeps -Tdebian/substvars ...($formats.programs | each {|program| $"debian/($name)($program)" })
         ^dpkg-gencontrol $"-p($name)" $"-Pdebian/($name)" -Tdebian/substvars
     }
     do {

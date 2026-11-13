@@ -79,7 +79,7 @@ in
     ),
 
   # What a shipped file is, which decides where each format puts it.
-  Role = [| 'Program, 'DesktopEntry, 'Icon, 'Metainfo, 'Manual, 'Documentation, 'Notices, 'License |],
+  Role = [| 'Program, 'UserUnit, 'PageFiles, 'DesktopEntry, 'Icon, 'Metainfo, 'Manual, 'Documentation, 'Notices, 'License |],
   Format = [| 'Debian, 'Fedora, 'Arch, 'Tarball |],
 
   File = {
@@ -169,8 +169,8 @@ in
   Consistent =
     std.contract.from_validator (fun package =>
       let programs = std.array.filter (fun file => file.role == 'Program) package.files in
-      if std.array.length programs != 1 then
-        'Error { message = "not exactly one program among the files", notes = [] }
+      if std.array.length programs == 0 then
+        'Error { message = "no program among the files", notes = [] }
       else if !(unique_by (fun file => file.source) package.files) then
         'Error { message = "a file is listed twice", notes = [] }
       else if (std.array.first package.releases).version != package.version then
