@@ -23,6 +23,8 @@ mod folder;
 mod grouping;
 mod highlight;
 mod ipc;
+#[cfg(not(target_arch = "wasm32"))]
+mod keyring;
 #[cfg_attr(target_arch = "wasm32", path = "web/link.rs")]
 mod link;
 mod markdown;

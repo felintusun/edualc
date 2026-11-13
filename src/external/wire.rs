@@ -379,6 +379,8 @@ pub(crate) struct UserMessage {
 pub(crate) enum AssistantError {
     /// Not signed in, or the API refused the sign-in.
     AuthenticationFailed,
+    /// The plan's usage limit is reached ("You've hit your 5-hour limit · resets 7:30pm").
+    RateLimit,
     #[serde(other)]
     Other,
 }
@@ -1551,6 +1553,28 @@ mod tests {
             unknown,
             Message::Assistant {
                 error: Some(AssistantError::Other),
+                ..
+            }
+        ));
+    }
+
+    /// What Claude Code writes when the plan's limit stops a turn, as its transcripts keep it
+    /// (2026-11-13).
+    #[test]
+    fn reaching_the_usage_limit_is_told_apart() {
+        let said = serde_json::from_value::<Message>(json!({
+            "type": "assistant",
+            "message": { "role": "assistant", "content": [
+                { "type": "text", "text": "You've hit your 5-hour limit · resets 7:30pm (Europe/Berlin)" }
+            ] },
+            "parent_tool_use_id": null,
+            "error": "rate_limit",
+        }))
+        .expect("Claude Code's own line");
+        assert!(matches!(
+            said,
+            Message::Assistant {
+                error: Some(AssistantError::RateLimit),
                 ..
             }
         ));

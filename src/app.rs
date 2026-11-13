@@ -35,8 +35,10 @@ use crate::trust;
 use crate::ui::View;
 use crate::watcher::{Watched, Watcher};
 
+mod api_key;
 #[cfg_attr(target_arch = "wasm32", path = "web/images.rs")]
 mod images;
+mod limits;
 mod peek;
 mod protocol;
 mod side;
@@ -181,6 +183,10 @@ pub(crate) enum Event {
     Listen,
     /// Every second while a command is followed: what it printed since.
     PollOutput,
+    /// A usage limit of the plan started over (see `limits`).
+    LimitReset,
+    /// Whether the keyring keeps an Anthropic API key, or why that couldn't be told.
+    ApiKeyStored(Result<bool, ActFailure>),
 }
 
 /// A prompt as sent, to send again once the sign-in works.
@@ -359,6 +365,8 @@ enum Acting {
     Pasting,
     /// The folder picker, for a folder to open.
     Picking,
+    /// Storing or removing the Anthropic API key in the keyring.
+    ApiKey,
 }
 
 /// What the user did in the window.
@@ -366,7 +374,13 @@ enum Acting {
 pub(crate) enum Action {
     Send(String),
     Interrupt,
-    NewSession,
+    /// A new session, running this program, signed in so if it is Claude Code.
+    NewSession(claude::Backend, claude::SignInWith),
+    /// The session waiting for it continues signed in so; none: it isn't continued.
+    ContinueWith(Option<claude::SignInWith>),
+    /// An Anthropic API key, as pasted, for the keyring.
+    StoreApiKey(String),
+    RemoveApiKey,
     OpenSession(SessionId),
     OpenProject(Folder),
     BrowseProject,
@@ -471,21 +485,29 @@ pub(crate) enum Action {
     Quit,
 }
 
+/// A model picked for one program: the other program doesn't know its name.
+#[derive(Debug)]
+pub(crate) struct ModelChoice {
+    backend: claude::Backend,
+    model: String,
+}
+
 /// What the header, the status bar and the menus show about the process and its session.
 #[derive(Debug, Default)]
 pub(crate) struct Status {
     pub(crate) session_id: Option<SessionId>,
     pub(crate) title: Option<String>,
-    /// The program the session talks to: the command line's for a new one, the transcript's
-    /// for one continued.
+    /// The program the session talks to: the one picked for a new session (the command line's
+    /// at first), the transcript's for one continued.
     pub(crate) backend: claude::Backend,
-    /// The command line's: new sessions talk to it.
-    pub(crate) backend_choice: claude::Backend,
+    /// What a Claude Code session signs in with, as picked when it was started or continued.
+    pub(crate) sign_in_with: claude::SignInWith,
     /// The model in use, as the CLI resolved it.
     pub(crate) model: String,
     pub(crate) models: Vec<wire::ModelInfo>,
-    /// Picked in the menu or on the command line: kept for the processes after this one.
-    pub(crate) model_choice: Option<String>,
+    /// Picked in the menu or on the command line: kept for the processes after this one that
+    /// run the same program.
+    pub(crate) model_choice: Option<ModelChoice>,
     pub(crate) mode: Option<Mode>,
     /// Picked in the menu for this session: applied again if its process is restarted.
     pub(crate) mode_choice: Option<PermissionMode>,
@@ -508,7 +530,18 @@ pub(crate) struct Status {
     pub(crate) context_window: u64,
     pub(crate) cost_usd: f64,
     pub(crate) limits: Limits,
+    pub(crate) limit_wait: LimitWait,
     pub(crate) worktree: Option<Worktree>,
+}
+
+impl Status {
+    /// The model picked for the program the session runs; none if it was picked for the other.
+    pub(crate) fn chosen_model(&self) -> Option<&str> {
+        self.model_choice
+            .as_ref()
+            .filter(|choice| choice.backend == self.backend)
+            .map(|choice| choice.model.as_str())
+    }
 }
 
 /// What Claude is doing, for the status bar. That it waits for the user is told by what it
@@ -570,6 +603,37 @@ impl std::fmt::Display for Retry {
             }
         }
     }
+}
+
+/// A turn the plan's usage limit stopped, continued once the limit resets, as Claude Code's
+/// terminal does (behind a pipe it doesn't).
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum LimitWait {
+    #[default]
+    Idle,
+    /// Claude Code was asked when the limit resets.
+    Asking,
+    /// The turn goes on at this time.
+    Until(jiff::Timestamp),
+}
+
+/// Whether the desktop's keyring keeps an Anthropic API key for Claude Code sessions.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) enum ApiKeyKept {
+    /// The daemon wasn't asked yet, or hasn't answered.
+    #[default]
+    Unknown,
+    Kept,
+    Absent,
+}
+
+/// Why Claude Code refused the turn under way, said before its result ends it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Refusal {
+    /// Nobody is signed in, or the API refused the sign-in.
+    SignIn,
+    /// The plan's usage limit is reached.
+    UsageLimit,
 }
 
 /// How much of the plan's usage limits is used, as far as the CLI said.
@@ -820,8 +884,17 @@ pub(crate) struct App {
     restart_waits: bool,
     /// The last prompt sent, for `SignIn::Refused` to keep if its turn fails for that.
     last_prompt: Option<SentPrompt>,
-    /// Claude Code said the turn under way failed for want of a sign-in; its result ends it.
-    turn_refused_sign_in: bool,
+    /// Claude Code said why it refused the turn under way; its result ends it.
+    turn_refusal: Option<Refusal>,
+    /// Whether the keyring keeps an Anthropic API key, as the daemon last said.
+    api_key: ApiKeyKept,
+    /// What the keyring last said when the key was stored, removed or looked for, for the
+    /// settings.
+    api_key_note: String,
+    /// A Claude Code session to continue once the user picks what it signs in with.
+    choosing_sign_in: Option<SessionId>,
+    /// The command line's session to continue, held until the keyring was asked for a key.
+    resume_after_key_check: Option<SessionId>,
     /// The line to the daemon, which runs Claude Code and does what the desktop is asked.
     link: Link,
     /// What the daemon was asked to do, by request, for what its answer means.
@@ -832,6 +905,8 @@ pub(crate) struct App {
     listen: slint::Timer,
     /// Runs while a command's output is followed (see `Event::PollOutput`).
     polling: slint::Timer,
+    /// Set for the next time a usage limit starts over (see `Event::LimitReset`).
+    limit_reset: slint::Timer,
     /// When the process last said something.
     heard: web_time::Instant,
     redraw: Redraw,
@@ -870,8 +945,7 @@ impl App {
             chat: Chat::default(),
             status: Status {
                 backend,
-                backend_choice: backend,
-                model_choice: model,
+                model_choice: model.map(|model| ModelChoice { backend, model }),
                 ..Status::default()
             },
             asks: VecDeque::new(),
@@ -907,13 +981,18 @@ impl App {
             daemon: Daemon::Running,
             restart_waits: false,
             last_prompt: None,
-            turn_refused_sign_in: false,
+            turn_refusal: None,
+            api_key: ApiKeyKept::Unknown,
+            api_key_note: String::new(),
+            choosing_sign_in: None,
+            resume_after_key_check: None,
             link,
             acting: HashMap::new(),
             last_act: ActId::default(),
             tick: slint::Timer::default(),
             listen: slint::Timer::default(),
             polling: slint::Timer::default(),
+            limit_reset: slint::Timer::default(),
             heard: web_time::Instant::now(),
             redraw: Redraw::default(),
         }
@@ -937,10 +1016,13 @@ impl App {
         if resuming {
             self.live = sessions::live();
         }
+        // A Claude Code session to continue asks what it signs in with when an API key is
+        // kept: it waits for the keyring's answer.
         match resume {
-            Some(id) => self.open_session(id),
-            None => self.new_session(),
+            Some(id) => self.resume_after_key_check = Some(id),
+            None => self.new_session(self.status.backend, self.status.sign_in_with),
         }
+        self.check_api_key();
         // Said in the window, not only the log: what is changed now isn't kept.
         if let Err(error) = settings::load() {
             self.chat.error(format!(
@@ -1071,6 +1153,8 @@ impl App {
             Event::Tick => self.tick(),
             Event::Listen => self.listen(),
             Event::PollOutput => self.poll_output(),
+            Event::LimitReset => self.limit_reset(),
+            Event::ApiKeyStored(stored) => self.api_key_stored(stored),
         }
         ControlFlow::Continue(())
     }
@@ -1079,7 +1163,10 @@ impl App {
         match action {
             Action::Send(text) => self.send(&text),
             Action::Interrupt => self.interrupt(),
-            Action::NewSession => self.new_session(),
+            Action::NewSession(backend, sign_in) => self.new_session(backend, sign_in),
+            Action::ContinueWith(sign_in) => self.continue_with(sign_in),
+            Action::StoreApiKey(text) => self.store_api_key(&text),
+            Action::RemoveApiKey => self.ask_desktop(Act::RemoveApiKey, Acting::ApiKey),
             Action::OpenSession(id) => self.open_session(id),
             Action::OpenProject(folder) => self.open_project(folder),
             Action::BrowseProject => self.ask_desktop(Act::PickFolder, Acting::Picking),
@@ -1235,8 +1322,16 @@ impl App {
                     .show_image(key, Err("the window's image decoder is gone".to_owned()));
             }
         }
+        // Streamed text adds no message and folds no run.
+        let restructured = redraw.runs
+            || changes
+                .iter()
+                .any(|change| !matches!(change, Change::Grew(_)));
         self.view
             .render_transcript(&self.chat, changes, &self.cwd, &self.open_runs, redraw.runs);
+        if restructured {
+            self.view.render_pinned(&self.chat);
+        }
         self.view.render_activity(
             &self.status,
             !self.asks.is_empty(),
@@ -1253,6 +1348,14 @@ impl App {
             self.watch.as_ref(),
             self.current_worktree(),
         );
+        let choosing = self.choosing_sign_in.as_ref().map(|id| {
+            self.sessions
+                .iter()
+                .find(|session| &session.id == id)
+                .map_or_else(|| id.as_str().to_owned(), |session| session.title.clone())
+        });
+        self.view
+            .render_api_key(self.api_key, &self.api_key_note, choosing.as_deref());
         if redraw.menus {
             self.view.render_menus(&self.status);
         }
@@ -1440,8 +1543,9 @@ impl App {
             backend: self.status.backend,
             cwd: self.cwd.clone(),
             conversation: Resume::conversation(resume),
-            model: self.status.model_choice.clone(),
+            model: self.status.chosen_model().map(str::to_owned),
             folder_configuration,
+            sign_in: self.status.sign_in_with,
         };
         match Claude::start(&self.link, self.generation, launch) {
             Ok(process) => self.process = Some(process),
@@ -1473,6 +1577,7 @@ impl App {
     fn acted(&mut self, request: ActId, result: Result<(), ActFailure>) {
         match (self.acting.remove(&request), result) {
             (Some(Acting::Bringing(id)), result) => self.brought(&id, result),
+            (Some(Acting::ApiKey), result) => self.api_key_changed(result),
             (Some(Acting::Desktop), Err(failure)) => {
                 tracing::warn!(%failure, "the desktop didn't do it");
                 self.chat.error(failure.to_string());
@@ -1688,12 +1793,17 @@ impl App {
         }
     }
 
-    fn new_session(&mut self) {
+    fn new_session(&mut self, backend: claude::Backend, sign_in: claude::SignInWith) {
         self.leave();
         self.watch = None;
         self.chat.clear();
         self.reset_session(None, None);
-        self.status.backend = self.status.backend_choice;
+        self.status.backend = backend;
+        // agy signs in itself.
+        self.status.sign_in_with = match backend {
+            claude::Backend::Claude => sign_in,
+            claude::Backend::Agy => claude::SignInWith::Account,
+        };
         self.start(None);
         self.redraw = Redraw::everything();
         self.view.focus_composer();
@@ -1703,6 +1813,8 @@ impl App {
         self.status.session_id = id;
         self.status.title = title;
         self.status.mode_choice = None;
+        // A wait for the limit belongs to the session whose turn it stopped.
+        self.status.limit_wait = LimitWait::Idle;
         self.status.context_tokens = 0;
         self.status.cost_usd = 0.0;
         self.status.worktree = None;
@@ -1738,19 +1850,54 @@ impl App {
             self.watch_live(&id);
             return;
         }
+        let backend = self.backend_of(&id);
+        // With a key kept, the user picks what a Claude Code session continues with.
+        if backend == claude::Backend::Claude && self.api_key == ApiKeyKept::Kept {
+            self.choosing_sign_in = Some(id);
+            return;
+        }
+        self.continue_session(id, backend, claude::SignInWith::Account);
+    }
+
+    /// The program session `id` ran, as the sidebar or its transcript says.
+    fn backend_of(&self, id: &SessionId) -> claude::Backend {
+        self.sessions
+            .iter()
+            .find(|session| &session.id == id)
+            .map_or_else(
+                || sessions::backend_of(&sessions::locate(&self.cwd, id)),
+                |session| session.backend,
+            )
+    }
+
+    /// The session waiting for the user's pick goes on signed in so; or isn't continued.
+    fn continue_with(&mut self, sign_in: Option<claude::SignInWith>) {
+        let Some(id) = self.choosing_sign_in.take() else {
+            return;
+        };
+        if let Some(sign_in) = sign_in {
+            let backend = self.backend_of(&id);
+            self.continue_session(id, backend, sign_in);
+        }
+    }
+
+    /// Continues session `id`, which no process runs, in this window.
+    fn continue_session(
+        &mut self,
+        id: SessionId,
+        backend: claude::Backend,
+        sign_in: claude::SignInWith,
+    ) {
         self.leave();
         self.watch = None;
         self.chat.clear();
         let known = self.sessions.iter().find(|session| session.id == id);
         let title = known.map(|session| session.title.clone());
         let worktree = known.and_then(|session| session.worktree.clone());
-        let backend = known.map_or_else(
-            || sessions::backend_of(&sessions::locate(&self.cwd, &id)),
-            |session| session.backend,
-        );
         self.reset_session(Some(id.clone()), title);
         self.status.worktree = worktree;
         self.status.backend = backend;
+        self.status.sign_in_with = sign_in;
         self.load_session(id.clone(), self.cwd.clone());
         self.start(Some(Resume::Continue(id)));
         self.redraw = Redraw::everything();
@@ -2045,12 +2192,13 @@ impl App {
         }
     }
 
-    /// Switches to another working directory, with a fresh session in it.
+    /// Switches to another working directory, with a fresh session in it running the same
+    /// program.
     fn open_project(&mut self, folder: Folder) {
         self.cwd = folder.into_path();
         self.sessions.clear();
         self.load_sessions();
-        self.new_session();
+        self.new_session(self.status.backend, self.status.sign_in_with);
     }
 
     /// Lists the working directory's sessions anew, e.g. once a new one has its title.
@@ -2093,7 +2241,7 @@ impl App {
         self.put_draft("");
         // In the terminal these start over; the CLI behind a pipe doesn't.
         if matches!(text, "/clear" | "/new") {
-            self.new_session();
+            self.new_session(self.status.backend, self.status.sign_in_with);
             return;
         }
         // Claude Code asks for this, but only its terminal has it.
@@ -2143,6 +2291,13 @@ impl App {
         {
             self.status.title = Some(title.to_owned());
         }
+        self.start_turn(&images, text);
+    }
+
+    /// Hands a prompt to the running process, which starts a turn with it.
+    fn start_turn(&mut self, images: &[Picture], text: &str) {
+        // The user goes on themselves, or the wait is over.
+        self.status.limit_wait = LimitWait::Idle;
         self.status.turns += 1;
         self.status.doing = Doing::Starting;
         if std::mem::take(&mut self.status.tasks_left_running) {
@@ -2150,7 +2305,7 @@ impl App {
         }
         self.start_listening();
         let shell_rows = std::mem::take(&mut self.shell_rows);
-        self.write(|process| process.prompt(&shell_rows, &images, text));
+        self.write(|process| process.prompt(&shell_rows, images, text));
         self.view.scroll_to_end();
     }
 
@@ -2179,6 +2334,10 @@ impl App {
 
     /// Stops Claude's turn, and the `!` command running: an interrupt stops both.
     fn interrupt(&mut self) {
+        if self.status.limit_wait != LimitWait::Idle && self.status.turns == 0 {
+            self.cancel_limit_wait();
+            return;
+        }
         if self.status.turns > 0 || self.chat.shell_running() {
             self.status.stop_asked = self.status.turns > 0;
             self.request(&ControlRequest::Interrupt, Request::Interrupt);
@@ -2196,7 +2355,10 @@ impl App {
         };
         // Without a process the choice waits for the next: it is started with it.
         if self.process.is_none() {
-            self.status.model_choice = Some(value);
+            self.status.model_choice = Some(ModelChoice {
+                backend: self.status.backend,
+                model: value,
+            });
             self.redraw.menus = true;
             return;
         }
@@ -2870,6 +3032,26 @@ pub(crate) fn answer_as<T: serde::de::DeserializeOwned>(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A model picked for one program is started with that program's sessions only: a new
+    /// session running the other program gets its own default, and one running the first
+    /// again gets the pick back.
+    #[test]
+    fn a_model_is_kept_for_the_program_it_was_picked_for() {
+        let mut status = Status {
+            backend: claude::Backend::Claude,
+            model_choice: Some(ModelChoice {
+                backend: claude::Backend::Claude,
+                model: "sonnet".to_owned(),
+            }),
+            ..Status::default()
+        };
+        assert_eq!(status.chosen_model(), Some("sonnet"));
+        status.backend = claude::Backend::Agy;
+        assert_eq!(status.chosen_model(), None);
+        status.backend = claude::Backend::Claude;
+        assert_eq!(status.chosen_model(), Some("sonnet"));
+    }
 
     /// Up steps back from the newest prompt to the oldest and stops there; Down steps forward
     /// and, past the newest, gives back what was being written. With no prompts, Up does

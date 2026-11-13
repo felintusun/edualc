@@ -112,6 +112,18 @@ pub(crate) struct Launch {
     pub(crate) model: Option<String>,
     /// Whether the folder's own configuration is read.
     pub(crate) folder_configuration: FolderConfiguration,
+    /// How Claude Code signs in; agy signs in itself.
+    pub(crate) sign_in: SignInWith,
+}
+
+/// What a Claude Code session signs in with.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub(crate) enum SignInWith {
+    /// The user's own sign-in, as in their terminal.
+    #[default]
+    Account,
+    /// The Anthropic API key in the desktop's keyring, billed by the token.
+    ApiKey,
 }
 
 /// Whether Claude Code reads what a folder configures (`.claude/settings*.json`, `.mcp.json`).

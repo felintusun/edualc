@@ -1,3 +1,7 @@
+# Errors are held, not boxed: the keyring's (oo7's, which carries zbus's) is larger than the
+# default 128 bytes, and only ever on a path that failed.
+large-error-threshold = 256
+
 # No mutable state is shared: state has one owner, `App`, and everything else reaches it by
 # message.
 disallowed-types = [

@@ -404,6 +404,32 @@ impl Connection {
 /// Does what the desktop is asked, on a thread of its own (it may take a while), and tells the
 /// window.
 async fn act_for(request: ActId, act: Act, outbox: mpsc::Sender<FromDaemon>) {
+    let keyring_failure = |error: crate::keyring::Error| ActFailure::Keyring(error.to_string());
+    let act = match act {
+        Act::StoreApiKey(key) => {
+            let result = crate::keyring::store(&key).await.map_err(keyring_failure);
+            tell(&outbox, FromDaemon::Done { request, result }).await;
+            return;
+        }
+        Act::RemoveApiKey => {
+            let result = crate::keyring::remove().await.map_err(keyring_failure);
+            tell(&outbox, FromDaemon::Done { request, result }).await;
+            return;
+        }
+        Act::CheckApiKey => {
+            let stored = crate::keyring::stored().await.map_err(keyring_failure);
+            tell(&outbox, FromDaemon::ApiKeyStored { request, stored }).await;
+            return;
+        }
+        act @ (Act::OpenIn { .. }
+        | Act::OpenUrl(_)
+        | Act::PickFolder
+        | Act::PasteImage
+        | Act::CheckTrust { .. }
+        | Act::Notify { .. }
+        | Act::FocusWindowOf { .. }
+        | Act::StopSession(_)) => act,
+    };
     if act == Act::PickFolder {
         let picked = tokio::task::spawn_blocking(move || {
             rfd::FileDialog::new()
@@ -585,8 +611,14 @@ fn perform(act: Act) -> Result<(), ActFailure> {
         }
         Act::FocusWindowOf { pid } => desktop::focus_window_of(pid)?,
         Act::StopSession(running) => desktop::stop_session(&running)?,
-        // Answered as `Picked`, `Pasted` and `Trusted`, in `act_for`.
-        Act::PickFolder | Act::PasteImage | Act::CheckTrust { .. } => {}
+        // Answered in `act_for`: as `Picked`, `Pasted`, `Trusted` and `ApiKeyStored`, or done
+        // with the keyring there.
+        Act::PickFolder
+        | Act::PasteImage
+        | Act::CheckTrust { .. }
+        | Act::StoreApiKey(_)
+        | Act::RemoveApiKey
+        | Act::CheckApiKey => {}
     }
     Ok(())
 }
@@ -1290,6 +1322,7 @@ mod tests {
             ),
             model: None,
             folder_configuration: FolderConfiguration::Read,
+            sign_in: crate::claude::SignInWith::Account,
         }
     }
 

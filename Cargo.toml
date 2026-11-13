@@ -55,8 +55,8 @@ uuid = { version = "1.29", default-features = false, features = ["std", "v4", "s
 # The words of a session's name for other sessions to message it by: curated English adjectives
 # and nouns, picked by the session's id (no random generator).
 petname = { version = "3.2", default-features = false, features = ["default-words"] }
-# An agy session's inbox token, cleared from memory once dropped.
-zeroize = "1.9"
+# An agy session's inbox token and the Anthropic API key, cleared from memory once dropped.
+zeroize = { version = "1.9", features = ["serde"] }
 
 # Dependencies for Linux only. The browser demo has no processes, sockets, image decoder or desktop.
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
@@ -87,6 +87,9 @@ postcard = { version = "1", default-features = false, features = ["use-std"] }
 sha2 = "0.10"
 getrandom = { version = "0.3", features = ["std"] }
 subtle = "2.6"
+# The Anthropic API key, kept in the desktop's keyring (the Secret Service) rather than a file;
+# its D-Bus (zbus) is already built for a dependency.
+oo7 = { version = "0.6", default-features = false, features = ["tokio", "native_crypto"] }
 
 # The browser demo (`web/`): the window, drawn with WebGL into the page's canvas, with a scripted
 # daemon in place of Claude Code. No accessibility: AccessKit has no backend in a browser here.
