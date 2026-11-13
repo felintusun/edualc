@@ -624,15 +624,10 @@ impl<F: Frontend> Presenter<F> {
         status.backend.agent().clone_into(&mut session.agent);
         status.backend.program().clone_into(&mut session.program);
         session.shell_commands = status.backend == crate::claude::Backend::Claude;
-        self.sessions.program = match (status.backend, status.sign_in_with) {
-            (crate::claude::Backend::Claude, crate::claude::SignInWith::Account) => {
-                model::Program::Claude
-            }
-            (crate::claude::Backend::Claude, crate::claude::SignInWith::ApiKey) => {
-                model::Program::ClaudeApiKey
-            }
-            (crate::claude::Backend::Agy, _) => model::Program::Agy,
-        };
+        self.sessions.program = program_shown(crate::claude::Program::of(
+            status.backend,
+            status.sign_in_with,
+        ));
         let (context, fraction) = match (status.context_tokens, status.context_window) {
             (0, _) => (String::new(), 0.0),
             (used, 0) => (short_count(used), 0.0),
@@ -1286,6 +1281,14 @@ fn menu(items: &[(String, String)]) -> Vec<MenuItem> {
     items
 }
 
+fn program_shown(program: crate::claude::Program) -> model::Program {
+    match program {
+        crate::claude::Program::Claude => model::Program::Claude,
+        crate::claude::Program::ClaudeApiKey => model::Program::ClaudeApiKey,
+        crate::claude::Program::Agy => model::Program::Agy,
+    }
+}
+
 /// A row of the session list as the sidebar shows it.
 fn session_row(row: &sidebar::Row) -> SessionRow {
     match row {
@@ -1318,6 +1321,7 @@ fn session_row(row: &sidebar::Row) -> SessionRow {
             selected: running.shown,
             worktree: running.worktree.as_deref().unwrap_or_default().into(),
             agents: index_for_slint(running.agents),
+            program: program_shown(running.program),
             ..SessionRow::default()
         },
         sidebar::Row::Earlier(earlier) => SessionRow {
@@ -1327,6 +1331,10 @@ fn session_row(row: &sidebar::Row) -> SessionRow {
             age: sessions::age(earlier.modified),
             selected: earlier.shown,
             worktree: earlier.worktree.as_deref().unwrap_or_default().into(),
+            program: program_shown(crate::claude::Program::of(
+                earlier.backend,
+                crate::claude::SignInWith::Account,
+            )),
             ..SessionRow::default()
         },
     }

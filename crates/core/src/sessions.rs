@@ -201,6 +201,8 @@ pub struct LiveSession {
     pub worktree: Option<Worktree>,
     /// Its subagents running now, as their records tell (see [`running_agents`]).
     pub agents: usize,
+    /// The program it runs, as where its transcript is says; Claude Code before it has one.
+    pub backend: crate::claude::Backend,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, serde::Serialize)]
@@ -531,6 +533,9 @@ pub fn live() -> Vec<LiveSession> {
                     agents: transcript
                         .as_deref()
                         .map_or(0, |transcript| running_agents(transcript, SystemTime::now())),
+                    backend: transcript
+                        .as_deref()
+                        .map_or(crate::claude::Backend::Claude, backend_of),
                     id: record.session_id,
                     cwd: record.cwd,
                     name: record.name,

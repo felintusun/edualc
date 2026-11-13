@@ -116,6 +116,26 @@ pub struct Launch {
     pub sign_in: SignInWith,
 }
 
+/// What a session runs, as the sidebar and the New session menu tell them apart.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum Program {
+    #[default]
+    Claude,
+    ClaudeApiKey,
+    Agy,
+}
+
+impl Program {
+    /// agy signs in itself, so its sign-in doesn't matter.
+    pub fn of(backend: Backend, sign_in: SignInWith) -> Self {
+        match (backend, sign_in) {
+            (Backend::Claude, SignInWith::Account) => Self::Claude,
+            (Backend::Claude, SignInWith::ApiKey) => Self::ClaudeApiKey,
+            (Backend::Agy, _) => Self::Agy,
+        }
+    }
+}
+
 /// What a Claude Code session signs in with.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum SignInWith {

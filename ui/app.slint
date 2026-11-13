@@ -236,11 +236,43 @@ component AgentCount inherits HorizontalLayout {
     }
 }
 
+// What a session runs, beside its title in the sidebar: agy, or Claude Code with the API key;
+// nothing for Claude Code on the user's own sign-in, which most sessions are. Only drawn: the
+// row's label says it.
+component ProgramMark inherits VerticalLayout {
+    in property <Program> program;
+    alignment: center;
+    if root.program == Program.agy: Rectangle {
+        border-radius: Theme.radius-s;
+        border-width: 1px;
+        border-color: Theme.control-border;
+        HorizontalLayout {
+            padding-left: Theme.space-xs;
+            padding-right: Theme.space-xs;
+            Text {
+                text: "agy";
+                font-size: 1rem * Theme.caption;
+                color: Theme.text-tertiary;
+                vertical-alignment: center;
+                accessible-role: none;
+            }
+        }
+    }
+    if root.program == Program.claude-api-key: Icon {
+        source: @image-url("@lucide/key-round.svg");
+        width: Theme.icon-small;
+        tint: Theme.text-tertiary;
+    }
+}
+
 component RunningRow inherits Pressable {
     in property <SessionRow> entry;
+    // What it runs, for its label.
+    property <string> program-said: root.entry.program == Program.agy ? ", agy"
+        : root.entry.program == Program.claude-api-key ? ", with the API key" : "";
     height: Theme.row-tall;
     selected: root.entry.selected;
-    accessible-label: root.entry.title + ", " + root.entry.detail
+    accessible-label: root.entry.title + root.program-said + ", " + root.entry.detail
         + (root.entry.agents == 1 ? ", 1 agent running" : root.entry.agents > 1 ? ", \{root.entry.agents} agents running" : "");
     clicked => { Sessions.open(root.entry.id); }
     HorizontalLayout {
@@ -271,6 +303,9 @@ component RunningRow inherits Pressable {
                 accessible-role: none;
             }
         }
+        ProgramMark {
+            program: root.entry.program;
+        }
         // The session shown here: its count opens the list of what runs, where an agent's
         // work can be followed.
         if root.entry.agents > 0 && root.entry.selected: Pressable {
@@ -298,7 +333,7 @@ component EarlierRow inherits Pressable {
     in property <SessionRow> entry;
     height: Theme.row;
     selected: root.entry.selected;
-    accessible-label: root.entry.title + ", " + root.entry.age + (root.entry.worktree != "" ? ", in the worktree " + root.entry.worktree : "");
+    accessible-label: root.entry.title + (root.entry.program == Program.agy ? ", agy" : "") + ", " + root.entry.age + (root.entry.worktree != "" ? ", in the worktree " + root.entry.worktree : "");
     clicked => { Sessions.open(root.entry.id); }
     HorizontalLayout {
         padding-left: Theme.space-m;
@@ -318,6 +353,9 @@ component EarlierRow inherits Pressable {
             horizontal-stretch: 1;
             min-width: 0px;
             accessible-role: none;
+        }
+        ProgramMark {
+            program: root.entry.program;
         }
         Text {
             text: root.entry.age;

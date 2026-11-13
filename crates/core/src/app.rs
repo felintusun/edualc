@@ -1550,6 +1550,7 @@ impl<F: Frontend> App<F> {
             let rows = sidebar::rows(&sidebar::Listing {
                 own: own.and_then(|mark| self.own_session(mark)),
                 live: &self.live,
+                hosted: &self.hosted,
                 saved: &self.sessions,
                 shown,
                 folder: &self.cwd,
@@ -1607,6 +1608,7 @@ impl<F: Frontend> App<F> {
                 .as_ref()
                 .map(|worktree| worktree.name.as_str()),
             agents: mark.agents,
+            program: claude::Program::of(self.status.backend, self.status.sign_in_with),
         })
     }
 

@@ -5,7 +5,9 @@
 use std::path::Path;
 use web_time::SystemTime;
 
+use crate::claude::{Backend, Program, SignInWith};
 use crate::external::wire::SessionId;
+use crate::ipc::Hosted;
 use crate::sessions::{self, LiveSession, LiveStatus, SessionInfo};
 
 /// The session this window's own process runs.
@@ -19,6 +21,7 @@ pub struct Own<'a> {
     pub worktree: Option<&'a str>,
     /// Its subagents running now.
     pub agents: usize,
+    pub program: Program,
 }
 
 /// What the list is made from.
@@ -27,6 +30,8 @@ pub struct Listing<'a> {
     pub own: Option<Own<'a>>,
     /// What other Claude Code processes run, in any folder.
     pub live: &'a [LiveSession],
+    /// What edualc's daemon runs: it alone knows what each signed in with.
+    pub hosted: &'a [Hosted],
     /// This folder's saved sessions, the newest first.
     pub saved: &'a [SessionInfo],
     /// The session the window shows: its own, or one it follows.
@@ -66,6 +71,7 @@ pub struct Running {
     pub worktree: Option<String>,
     pub agents: usize,
     pub shown: bool,
+    pub program: Program,
 }
 
 impl Running {
@@ -84,6 +90,8 @@ pub struct Earlier {
     pub modified: SystemTime,
     pub worktree: Option<String>,
     pub shown: bool,
+    /// Its backend; a saved transcript doesn't say what Claude Code signed in with.
+    pub backend: Backend,
 }
 
 /// The rows, in order: the running sessions (those waiting for their user first, then the
@@ -104,6 +112,7 @@ pub fn rows(listing: &Listing<'_>) -> Vec<Row> {
             worktree: own.worktree.map(str::to_owned),
             agents: own.agents,
             shown: listing.shown == Some(own.id),
+            program: own.program,
         })
         .collect();
     running.extend(
@@ -134,6 +143,14 @@ pub fn rows(listing: &Listing<'_>) -> Vec<Row> {
                     .map(|worktree| worktree.name.clone()),
                 agents: session.agents,
                 shown: listing.shown == Some(&session.id),
+                program: Program::of(
+                    session.backend,
+                    listing
+                        .hosted
+                        .iter()
+                        .find(|hosted| hosted.session.as_ref() == Some(&session.id))
+                        .map_or(SignInWith::Account, |hosted| hosted.sign_in),
+                ),
             }),
     );
     // Running, a session isn't among the earlier ones, whether or not the filter shows it.
@@ -151,6 +168,7 @@ pub fn rows(listing: &Listing<'_>) -> Vec<Row> {
                 .as_ref()
                 .map(|worktree| worktree.name.clone()),
             shown: listing.shown == Some(&saved.id),
+            backend: saved.backend,
         })
         .collect();
     running.retain(|row| {
@@ -254,6 +272,7 @@ mod tests {
             status,
             worktree: None,
             agents: 0,
+            backend: Backend::Claude,
         }
     }
 
@@ -273,6 +292,7 @@ mod tests {
         Listing {
             own,
             live,
+            hosted: &[],
             saved,
             shown: None,
             folder: Path::new("/code/beep"),
@@ -321,6 +341,7 @@ mod tests {
             state: Busy,
             worktree: None,
             agents: 2,
+            program: Program::Claude,
         };
         let rows = rows(&Listing {
             shown: Some(&own_id),
@@ -391,6 +412,42 @@ mod tests {
                 "> From the folder's list"
             ]
         );
+    }
+
+    /// A running session is marked with what it runs: agy as its transcript's place says, and
+    /// Claude Code with the API key as the daemon that started it says; others are on the
+    /// user's own sign-in.
+    #[test]
+    fn a_running_session_is_marked_with_its_program() {
+        let live = [
+            LiveSession {
+                backend: Backend::Agy,
+                ..live(1, "ripe-lynx-beep-3", "/code/beep", Idle)
+            },
+            live(2, "keyed-owl-beep-4", "/code/beep", Idle),
+            live(3, "plain-elk-beep-5", "/code/beep", Idle),
+        ];
+        let hosted = [Hosted {
+            id: crate::ipc::HostedId::default(),
+            session: Some(id(2)),
+            cwd: PathBuf::from("/code/beep"),
+            sign_in: SignInWith::ApiKey,
+            attached: false,
+        }];
+        let rows = rows(&Listing {
+            hosted: &hosted,
+            ..listing(None, &live, &[], "")
+        });
+        let programs: Vec<(SessionId, Program)> = rows
+            .iter()
+            .filter_map(|row| match row {
+                Row::Running(running) => Some((running.id.clone(), running.program)),
+                Row::RunningHeading { .. } | Row::EarlierHeading { .. } | Row::Earlier(_) => None,
+            })
+            .collect();
+        assert!(programs.contains(&(id(1), Program::Agy)));
+        assert!(programs.contains(&(id(2), Program::ClaudeApiKey)));
+        assert!(programs.contains(&(id(3), Program::Claude)));
     }
 
     /// A session that goes by its name has it once, as its title; one with a title of its own

@@ -135,6 +135,17 @@ impl ToSlint for present::SessionRowKind {
     }
 }
 
+impl ToSlint for present::Program {
+    type Slint = slint_ui::Program;
+    fn to_slint(&self, _: &Drawing) -> Self::Slint {
+        match self {
+            Self::Claude => slint_ui::Program::Claude,
+            Self::ClaudeApiKey => slint_ui::Program::ClaudeApiKey,
+            Self::Agy => slint_ui::Program::Agy,
+        }
+    }
+}
+
 impl ToSlint for present::SideView {
     type Slint = slint_ui::SideView;
     fn to_slint(&self, _: &Drawing) -> Self::Slint {
@@ -225,17 +236,6 @@ impl ToSlint for present::HanLanguage {
             Self::SimplifiedChinese => slint_ui::HanLanguage::SimplifiedChinese,
             Self::TraditionalChinese => slint_ui::HanLanguage::TraditionalChinese,
             Self::Korean => slint_ui::HanLanguage::Korean,
-        }
-    }
-}
-
-impl ToSlint for present::Program {
-    type Slint = slint_ui::Program;
-    fn to_slint(&self, _: &Drawing) -> Self::Slint {
-        match self {
-            Self::Claude => slint_ui::Program::Claude,
-            Self::ClaudeApiKey => slint_ui::Program::ClaudeApiKey,
-            Self::Agy => slint_ui::Program::Agy,
         }
     }
 }
@@ -415,6 +415,7 @@ impl ToSlint for present::SessionRow {
             selected: self.selected.to_slint(images),
             worktree: self.worktree.to_slint(images),
             agents: self.agents.to_slint(images),
+            program: self.program.to_slint(images),
         }
     }
 }

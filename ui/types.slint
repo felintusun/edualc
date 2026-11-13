@@ -119,6 +119,10 @@ export enum SignInState { unknown, signed-in, signed-out }
 // now (this window's, another's, a terminal's), or one of this folder's earlier sessions.
 export enum SessionRowKind { heading, running, earlier }
 
+// The program a session runs: Claude Code (with the user's sign-in, or with the Anthropic API
+// key in the keyring), or Google's Antigravity CLI.
+export enum Program { claude, claude-api-key, agy }
+
 export struct SessionRow {
     kind: SessionRowKind,
     id: string,
@@ -136,6 +140,8 @@ export struct SessionRow {
     worktree: string,
     // Its subagents running now.
     agents: int,
+    // What it runs: marked beside its title unless Claude Code on the user's own sign-in.
+    program: Program,
 }
 
 // The side panel (`/btw`): open, folded away into the header's button, or not there.
@@ -248,10 +254,6 @@ export enum SendKey { enter, ctrl-enter }
 
 // The language text with Han characters alone is drawn in (see `src/cjk.rs`).
 export enum HanLanguage { japanese, simplified-chinese, traditional-chinese, korean }
-
-// The program a session runs: Claude Code (with the user's sign-in, or with the Anthropic API
-// key in the keyring), or Google's Antigravity CLI.
-export enum Program { claude, claude-api-key, agy }
 
 // What a Claude Code session continues with: the user's sign-in, or the API key.
 export enum SignInWith { account, api-key }

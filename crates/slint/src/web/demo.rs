@@ -250,6 +250,7 @@ pub(crate) fn running() -> Vec<LiveSession> {
                     branch: format!("worktree-{name}"),
                 }),
                 agents: 0,
+                backend: crate::claude::Backend::Claude,
                 cwd,
             }
         })

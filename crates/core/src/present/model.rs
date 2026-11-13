@@ -103,6 +103,14 @@ pub enum SessionRowKind {
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+pub enum Program {
+    #[default]
+    Claude,
+    ClaudeApiKey,
+    Agy,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
 pub enum SideView {
     #[default]
     Hidden,
@@ -170,14 +178,6 @@ pub enum HanLanguage {
     SimplifiedChinese,
     TraditionalChinese,
     Korean,
-}
-
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
-pub enum Program {
-    #[default]
-    Claude,
-    ClaudeApiKey,
-    Agy,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
@@ -291,6 +291,7 @@ pub struct SessionRow {
     pub selected: bool,
     pub worktree: String,
     pub agents: i32,
+    pub program: Program,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
