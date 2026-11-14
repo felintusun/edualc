@@ -365,8 +365,6 @@ export component CodeBox inherits Rectangle {
 export component Field inherits Rectangle {
     in property <string> placeholder;
     in property <bool> enabled: true;
-    // Shown as dots, and not copied out: a key, a password.
-    in property <bool> secret;
     in-out property <string> text <=> input.text;
     out property <bool> has-focus: input.has-focus;
     callback accepted(string);
@@ -402,7 +400,6 @@ export component Field inherits Rectangle {
         height: parent.height;
         vertical-alignment: center;
         single-line: true;
-        input-type: root.secret ? InputType.password : InputType.text;
         enabled: root.enabled;
         color: Theme.text;
         selection-background-color: Theme.selection;

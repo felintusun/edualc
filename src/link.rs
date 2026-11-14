@@ -116,8 +116,7 @@ pub(crate) fn connect() -> Result<Connected, Error> {
         | FromDaemon::Trusted { .. }
         | FromDaemon::Hosted(_)
         | FromDaemon::ShuttingDown
-        | FromDaemon::Pasted { .. }
-        | FromDaemon::ApiKeyStored { .. } => return Err(Error::Version),
+        | FromDaemon::Pasted { .. } => return Err(Error::Version),
     }
     let hosted = match channel.recv(&mut deframer)? {
         FromDaemon::Hosted(hosted) => hosted,
@@ -130,8 +129,7 @@ pub(crate) fn connect() -> Result<Connected, Error> {
         | FromDaemon::Picked { .. }
         | FromDaemon::Trusted { .. }
         | FromDaemon::ShuttingDown
-        | FromDaemon::Pasted { .. }
-        | FromDaemon::ApiKeyStored { .. } => return Err(Error::OutOfTurn),
+        | FromDaemon::Pasted { .. } => return Err(Error::OutOfTurn),
     };
     Ok(Connected {
         channel,
@@ -260,7 +258,6 @@ fn read(mut channel: Channel, mut deframer: Deframer<FromDaemon>, events: &Sende
             } => joined(&mut pasting, request, &piece, last)
                 .map(|pasted| Event::Pasted { request, pasted }),
             FromDaemon::ShuttingDown => Some(Event::DaemonShuttingDown),
-            FromDaemon::ApiKeyStored { stored, .. } => Some(Event::ApiKeyStored(stored)),
             FromDaemon::Hello { .. } => None,
         };
         if let Some(event) = event

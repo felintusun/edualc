@@ -230,21 +230,6 @@ impl<'a> UserText<'a> {
 }
 
 impl Chat {
-    /// The newest of the user's own messages: its place in the conversation, and its text.
-    pub(crate) fn last_prompt(&self) -> Option<(usize, &str)> {
-        self.entries
-            .iter()
-            .enumerate()
-            .rev()
-            .find_map(|(index, entry)| {
-                if let Body::User(text) = &entry.body {
-                    Some((index, text.as_str()))
-                } else {
-                    None
-                }
-            })
-    }
-
     pub(crate) fn take_changes(&mut self) -> Vec<Change> {
         std::mem::take(&mut self.changes)
     }
@@ -913,27 +898,6 @@ mod tests {
             Some(Body::Tool { tool, .. }) => tool,
             other => panic!("a tool call, not {other:?}"),
         }
-    }
-
-    /// The pinned prompt is the user's own newest message: not another session's, nor what
-    /// came after it; none before the user wrote anything.
-    #[test]
-    fn the_last_prompt_is_the_users_newest_message() {
-        let mut chat = Chat::default();
-        chat.info("Started");
-        assert_eq!(chat.last_prompt(), None);
-        chat.user("first");
-        chat.error("It failed");
-        chat.user("second");
-        chat.push(
-            Body::Peer {
-                from: Some("other-session".to_owned()),
-                text: "from elsewhere".to_owned(),
-            },
-            false,
-        );
-        chat.info("Done");
-        assert_eq!(chat.last_prompt(), Some((3, "second")));
     }
 
     #[test]

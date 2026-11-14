@@ -37,8 +37,6 @@ than leaving it out.
 - **Code is coloured** by its language, using bat's grammars in the window's own colours, a line at
   a time as it streams in.
 - **You can select and copy everything** with Ctrl+C, tool output included.
-- **Your last message stays pinned** at the top while it is out of view, and the conversation
-  scrolls under it. Click it to go back to it.
 
 ## Tool calls
 
@@ -207,13 +205,7 @@ Size:
 ## Usage
 
 The sidebar's foot shows your account, cost and plan limits. Click them to see the usage details
-(Claude Code's `/usage` and `/context`) over the conversation. The limits are asked for again
-when one resets, so they don't wait for your next prompt.
-
-When a turn stops because you've hit a usage limit, edualc continues it once the limit resets,
-as Claude Code does in a terminal: it sends Claude Code's own "the limit has reset, continue"
-prompt. Until then the status bar says when. Esc or Stop cancels the wait, and a prompt you send
-yourself replaces it. The wait lives in the window: close it and the turn doesn't go on.
+(Claude Code's `/usage` and `/context`) over the conversation.
 
 ## Signing in
 
@@ -221,13 +213,6 @@ Claude Code's `/login` doesn't work in the mode edualc runs it in, although Clau
 it. When a turn fails because you aren't signed in, or when you type `/login`, the window shows
 `claude auth login` to run in a terminal. "Try again" restarts Claude Code and sends the failed
 message again.
-
-**An Anthropic API key.** Paste a key from the Anthropic Console in Settings, and edualc keeps it
-in your desktop's keyring (the Secret Service), not in a file. The New session menu then offers
-"Claude Code with the API key": that session signs in with the key, billed by the token, and
-your other sessions keep your own sign-in. Only edualc's daemon reads the key back, as it starts
-such a session, and hands it to that one Claude Code process (`ANTHROPIC_API_KEY`). When you
-continue a Claude Code session while a key is kept, edualc asks which of the two to use.
 
 ## The keyboard
 
@@ -256,11 +241,9 @@ effect at once and is kept in `~/.config/edualc/settings.json`.
 
 ## agy (Google's Antigravity CLI)
 
-`edualc --backend agy DIR` runs agy instead of Claude Code. In the window, the New session button
-opens a menu with Claude Code and agy; Ctrl+N starts a new session with the program of the one
-you're in. The window shows an agy session like any other: streamed text and thinking, tool
-cards, permission requests, and the model menu from `agy models`. A model you pick stays with
-its program: a new session with the other program starts with that program's default.
+`edualc --backend agy DIR` runs agy instead of Claude Code. The window shows an agy session like
+any other: streamed text and thinking, tool cards, permission requests, and the model menu from
+`agy models`.
 
 - **Messaging:** Claude Code sessions can message an agy session by its name. An agy session can
   message other sessions too; agy itself asks your permission before it sends.

@@ -14,7 +14,7 @@ use super::demo;
 use super::scenarios;
 use crate::app::Event;
 use crate::claude::{Launch, Output};
-use crate::ipc::{Act, ActFailure, ActId, Generation, PasteFailure, ToDaemon};
+use crate::ipc::{Act, ActId, Generation, PasteFailure, ToDaemon};
 
 /// What the demo's Claude says it runs as.
 const MODEL: &str = "claude-opus-5-5";
@@ -86,14 +86,6 @@ fn acted(events: &Sender<Event>, request: ActId, act: Act) {
         Act::PasteImage => Event::Pasted {
             request,
             pasted: Err(PasteFailure::NoImage),
-        },
-        // A page has no keyring to keep a key in.
-        Act::CheckApiKey => Event::ApiKeyStored(Ok(false)),
-        Act::StoreApiKey(_) | Act::RemoveApiKey => Event::Acted {
-            request,
-            result: Err(ActFailure::Keyring(
-                "the browser demo keeps no API key".to_owned(),
-            )),
         },
         Act::OpenIn { .. }
         | Act::OpenUrl(_)

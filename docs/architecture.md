@@ -63,7 +63,7 @@ through inotify, and checks nothing on a schedule, with two exceptions:
 | `src/main.rs`, `src/start.rs`, `src/start/manual.rs` | how the program starts: its command line, reaching or starting the daemon, opening the window; the manual page |
 | `src/daemon.rs`, `src/spawn.rs` | the daemon: running `claude` or agy's adapter, and acting on the desktop |
 | `src/claude.rs` | a session's process as the window sees it: what it is started with, what its output means, and the handle that writes to it |
-| `src/agy.rs`, `src/agy/` | an agy session: the adapter (`edualc --agy-adapter`) that speaks the Agent Client Protocol to `agy acp` and Claude Code's stream-json to the daemon; its inbox; the messages it sends to other sessions |
+| `src/agy.rs`, `src/agy/` | an agy session: the adapter (`edualc --agy-adapter`) that speaks the Agent Client Protocol to `agy acp` and Claude Code's stream-json to the daemon; agy's data folder per project; its inbox; the messages it sends to other sessions |
 | `src/ipc.rs`, `src/ipc/socket.rs`, `src/link.rs` | the messages between the window and the daemon, the daemon's socket, and the window's connection to it |
 | `src/decode.rs`, `src/decode/helper.rs` | making images safe to show and send, and the locked-down process that decodes them |
 | `src/external/` | formats other programs write, as types: Claude Code's stream-json, transcripts and files, the Agent Client Protocol, and niri's IPC. These accept keys they don't know, since each release adds some. |

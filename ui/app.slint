@@ -3,7 +3,7 @@
 
 import { ListView } from "std-widgets.slint";
 import { Look, Motion, SyntaxColours, Theme } from "theme.slint";
-import { Activity, ComposerSize, FocusArea, LiveState, PermissionKind, Program, PromptKind, SendKey, SessionRow, SessionRowKind, SideView, SignInState, SignInWith, TaskKind } from "types.slint";
+import { Activity, ComposerSize, FocusArea, LiveState, PermissionKind, PromptKind, SendKey, SessionRow, SessionRowKind, SideView, SignInState, TaskKind } from "types.slint";
 import { Clipboard, Composer, Focus, Peek, Preferences, Prompt, Session, Sessions, Side, TextSelection, Transcript, Usage } from "state.slint";
 import { AreaFence, Caption, Field, Icon, IconButton, KeyPress, Meter, MenuButton, Pressable, Small, TextButton, Title, UsageBar } from "widgets.slint";
 import { EntryView } from "transcript.slint";
@@ -337,18 +337,6 @@ component EarlierRow inherits Pressable {
 component Sidebar inherits Rectangle {
     // The widest it is dragged to.
     property <length> widest: 720px;
-    // The programs a new session can run, in the order the New session menu lists them;
-    // Claude Code with the API key while the keyring keeps one.
-    property <[{program: Program, title: string}]> programs: Sessions.api-key-kept ? [
-        { program: Program.claude, title: "Claude Code" },
-        { program: Program.claude-api-key, title: "Claude Code with the API key" },
-        { program: Program.agy, title: "agy" },
-    ] : [
-        { program: Program.claude, title: "Claude Code" },
-        { program: Program.agy, title: "agy" },
-    ];
-    // The program the arrow keys are on while the New session menu is open.
-    property <int> new-highlighted;
     callback hide;
     // No narrower than its header's buttons (their size grows with the zoom): a narrow window
     // took it below them, and they spilled over the conversation's title.
@@ -402,13 +390,10 @@ component Sidebar inherits Rectangle {
                     Preferences.open = true;
                 }
             }
-            new-button := IconButton {
+            IconButton {
                 icon: @image-url("@lucide/square-pen.svg");
-                label: "New session";
-                clicked => {
-                    root.new-highlighted = 0;
-                    new-menu.show();
-                }
+                label: "New session (Ctrl+N)";
+                clicked => { Sessions.new-session(); }
             }
             // Where the header's button to show it again then appears.
             IconButton {
@@ -449,70 +434,6 @@ component Sidebar inherits Rectangle {
                     source: @image-url("@lucide/chevrons-up-down.svg");
                     width: Theme.icon-small;
                     y: (parent.height - self.height) / 2;
-                }
-            }
-        }
-        // Opens below the New session button, its right edge on the button's.
-        new-menu := PopupWindow {
-            x: head.x + new-button.x + new-button.width - self.width;
-            y: head.y + new-button.y + new-button.height + Theme.space-xs;
-            width: 300px;
-            height: new-items.preferred-height;
-            // Up and Down move through the programs, Enter or Space starts one; Esc closes.
-            FocusScope {
-                init => { self.focus(); }
-                key-pressed(event) => {
-                    if event.text == Key.UpArrow {
-                        root.new-highlighted = max(0, root.new-highlighted - 1);
-                        return accept;
-                    }
-                    if event.text == Key.DownArrow {
-                        root.new-highlighted = min(root.programs.length - 1, root.new-highlighted + 1);
-                        return accept;
-                    }
-                    if event.text == Key.Return || event.text == " " {
-                        new-menu.close();
-                        Sessions.new-session(root.programs[root.new-highlighted].program);
-                        return accept;
-                    }
-                    return reject;
-                }
-            }
-            Rectangle {
-                background: Theme.surface-raised;
-                border-radius: Theme.radius-m;
-                border-width: 1px;
-                border-color: Theme.control-border;
-                drop-shadow-blur: 12px;
-                drop-shadow-color: #0006;
-                new-items := VerticalLayout {
-                    padding: Theme.space-xs;
-                    spacing: 2px;
-                    Caption {
-                        text: "New session";
-                        horizontal-alignment: left;
-                    }
-                    for item[index] in root.programs: Pressable {
-                        highlighted: index == root.new-highlighted;
-                        tab-stop: false;
-                        accessible-label: "New \{item.title} session";
-                        clicked => { Sessions.new-session(item.program); }
-                        HorizontalLayout {
-                            padding: Theme.space-s;
-                            padding-left: Theme.space-m;
-                            spacing: Theme.space-s;
-                            Text {
-                                text: item.title;
-                                color: Theme.text;
-                                vertical-alignment: center;
-                                horizontal-stretch: 1;
-                            }
-                            if item.program == Sessions.program: Caption {
-                                text: "Ctrl+N";
-                                vertical-alignment: center;
-                            }
-                        }
-                    }
                 }
             }
         }
@@ -2072,52 +1993,6 @@ component TrustBar inherits Rectangle {
 
 // How to sign in: Claude Code behind a pipe can't, though it tells the user to run `/login`. It
 // reads the sign-in as it starts, so trying again starts it again.
-// A Claude Code session to continue, while the keyring keeps an API key: the user picks
-// whether it signs in as they do in the terminal, or with the key, billed by the token.
-component SignInChoiceBar inherits Rectangle {
-    border-radius: Theme.radius-l;
-    border-width: 1px;
-    border-color: Theme.control-border;
-    background: Theme.card;
-    VerticalLayout {
-        padding: Theme.space-m;
-        spacing: Theme.space-s;
-        HorizontalLayout {
-            spacing: Theme.space-s;
-            Icon {
-                source: @image-url("@lucide/key-round.svg");
-                tint: Theme.text-secondary;
-                y: (parent.height - self.height) / 2;
-            }
-            Text {
-                text: "Continue “" + Sessions.choosing-sign-in + "” with";
-                color: Theme.text;
-                font-weight: 600;
-                wrap: word-wrap;
-                vertical-alignment: center;
-                horizontal-stretch: 1;
-            }
-        }
-        HorizontalLayout {
-            alignment: start;
-            spacing: Theme.space-s;
-            TextButton {
-                text: "Your sign-in";
-                primary: true;
-                clicked => { Sessions.continue-with(SignInWith.account); }
-            }
-            TextButton {
-                text: "The API key";
-                clicked => { Sessions.continue-with(SignInWith.api-key); }
-            }
-            TextButton {
-                text: "Cancel";
-                clicked => { Sessions.cancel-continue(); }
-            }
-        }
-    }
-}
-
 component SignInBar inherits Rectangle {
     property <string> command: "claude auth login";
     border-radius: Theme.radius-l;
@@ -2284,15 +2159,10 @@ export component AppWindow inherits Window {
     property <SyntaxColours> syntax-colours: Theme.syntax;
     changed syntax-colours => { Session.syntax-colours-changed(); }
 
-    // The most Claude's prompt may take: half the window, three quarters for its questions,
-    // which are read and answered there. Kept as the window is resized, not bound, as a
-    // binding would loop through the layout the prompt is part of.
+    // The most Claude's prompt may take: half the window. Kept as the window is resized, not
+    // bound, as a binding would loop through the layout the prompt is part of.
     property <length> prompt-tallest: 400px;
-    property <length> questions-tallest: 600px;
-    changed height => {
-        self.prompt-tallest = self.height / 2;
-        self.questions-tallest = self.height * 75%;
-    }
+    changed height => { self.prompt-tallest = self.height / 2; }
 
     // The area after the one with the focus (or before it), of those shown.
     function next-area(forward: bool) -> FocusArea {
@@ -2377,7 +2247,7 @@ export component AppWindow inherits Window {
                 return accept;
             }
             if event.modifiers.control && (event.text == "n" || event.text == "N") {
-                Sessions.new-session(Sessions.program);
+                Sessions.new-session();
                 return accept;
             }
             if event.modifiers.control && (event.text == "b" || event.text == "B") {
@@ -2524,7 +2394,6 @@ export component AppWindow inherits Window {
                         // text, rows being measured) moves the viewport too.
                         scrolled => {
                             self.follow = self.at-end();
-                            self.seeking = false;
                             settle-timer.running = true;
                         }
                         // Scrolling here would make the list build and measure other rows, and
@@ -2545,71 +2414,9 @@ export component AppWindow inherits Window {
                                 follow-timer.running = true;
                             }
                         }
-                        // The pinned message's row as the list last placed it, and which message
-                        // that was: the list builds only the rows near the view, so its place
-                        // is known only once its row was built.
-                        property <length> pinned-y;
-                        property <length> pinned-height;
-                        property <int> pinned-for: -1;
-                        property <bool> pinned-known: self.pinned-for == Transcript.pinned-index;
-                        // Going to the pinned message: the list measures rows as it builds them
-                        // and moves them, so the view follows the row until it settles.
-                        property <bool> seeking;
-                        // The pinned message is out of view, above or below, and there is a
-                        // conversation to show.
-                        out property <bool> pinned-away: Transcript.pinned-index >= 0 && !self.settling
-                            && (!self.pinned-known
-                                || self.pinned-y + self.pinned-height + self.content-y < 0
-                                || self.pinned-y + self.content-y > self.visible-height);
-                        function place-pinned(y: length, height: length) {
-                            self.pinned-y = y;
-                            self.pinned-height = height;
-                            self.pinned-for = Transcript.pinned-index;
-                            if self.seeking {
-                                seek-timer.running = true;
-                            }
-                        }
-                        // The pinned message at the top of the view, as far as the end allows.
-                        function show-pinned() {
-                            self.content-y = clamp(Theme.space-s - self.pinned-y, min(0px, self.visible-height - self.content-height), 0px);
-                            self.follow = self.at-end();
-                        }
-                        function go-to-pinned() {
-                            self.seeking = true;
-                            self.follow = false;
-                            settled-timer.running = true;
-                            if self.pinned-known {
-                                self.show-pinned();
-                                return;
-                            }
-                            // Where the list puts its row, by the rows' average height: built
-                            // there, the row says where it is, and the view moves to it then.
-                            self.content-y = clamp(-self.content-height * Transcript.pinned-row / max(1, Transcript.entries.length), min(0px, self.visible-height - self.content-height), 0px);
-                        }
                         // The rows shown, each taking room: a folded run's later calls aren't
                         // in the list (see `View::new`).
                         for entry[position] in Transcript.entries: HorizontalLayout {
-                            property <bool> pinned: entry.index == Transcript.pinned-index;
-                            init => {
-                                if self.pinned {
-                                    transcript.place-pinned(self.y, self.height);
-                                }
-                            }
-                            changed pinned => {
-                                if self.pinned {
-                                    transcript.place-pinned(self.y, self.height);
-                                }
-                            }
-                            changed y => {
-                                if self.pinned {
-                                    transcript.place-pinned(self.y, self.height);
-                                }
-                            }
-                            changed height => {
-                                if self.pinned {
-                                    transcript.place-pinned(self.y, self.height);
-                                }
-                            }
                             alignment: center;
                             padding-top: position == 0 ? Theme.space-xl : Theme.space-s;
                             padding-bottom: position == Transcript.entries.length - 1 ? Theme.space-xl : Theme.space-s;
@@ -2618,85 +2425,6 @@ export component AppWindow inherits Window {
                                 entry: entry;
                                 index: entry.index;
                             }
-                        }
-                    }
-                    // Moves to the pinned message's row as it is built or moved, after the pass
-                    // that did it: moving within it would make the list build rows again.
-                    seek-timer := Timer {
-                        interval: 1ms;
-                        running: false;
-                        triggered => {
-                            self.running = false;
-                            if transcript.seeking && transcript.pinned-known {
-                                transcript.show-pinned();
-                            }
-                        }
-                    }
-                    // The rows have settled, or the row wasn't built where the list was moved:
-                    // the view stays where it is.
-                    settled-timer := Timer {
-                        interval: 500ms;
-                        running: false;
-                        triggered => {
-                            self.running = false;
-                            transcript.seeking = false;
-                        }
-                    }
-                    // The newest of the user's messages, while it is out of view: the
-                    // conversation goes on under it, and a click goes back to it.
-                    if transcript.pinned-away: Rectangle {
-                        x: 0;
-                        y: 0;
-                        width: parent.width;
-                        height: pinned-line.preferred-height + 1px;
-                        background: Theme.surface;
-                        Pressable {
-                            height: pinned-line.preferred-height;
-                            y: 0;
-                            border-radius: 0;
-                            accessible-label: "Go to your last message";
-                            accessible-description: Transcript.pinned-text;
-                            clicked => { transcript.go-to-pinned(); }
-                            pinned-line := HorizontalLayout {
-                                alignment: center;
-                                padding-top: Theme.space-xs;
-                                padding-bottom: Theme.space-xs;
-                                HorizontalLayout {
-                                    width: transcript.visible-width - 2 * Theme.column-margin;
-                                    alignment: end;
-                                    Rectangle {
-                                        max-width: parent.width * 0.85;
-                                        border-radius: Theme.bubble-radius;
-                                        background: Theme.bubble;
-                                        HorizontalLayout {
-                                            padding-left: Theme.space-l;
-                                            padding-right: Theme.space-l;
-                                            padding-top: Theme.space-xs;
-                                            padding-bottom: Theme.space-xs;
-                                            spacing: Theme.space-s;
-                                            Icon {
-                                                source: @image-url("@lucide/corner-left-up.svg");
-                                                tint: Theme.text-tertiary;
-                                                width: Theme.icon-small;
-                                                y: (parent.height - self.height) / 2;
-                                            }
-                                            Text {
-                                                text: Transcript.pinned-text;
-                                                color: Theme.text-secondary;
-                                                vertical-alignment: center;
-                                                overflow: elide;
-                                                min-width: 0px;
-                                                accessible-role: none;
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                        Rectangle {
-                            y: parent.height - 1px;
-                            height: 1px;
-                            background: Theme.divider;
                         }
                     }
                     // A wheel turn animates the scroll, and `scrolled` comes at its start: look
@@ -2898,29 +2626,24 @@ export component AppWindow inherits Window {
                 // What Claude asks and the commands matching the draft, in the transcript's
                 // column above the composer. Placed (`x`), so that their width, taken from the
                 // space there is, doesn't size that space in turn.
-                if Prompt.kind != PromptKind.none || Composer.commands.length > 0 || Session.watching || Session.needs-trust || Session.shows-sign-in || Sessions.choosing-sign-in != "": Rectangle {
+                if Prompt.kind != PromptKind.none || Composer.commands.length > 0 || Session.watching || Session.needs-trust || Session.shows-sign-in: Rectangle {
                     height: dock.preferred-height;
-                    // Centred, as wide as the conversation's column; Claude's questions take the
-                    // whole width, where their options have room.
+                    // Centred, as wide as the conversation's column.
                     dock := VerticalLayout {
                         x: (parent.width - self.width) / 2;
                         y: 0;
-                        width: Prompt.kind == PromptKind.question
-                            ? parent.width - 2 * Theme.space-m
-                            : min(parent.width - 2 * Theme.column-margin, Theme.measure);
+                        width: min(parent.width - 2 * Theme.column-margin, Theme.measure);
                         height: self.preferred-height;
                         padding-bottom: Theme.space-s;
                         spacing: Theme.space-s;
-                        // At most half the window, so the conversation stays in view; questions
-                        // take up to three quarters.
+                        // At most half the window: the conversation stays in view.
                         if Prompt.kind != PromptKind.none: PromptBar {
-                            tallest: Prompt.kind == PromptKind.question ? root.questions-tallest : root.prompt-tallest;
+                            tallest: root.prompt-tallest;
                         }
                         if Composer.commands.length > 0: CommandList { }
                         if Session.watching: WatchBar { }
                         if Session.needs-trust && !Session.watching: TrustBar { }
                         if Session.shows-sign-in && !Session.watching: SignInBar { }
-                        if Sessions.choosing-sign-in != "": SignInChoiceBar { }
                     }
                 }
                 // The text box, edge to edge (see `EditArea`); a watched session is only read, and

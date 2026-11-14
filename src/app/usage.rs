@@ -40,12 +40,8 @@ impl App {
     }
 
     pub(super) fn usage_answered(&mut self, outcome: Result<Value, String>) {
-        let report = self.usage_answer::<UsageReport>(outcome);
-        if let Some(report) = &report {
-            self.take_plan_limits(report);
-        }
-        self.limits_reported(report.as_ref());
-        if let Some(report) = report {
+        if let Some(report) = self.usage_answer::<UsageReport>(outcome) {
+            self.take_plan_limits(&report);
             self.usage.report = Some(report);
         }
     }
