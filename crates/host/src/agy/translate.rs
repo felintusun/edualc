@@ -896,6 +896,22 @@ impl Translator {
             || as_claude_tool(&asked.tool_call),
             |shown| (shown.name.clone(), shown.input.clone()),
         );
+        // agy asks before every MCP tool, in every mode. edualc's own go without asking, as a
+        // Claude Code session's messages do.
+        if name == CLAUDE_SEND || name == CLAUDE_LIST {
+            let outcome = asked
+                .options
+                .iter()
+                .find(|option| option.kind == OptionKind::AllowOnce)
+                .map_or_else(
+                    || json!({"outcome": "cancelled"}),
+                    |option| json!({"outcome": "selected", "optionId": option.option_id}),
+                );
+            effects.push(Effect::ToAgy(
+                json!({"jsonrpc": "2.0", "id": id, "result": {"outcome": outcome}}),
+            ));
+            return effects;
+        }
         let request = self.local_id("permission");
         self.permissions.insert(
             request.clone(),
@@ -1345,6 +1361,29 @@ mod tests {
         let result = window.last().expect("the result");
         assert_eq!(result.get("result"), Some(&json!("Let me count.Three.")));
         assert_eq!(result.get("is_error"), Some(&json!(false)));
+    }
+
+    /// agy asks before edualc's own messaging tools too: the adapter allows them, and the
+    /// window isn't asked.
+    #[test]
+    fn edualcs_own_tools_go_without_asking() {
+        let mut translator = opened();
+        translator.window_said(r#"{"type":"user","message":{"role":"user","content":"go"}}"#);
+        let asked = translator.agy_said(
+            r#"{"jsonrpc":"2.0","method":"session/request_permission","params":{"sessionId":"s","toolCall":{"toolCallId":"c3","name":"mcp_edualc_list_sessions","kind":"other","status":"pending","title":"list_sessions","rawInput":{}},"options":[{"optionId":"allow","name":"Allow","kind":"allow_once"},{"optionId":"deny","name":"Deny","kind":"reject_once"}]},"id":"8"}"#,
+        );
+        assert!(
+            window_lines(&asked)
+                .iter()
+                .all(|line| line.get("type") != Some(&json!("control_request"))),
+            "the window wasn't asked"
+        );
+        assert_eq!(
+            agy_lines(&asked)
+                .first()
+                .and_then(|line| line.pointer("/result/outcome/optionId")),
+            Some(&json!("allow"))
+        );
     }
 
     /// agy's permission request is asked in the window; the answer picks agy's option, and a
