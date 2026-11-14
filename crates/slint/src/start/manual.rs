@@ -86,7 +86,7 @@ fn manual() -> String {
     entry(
         &mut roff,
         "$XDG_STATE_HOME/edualc/",
-        "Transcripts (agy/) and data folders (agy-homes/) of agy sessions, and folders left by the sandbox of earlier versions (~/.local/state if unset).",
+        "Transcripts of agy sessions (agy/), and folders left by the sandbox and agy's data folders (agy-homes/) of earlier versions (~/.local/state if unset).",
     );
     entry(
         &mut roff,

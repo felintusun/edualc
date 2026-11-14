@@ -96,7 +96,7 @@ In `crates/host/src`:
 |---|---|
 | `daemon.rs`, `spawn.rs` | the daemon's actors, starting `claude` or agy's adapter, and acting on the desktop |
 | `files.rs` | what the daemon reads and watches for windows (with inotify), and saving the settings |
-| `agy.rs`, `agy/` | an agy session: the adapter (`edualcd --agy-adapter`) that speaks the Agent Client Protocol to `agy acp` and Claude Code's stream-json to the daemon; agy's data folder per project; its inbox; the messages it sends to other sessions |
+| `agy.rs`, `agy/` | an agy session: the adapter (`edualcd --agy-adapter`) that speaks the Agent Client Protocol to `agy acp` and Claude Code's stream-json to the daemon; its inbox; the messages it sends to other sessions |
 | `bin/edualcd.rs` | the daemon's program |
 
 In `crates/slint/src`:
