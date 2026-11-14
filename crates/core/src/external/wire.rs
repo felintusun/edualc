@@ -136,7 +136,7 @@ pub enum ToolName {
     /// Claude Code's own message to another session, by name or by its inbox's address, or to
     /// one of its subagents.
     SendMessage,
-    /// edualc's messaging tool, as an agy session calls it (see `agy::outbox`).
+    /// edualc's messaging tool, as an agy session calls it.
     #[strum(serialize = "mcp__edualc__send_message")]
     EdualcSendMessage,
     #[strum(default)]

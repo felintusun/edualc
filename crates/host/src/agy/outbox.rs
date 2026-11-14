@@ -1,7 +1,8 @@
-//! What an agy session sends to other sessions with edualc's messaging tool (see `tool`): a
-//! message posted into the recipient's inbox as Claude Code's own sessions post one, in its
-//! envelope, which names the session and the inbox to answer at; and the list of the sessions
-//! running. Read off the records Claude Code keeps in `~/.claude/sessions` (see `inbox`).
+//! What an agy session sends to other sessions with edualc's messaging tool (see
+//! [`super::tool`]): a message posted into the recipient's inbox as Claude Code's own sessions post
+//! one, in its envelope, which names the session and the inbox to answer at; and the list of the
+//! sessions running. Read off the records Claude Code keeps in `~/.claude/sessions` (see
+//! [`super::inbox`]).
 
 use std::ffi::OsStr;
 use std::io::{Read as _, Write as _};

@@ -1,7 +1,7 @@
 //! The browser demo's daemon: Claude Code, played by a script. It takes what the window sends,
 //! as the daemon on Linux does, and answers as `claude -p` would in stream-json, from a
-//! scenario a word in the prompt picks (see `scenarios`), with pauses so the window shows the
-//! answer come. Nothing leaves the page.
+//! scenario a word in the prompt picks (see [`super::scenarios`]), with pauses so the window
+//! shows the answer come. Nothing leaves the page.
 
 use std::collections::HashMap;
 use std::path::Path;

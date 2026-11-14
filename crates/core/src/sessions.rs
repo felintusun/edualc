@@ -21,8 +21,8 @@ use crate::external::wire::{
 use crate::process;
 
 /// A session's two words, an adjective and a noun picked by its id, so the same each time it
-/// runs: edualc names a session's process by them (see `spawn`), and Claude Code keeps that name
-/// as the session's custom title too, which is a name then, not a title.
+/// runs: edualcd names a session's process by them, and Claude Code keeps that name as the
+/// session's custom title too, which is a name then, not a title.
 #[derive(Debug, Clone, PartialEq, Eq, derive_more::Display)]
 pub struct PetName(String);
 
@@ -271,7 +271,7 @@ fn project_dir(cwd: &Path) -> PathBuf {
 }
 
 /// The folders a project's transcripts are in: the user's own home's, and edualc's for agy's
-/// sessions (see `agy`).
+/// sessions, which edualcd's agy adapter writes.
 fn project_dirs(cwd: &Path) -> Vec<PathBuf> {
     let name = project_name(cwd);
     all_projects_dirs()

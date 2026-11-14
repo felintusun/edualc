@@ -1,6 +1,6 @@
 //! One Claude Code session's process, spoken to in the stream-json format the Agent SDKs use:
 //! user messages and control requests go in, messages, stream events and permission requests
-//! come out, one JSON object per line. The daemon runs the process (see `daemon`); this is the
+//! come out, one JSON object per line. The daemon (edualcd) runs the process; this is the
 //! window's handle on it, and what its lines mean.
 
 use std::path::PathBuf;
@@ -59,8 +59,8 @@ pub enum Error {
     Lost,
 }
 
-/// The program a session talks to: Claude Code, or Google's Antigravity CLI, which edualc's
-/// adapter (see `agy`) speaks to over the Agent Client Protocol and translates for the window.
+/// The program a session talks to: Claude Code, or Google's Antigravity CLI. edualcd's agy
+/// adapter speaks to agy over the Agent Client Protocol and translates for the window.
 #[derive(
     Debug,
     Clone,
@@ -279,7 +279,8 @@ impl Claude {
     }
 
     /// A prompt, after the rows of the `!` commands run since the last (see
-    /// [`Input::prompt_with`]), with images as the confined helper encoded them (see `decode`).
+    /// [`Input::prompt_with`]), with images as the confined helper encoded them (see
+    /// [`crate::decode`]).
     pub fn prompt(&self, shell: &[String], images: &[Picture], text: &str) -> Result<(), Error> {
         let blocks = images
             .iter()

@@ -10,8 +10,8 @@
 //! [`Progress`] keeps a streaming block's coloured lines and the parser's state after them, so
 //! each update colours only the new lines.
 //!
-//! The conversation's code is coloured by a [`Colourer`] on its own thread (see `colouring`);
-//! the UI thread parses the Markdown it returns.
+//! The conversation's code is coloured by a [`Colourer`] on its own thread (see
+//! [`crate::colouring`]); the UI thread parses the Markdown it returns.
 
 use std::collections::HashMap;
 use std::str::FromStr;

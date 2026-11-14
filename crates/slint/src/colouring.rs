@@ -1,5 +1,6 @@
-//! Colours the conversation's code on its own thread (see `highlight`) and sends each block back
-//! as [`Event::CodeColoured`]. Of several queued asks for one block, only the last is coloured.
+//! Colours the conversation's code on its own thread (see [`crate::highlight`]) and sends each
+//! block back as [`Event::CodeColoured`]. Of several queued asks for one block, only the last is
+//! coloured.
 
 use std::collections::HashMap;
 use std::sync::mpsc;

@@ -1,6 +1,6 @@
-//! The Slint window as a frontend (see `present`): the presentation model made Slint's types
-//! and set into the window's globals, only what changed, list models changed row by row so a
-//! row that stays keeps its selection; and the window's callbacks, which become the app's
+//! The Slint window as a frontend (see [`crate::present`]): the presentation model made Slint's
+//! types and set into the window's globals, only what changed, list models changed row by row so
+//! a row that stays keeps its selection; and the window's callbacks, which become the app's
 //! actions (`wire`).
 
 use std::collections::{HashMap, HashSet};
@@ -30,7 +30,8 @@ pub(crate) struct Drawing {
     images: HashMap<ImageKey, slint::Image>,
     highlighter: Highlighter,
     /// The conversation's code is left plain as its blocks are made, and coloured on a thread of
-    /// its own (see `colouring`); other code (the side panel's, a plan's) is coloured here.
+    /// its own (see [`crate::colouring`]); other code (the side panel's, a plan's) is coloured
+    /// here.
     code_later: bool,
 }
 

@@ -1,6 +1,6 @@
 //! The Anthropic API key Claude Code sessions may sign in with: stored in and removed from the
-//! desktop's keyring through the daemon, which alone reads it back (see `keyring`). The window
-//! only knows whether one is kept.
+//! desktop's keyring through the daemon (edualcd's `keyring`), which alone reads it back. The
+//! window only knows whether one is kept.
 
 use super::{Acting, ApiKeyKept, App};
 use crate::ipc::{Act, ActFailure, ApiKey, ToDaemon};

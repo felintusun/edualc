@@ -1,7 +1,7 @@
-//! The conversation's images, decoded for showing by the confined helper (see `decode`), which
-//! the window starts itself: an image's bytes go to it from here, not through the daemon. One
-//! is decoded at a time, on a thread of its own, so a conversation of many images doesn't run
-//! many helpers at once.
+//! The conversation's images, decoded for showing by the confined helper (see
+//! [`crate::decode`]), which the window starts itself: an image's bytes go to it from here, not
+//! through the daemon. One is decoded at a time, on a thread of its own, so a conversation of
+//! many images doesn't run many helpers at once.
 
 use std::collections::HashSet;
 use std::sync::mpsc;

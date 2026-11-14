@@ -41,6 +41,12 @@ clap_mangen = "0.3"
 [workspace.lints.rust]
 unsafe_code = "deny"
 
+# Doc links must resolve. The docs are built with private items (`just doc`), since these crates
+# exist for this workspace alone, so a public item's doc may link to a private one.
+[workspace.lints.rustdoc]
+broken_intra_doc_links = "deny"
+private_intra_doc_links = "allow"
+
 # Errors are not swallowed, casts don't lose, matches name every variant. Shared mutable state is refused in clippy.toml.
 [workspace.lints.clippy]
 map_err_ignore = "deny"

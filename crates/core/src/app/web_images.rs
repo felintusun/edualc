@@ -1,6 +1,6 @@
 //! The conversation's images, in the browser demo: decoded in the page as they are asked for.
-//! The page is the sandbox the confined helper is on Linux (see `decode`), and has no threads
-//! to decode on beside it.
+//! The page is the sandbox the confined helper is on Linux (see [`crate::decode`]), and has no
+//! threads to decode on beside it.
 
 use std::collections::HashSet;
 

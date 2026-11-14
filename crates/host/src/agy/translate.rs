@@ -1,6 +1,6 @@
 //! The adapter's core (sans-io): agy's Agent Client Protocol on one side, Claude Code's
 //! stream-json on the other, as the window and the daemon read it. Each line read in says what
-//! to write where; the adapter's loop (see `agy`) does it.
+//! to write where; the adapter's loop (see [`crate::agy`]) does it.
 //!
 //! A turn of agy's becomes what a turn of Claude Code's looks like: an `init`, streamed text
 //! and thinking (`stream_event`s), an assistant message for each stretch of it with the tool
@@ -30,7 +30,7 @@ const CLAUDE_SEND: &str = "mcp__edualc__send_message";
 /// edualc's tool listing the sessions, as agy and as Claude Code name it.
 const AGY_LIST: &str = "mcp_edualc_list_sessions";
 const CLAUDE_LIST: &str = "mcp__edualc__list_sessions";
-/// The envelope a message from another session comes in (see `outbox`).
+/// The envelope a message from another session comes in (see [`super::outbox`]).
 const ENVELOPE_OPEN: &str = "<cross-session-message";
 const ENVELOPE_CLOSE: &str = "</cross-session-message>";
 
@@ -63,7 +63,7 @@ pub enum Effect {
     ToWindow(Value),
     /// A line for the transcript.
     Transcript(Value),
-    /// A message: carry it out (see `outbox`) and answer the call.
+    /// A message: carry it out (see [`super::outbox`]) and answer the call.
     Send {
         call: CallId,
         to: String,
@@ -1162,7 +1162,8 @@ fn result_text(call: &ToolCall, failed: bool) -> String {
     parts.join("\n")
 }
 
-/// The sender's name and the text of a message in another session's envelope (see `outbox`);
+/// The sender's name and the text of a message in another session's envelope (see
+/// [`super::outbox`]);
 /// no name, and all of it, for one without.
 fn unwrapped(content: &str) -> (Option<String>, String) {
     let Some(rest) = content.strip_prefix(ENVELOPE_OPEN) else {

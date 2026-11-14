@@ -80,7 +80,7 @@ pub struct Presenter<F: Frontend> {
     reviewing: Option<bool>,
     /// The conversation's images, as far as they are decoded; one not here is still decoded.
     images: HashMap<ImageKey, ShownImage>,
-    /// The language text with Han characters alone is set in (see `cjk`).
+    /// The language text with Han characters alone is set in (see [`crate::cjk`]).
     han: CjkLanguage,
 }
 
@@ -940,7 +940,7 @@ impl<F: Frontend> Presenter<F> {
         self.prompt_shown = Some(ask.request.clone());
     }
 
-    /// The session list (see `sidebar`); `filtered` says why it may be empty.
+    /// The session list (see [`crate::sidebar`]); `filtered` says why it may be empty.
     pub fn render_sidebar(&mut self, rows: &[sidebar::Row], filtered: bool) {
         let items: Vec<SessionRow> = rows.iter().map(session_row).collect();
         let empty = match (items.is_empty(), filtered) {
@@ -995,7 +995,7 @@ impl<F: Frontend> Presenter<F> {
     }
 }
 
-/// A text's CJK characters (see `cjk`), for the window to set the text by them.
+/// A text's CJK characters (see [`crate::cjk`]), for the window to set the text by them.
 fn cjk(text: &str, han: CjkLanguage) -> CjkChars {
     CjkText::of(text, han).map_or_else(CjkChars::default, |cjk| CjkChars {
         language: match cjk.language {

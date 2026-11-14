@@ -1,13 +1,14 @@
 //! An agy session: Google's Antigravity CLI (`agy`), spoken to over the Agent Client Protocol,
 //! and shown in the window as a Claude Code session. The daemon starts this adapter
-//! (`edualc --agy-adapter`) in place of `claude`; it speaks stream-json on its stdio as `claude`
-//! does, so the daemon and the window need nothing of their own for it (see `translate`).
+//! (`edualcd --agy-adapter`) in place of `claude`; it speaks stream-json on its stdio as `claude`
+//! does, so the daemon and the window need nothing of their own for it (see [`translate`]).
 //!
-//! agy runs as it would in a terminal, with its data in the user's `~/.gemini`. The adapter, the daemon's child, serves the session's inbox and publishes its record (see
-//! `inbox`), so other sessions message it as they message each other, and carries the messages
-//! agy sends with edualc's tool (see `tool`, `outbox`). It keeps the session's transcript, in Claude
-//! Code's format, under edualc's state folder (see `sessions::agy_projects`), for the session
-//! to be listed and continued: agy's own history is a database of its own.
+//! agy runs as it would in a terminal, with its data in the user's `~/.gemini`. The adapter, the
+//! daemon's child, serves the session's inbox and publishes its record (see [`inbox`]), so other
+//! sessions message it as they message each other, and carries the messages agy sends with
+//! edualc's tool (see [`tool`] and [`outbox`]). It keeps the session's transcript, in Claude
+//! Code's format, under edualc's state folder (see [`crate::sessions::agy_projects`]), for the
+//! session to be listed and continued: agy's own history is a database of its own.
 
 mod inbox;
 mod outbox;
@@ -96,7 +97,7 @@ pub fn run_adapter() -> std::process::ExitCode {
     }
 }
 
-/// Runs the messaging tool agy starts (see `tool`).
+/// Runs the messaging tool agy starts (see [`tool`]).
 pub fn run_tool() -> std::process::ExitCode {
     tool::run()
 }
@@ -444,7 +445,7 @@ impl Out {
         }
     }
 
-    /// A call of edualc's tool, carried out (see `outbox::carry_out`).
+    /// A call of edualc's tool, carried out (see [`outbox::carry_out`]).
     async fn carried(&self, job: Job) -> tool::Answer {
         let sender = self.name.clone();
         let carried = tokio::task::spawn_blocking(move || {

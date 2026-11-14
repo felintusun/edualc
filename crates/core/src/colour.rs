@@ -1,8 +1,8 @@
 //! Code in colour, as a window that draws it is asked and told: a block to colour, and the same
 //! block coloured. A window that colours code (the Slint window does, on a thread of its own)
 //! makes `Job`s of the conversation's code blocks, and the app hands it back what is coloured as
-//! the `Event::CodeColoured` it comes as (see `Frontend::code_coloured`); the colouring itself is
-//! the window's.
+//! the `Event::CodeColoured` it comes as (see [`crate::present::Frontend::code_coloured`]); the
+//! colouring itself is the window's.
 
 /// Where a conversation's code block is: its entry, and its place among the entry's blocks.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

@@ -16,12 +16,17 @@ check: fmt-check lint lint-wasm test deny audit workflows packaging-check images
 fmt-check:
     cargo fmt --check
 
-# ast-grep's rules and their tests, and clippy.
+# ast-grep's rules and their tests, clippy, and the docs' links.
 [group('check')]
-lint:
+lint: && doc
     ast-grep test
     ast-grep scan
     cargo clippy --locked --all-targets -- -D warnings
+
+# The docs, private items included; a link that doesn't resolve fails (see Cargo.toml's lints).
+[group('check')]
+doc:
+    cargo doc --locked --workspace --no-deps --document-private-items
 
 # Clippy on the browser demo's build, where what only the daemon calls is unused.
 [group('check')]

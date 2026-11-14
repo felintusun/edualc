@@ -180,7 +180,8 @@ pub enum Event {
         key: ImageKey,
         shown: Result<Pixels, images::ShowError>,
     },
-    /// A code block of the conversation, coloured by the window that colours it (see `colour`).
+    /// A code block of the conversation, coloured by the window that colours it (see
+    /// [`crate::colour`]).
     CodeColoured(crate::colour::Coloured),
     /// The daemon is gone, and the sessions it ran for this window.
     DaemonLost,
@@ -202,7 +203,7 @@ pub enum Event {
     Listen,
     /// Every second while a command is followed: what it printed since.
     PollOutput,
-    /// A usage limit of the plan started over (see `limits`).
+    /// A usage limit of the plan started over (see [`limits`]).
     LimitReset,
     /// Whether the keyring keeps an Anthropic API key, or why that couldn't be told.
     ApiKeyStored(Result<bool, ActFailure>),
@@ -1030,11 +1031,11 @@ pub struct App<F: Frontend> {
     acting: HashMap<ActId, Acting>,
     last_act: ActId,
     tick: Repeat,
-    /// Runs while a turn is under way (see `Event::Listen`).
+    /// Runs while a turn is under way (see [`Event::Listen`]).
     listen: Repeat,
-    /// Runs while a command's output is followed (see `Event::PollOutput`).
+    /// Runs while a command's output is followed (see [`Event::PollOutput`]).
     polling: Repeat,
-    /// Set for the next time a usage limit starts over (see `Event::LimitReset`); stopped as it
+    /// Set for the next time a usage limit starts over (see [`Event::LimitReset`]); stopped as it
     /// fires.
     limit_reset: Repeat,
     /// When the process last said something.
@@ -2264,8 +2265,8 @@ impl<F: Frontend> App<F> {
         self.read_on();
     }
 
-    /// Looks every little while whether Claude Code has gone quiet (see `listen`), from a turn's
-    /// start on; what it said last counts from now.
+    /// Looks every little while whether Claude Code has gone quiet (see [`Self::listen`]), from a
+    /// turn's start on; what it said last counts from now.
     fn start_listening(&mut self) {
         self.heard = web_time::Instant::now();
         if self.listen.running() {
@@ -2713,7 +2714,7 @@ impl<F: Frontend> App<F> {
     }
 
     /// A prompt sent before the process could start: shown in the composer, and sent once the
-    /// folder is found trusted in the terminal (see `TrustGate::hold`).
+    /// folder is found trusted in the terminal (see [`TrustGate::hold`]).
     fn wait_for_trust(&mut self, text: &str) {
         self.put_draft(text);
         self.trust_gate.hold(text);

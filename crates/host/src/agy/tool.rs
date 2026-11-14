@@ -1,6 +1,7 @@
 //! edualc's messaging tool as agy gets it: an MCP server on stdio (`edualc --agy-tool SOCKET`),
 //! which agy starts, with `send_message` and `list_sessions`. It decides
-//! nothing: each call goes to the adapter over the socket, which carries it out (see `outbox`).
+//! nothing: each call goes to the adapter over the socket, which carries it out (see
+//! [`super::outbox`]).
 
 use std::io::{BufRead as _, BufReader, Write as _};
 use std::os::unix::net::UnixStream;

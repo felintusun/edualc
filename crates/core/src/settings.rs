@@ -13,7 +13,7 @@ pub struct Settings {
     /// The text size relative to the desktop's, in percent.
     #[serde(default = "Settings::full_size")]
     pub zoom_percent: u16,
-    /// Trusted here (see `trust`), with what is under them.
+    /// Trusted here (see [`crate::trust`]), with what is under them.
     #[serde(default)]
     pub trusted_folders: Vec<PathBuf>,
     /// The composer's height as dragged, in logical pixels; fitted to its text if none.
@@ -29,7 +29,7 @@ pub struct Settings {
     /// The key that sends what is written in the composer.
     #[serde(default)]
     pub send_with: SendKey,
-    /// The language of text with Han characters alone (see `cjk`); none for the desktop's,
+    /// The language of text with Han characters alone (see [`crate::cjk`]); none for the desktop's,
     /// or Japanese if that isn't a CJK one.
     #[serde(default)]
     pub han_text: Option<CjkLanguage>,

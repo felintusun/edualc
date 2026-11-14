@@ -1,5 +1,5 @@
 //! The Agent Client Protocol (agentclientprotocol.com) as `agy acp` speaks it (agy 1.5.6):
-//! JSON-RPC 2.0, one message per line on stdio. Only what edualc's adapter (see `agy`) reads;
+//! JSON-RPC 2.0, one message per line on stdio. Only what edualcd's agy adapter reads;
 //! what it sends it writes itself. agy adds keys of its own (a tool call's `name` and its
 //! arguments by agy's names), read where they say more than the protocol's.
 

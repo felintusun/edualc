@@ -141,7 +141,7 @@ pub fn spawn(launch: &Launch, runtime: &tokio::runtime::Handle) -> Result<Spawne
     })
 }
 
-/// An agy session: edualc's own adapter (see `agy`), which runs `agy acp` and speaks
+/// An agy session: edualc's own adapter (see [`crate::agy`]), which runs `agy acp` and speaks
 /// stream-json to the daemon as `claude` does, serves the session's inbox, publishes its record
 /// and carries its messages.
 fn spawn_agy(
@@ -176,7 +176,7 @@ fn spawn_agy(
     })
 }
 
-/// A model's name or alias as the CLI takes them ("opus", "claude-sonnet-5-5[1m]"): nothing
+/// A model's name or alias as the CLI takes them (`opus`, `claude-sonnet-5-5[1m]`): nothing
 /// that could be read as more than that.
 fn model_name(model: &str) -> Result<&str, Error> {
     let fits = !model.is_empty()

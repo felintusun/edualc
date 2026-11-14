@@ -414,12 +414,14 @@ pub enum FromDaemon {
     },
 }
 
-/// The clipboard's image, decoded in the confined helper (see `decode`), or why there is none.
+/// The clipboard's image, decoded in the confined helper (see [`crate::decode`]), or why there
+/// is none.
 pub type Pasted = Result<Picture, PasteFailure>;
 
 /// Something a folder's own configuration (`.claude/settings.json`, `settings.local.json`,
 /// `.mcp.json`) would have Claude Code run or set there, read before the folder is trusted, for
-/// the user to decide on. Plain text, cut short, without control characters (see `trust`).
+/// the user to decide on. Plain text, cut short, without control characters (see
+/// [`crate::trust`]).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub enum Runs {
@@ -612,7 +614,7 @@ pub enum Act {
     /// The clipboard's image, if it holds one; answered by `Pasted`.
     PasteImage,
     /// Whether the terminal's trust dialog was accepted for the folder, or one it is in, which
-    /// the window can't read (see `trust`); answered by `Trusted`.
+    /// the window can't read (see [`crate::trust`]); answered by [`FromDaemon::Trusted`].
     CheckTrust {
         folder: PathBuf,
     },
