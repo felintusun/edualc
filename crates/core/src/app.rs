@@ -2189,6 +2189,10 @@ impl<F: Frontend> App<F> {
             .clone()
             .unwrap_or_else(|| session.name.clone());
         self.reset_session(Some(session.id.clone()), Some(title));
+        // Another Claude Code process, signed in as the user is: the footer names it so at
+        // once, not at the next prompt.
+        self.status.backend = claude::Backend::Claude;
+        self.status.sign_in_with = claude::SignInWith::Account;
         self.load_session(session.id.clone(), session.cwd.clone());
         self.forget_watch();
         self.watch = Some(Watch {

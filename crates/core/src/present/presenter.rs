@@ -649,16 +649,19 @@ impl<F: Frontend> Presenter<F> {
             String::new()
         };
         session.cost = cost;
-        // Unknown shows as nothing (less than 0), not as an empty bar.
+        // Unknown shows as nothing (less than 0), not as an empty bar. The limits are Claude's
+        // plan's: an agy session shows none, not Claude's under agy's name.
+        let claude = status.backend == crate::claude::Backend::Claude;
+        let limit = |limit: Option<LimitUse>| limit.filter(|_| claude);
         let used = |limit: Option<LimitUse>| limit.map_or(-1.0, |limit| limit.used);
         let resets = |limit: Option<LimitUse>| {
             limit
                 .and_then(|limit| limit.resets_at)
                 .map_or_else(String::new, |at| reset_text(at, false))
         };
-        session.limit_five_hour = used(status.limits.five_hour);
-        session.limit_five_hour_resets = resets(status.limits.five_hour);
-        session.limit_seven_day = used(status.limits.seven_day);
+        session.limit_five_hour = used(limit(status.limits.five_hour));
+        session.limit_five_hour_resets = resets(limit(status.limits.five_hour));
+        session.limit_seven_day = used(limit(status.limits.seven_day));
         let account = &status.account;
         session.email = account.email.as_str().into();
         session.organization = account.organization.as_str().into();
