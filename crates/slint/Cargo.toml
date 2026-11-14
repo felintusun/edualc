@@ -15,7 +15,6 @@ path = "src/main.rs"
 [dependencies]
 edualc-core.workspace = true
 async-channel.workspace = true
-serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 tracing.workspace = true

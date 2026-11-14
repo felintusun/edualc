@@ -1294,7 +1294,6 @@ dependencies = [
  "edualc-core",
  "lucide-static-svg",
  "proptest",
- "serde",
  "serde_json",
  "slint",
  "slint-build",
@@ -1344,8 +1343,6 @@ dependencies = [
 name = "edualc-host"
 version = "0.1.0"
 dependencies = [
- "async-channel",
- "base64",
  "clap",
  "dirs",
  "edualc-core",
@@ -1354,13 +1351,11 @@ dependencies = [
  "oo7",
  "open",
  "postcard",
- "proptest",
  "rfd",
  "rustix 1.1.6",
  "serde",
  "serde_json",
  "sha2",
- "strum",
  "subtle",
  "thiserror 2.0.21",
  "tokio",

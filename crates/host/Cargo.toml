@@ -9,7 +9,6 @@ publish.workspace = true
 
 [dependencies]
 edualc-core.workspace = true
-async-channel.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
@@ -29,8 +28,6 @@ getrandom = { version = "0.4", features = ["std"] }
 subtle = "2.6"
 # An agy session's adapter's command line.
 clap.workspace = true
-base64 = "0.23"
-strum = { version = "0.28", features = ["derive"] }
 # Opens links in the browser.
 open = "5"
 # The desktop's own folder picker, through its portal on Linux.
@@ -39,9 +36,6 @@ tracing-subscriber.workspace = true
 # The Anthropic API key, kept in the desktop's keyring (the Secret Service) rather than a file;
 # its D-Bus (zbus) is already built for a dependency.
 oo7 = { version = "0.7", default-features = false, features = ["tokio", "native_crypto"] }
-
-[dev-dependencies]
-proptest.workspace = true
 
 [lints]
 workspace = true
