@@ -24,21 +24,21 @@ jiff = { version = "0.2.38", features = ["serde"] }
 zeroize = "1.9"
 # An agy session's inbox (see `agy`), as Claude Code's own: its key file is named by the SHA-256
 # of the inbox's path, its token is random, and a peer's token is compared in constant time.
-sha2 = "0.10"
-getrandom = { version = "0.3", features = ["std"] }
+sha2 = "0.11"
+getrandom = { version = "0.4", features = ["std"] }
 subtle = "2.6"
 # An agy session's adapter's command line.
 clap.workspace = true
 base64 = "0.23"
-strum = { version = "0.27", features = ["derive"] }
+strum = { version = "0.28", features = ["derive"] }
 # Opens links in the browser.
 open = "5"
 # The desktop's own folder picker, through its portal on Linux.
-rfd = "0.17"
+rfd = "0.18"
 tracing-subscriber.workspace = true
 # The Anthropic API key, kept in the desktop's keyring (the Secret Service) rather than a file;
 # its D-Bus (zbus) is already built for a dependency.
-oo7 = { version = "0.6", default-features = false, features = ["tokio", "native_crypto"] }
+oo7 = { version = "0.7", default-features = false, features = ["tokio", "native_crypto"] }
 
 [dev-dependencies]
 proptest.workspace = true

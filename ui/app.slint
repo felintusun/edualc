@@ -1812,7 +1812,7 @@ component EditArea inherits Rectangle {
                 icon: root.mode == PermissionKind.accept-edits ? @image-url("@lucide/file-pen-line.svg")
                     : root.mode == PermissionKind.plan ? @image-url("@lucide/map.svg")
                     : root.mode == PermissionKind.auto ? @image-url("@lucide/zap.svg")
-                    : root.mode == PermissionKind.bypass ? @image-url("@lucide/shield-alert.svg")
+                    : root.mode == PermissionKind.bypass ? @image-url("@lucide/shield-exclamation-point.svg")
                     : root.mode == PermissionKind.unknown ? @image-url("@lucide/shield-question-mark.svg")
                     : @image-url("@lucide/shield-check.svg");
                 tint: root.mode == PermissionKind.accept-edits ? Theme.warning-text
@@ -2058,7 +2058,7 @@ component TrustBar inherits Rectangle {
         HorizontalLayout {
             spacing: Theme.space-s;
             Icon {
-                source: @image-url("@lucide/shield-alert.svg");
+                source: @image-url("@lucide/shield-exclamation-point.svg");
                 tint: Theme.warning-text;
                 y: (parent.height - self.height) / 2;
             }

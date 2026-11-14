@@ -28,7 +28,7 @@ pulldown-cmark = { version = "0.13", default-features = false }
 similar = "3"
 dirs.workspace = true
 thiserror.workspace = true
-strum = { version = "0.27", features = ["derive"] }
+strum = { version = "0.28", features = ["derive"] }
 tracing.workspace = true
 jiff = { version = "0.2.38", features = ["serde"] }
 # `Instant`, which is std's on Linux and the page's clock in a browser; already built for Slint.
@@ -63,7 +63,7 @@ postcard.workspace = true
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 jiff = { version = "0.2.38", features = ["js"] }
 uuid = { version = "1.29", default-features = false, features = ["js"] }
-gloo-timers = "0.3"
+gloo-timers = "0.4"
 
 [dev-dependencies]
 proptest.workspace = true
