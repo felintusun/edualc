@@ -148,7 +148,7 @@ pub fn chunks(text: &str) -> impl Iterator<Item = &str> {
 
 /// Bumped with any change to the messages below, or to their framing: postcard isn't
 /// self-describing, so both ends must agree on every type.
-pub const PROTOCOL: u32 = 18;
+pub const PROTOCOL: u32 = 19;
 
 /// A window's key for a process it shows, new for each one: what an earlier one still says is
 /// dropped.
@@ -407,6 +407,11 @@ pub enum FromDaemon {
     Lines { request: ActId, text: String },
     /// What a watch names changed.
     Changed(Watched),
+    /// Whether the keyring holds an Anthropic API key, or why that couldn't be told.
+    ApiKeyStored {
+        request: ActId,
+        stored: Result<bool, ActFailure>,
+    },
 }
 
 /// The clipboard's image, decoded in the confined helper (see `decode`), or why there is none.
@@ -486,6 +491,8 @@ pub enum StartFailure {
     Crashed,
     #[error("{0}")]
     Agy(String),
+    #[error("{0}")]
+    ApiKey(String),
 }
 
 /// Why the desktop didn't do what it was asked, as the window is told.
@@ -516,6 +523,8 @@ pub enum ActFailure {
     Open { link: String, reason: String },
     #[error("the daemon failed doing it")]
     Crashed,
+    #[error("the keyring: {0}")]
+    Keyring(String),
 }
 
 impl From<crate::desktop::Error> for ActFailure {
@@ -557,6 +566,35 @@ pub enum Stream {
     Err,
 }
 
+/// An Anthropic API key, on its way to the keyring or to the process that signs in with it:
+/// cleared from memory once dropped, and left out of what `Debug` writes.
+#[derive(PartialEq, Eq, Serialize, Deserialize)]
+pub struct ApiKey(zeroize::Zeroizing<String>);
+
+impl ApiKey {
+    /// The key as pasted, without the spaces and line breaks around it; none if nothing is
+    /// left, or spaces or control characters are inside it.
+    pub fn parse(text: &str) -> Option<Self> {
+        let key = text.trim();
+        let fits = !key.is_empty()
+            && key.len() <= 512
+            && !key
+                .chars()
+                .any(|character| character.is_whitespace() || character.is_control());
+        fits.then(|| Self(zeroize::Zeroizing::new(key.to_owned())))
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl std::fmt::Debug for ApiKey {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("ApiKey(…)")
+    }
+}
+
 /// What the window can have the desktop do, through the daemon.
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -584,11 +622,28 @@ pub enum Act {
         pid: u32,
     },
     StopSession(Running),
+    /// Keeps the key in the desktop's keyring, in place of one kept before.
+    StoreApiKey(ApiKey),
+    RemoveApiKey,
+    /// Whether the keyring holds a key; answered by `ApiKeyStored`.
+    CheckApiKey,
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A pasted key loses the spaces around it; one with spaces inside, or nothing, isn't
+    /// taken. What `Debug` writes (the logs) never holds the key.
+    #[test]
+    fn an_api_key_is_taken_clean_and_never_written_out() {
+        let key = ApiKey::parse("  sk-ant-api03-abc_DEF-123\n").expect("a key");
+        assert_eq!(key.as_str(), "sk-ant-api03-abc_DEF-123");
+        assert!(!format!("{key:?}").contains("abc_DEF"));
+        assert!(!format!("{:?}", Act::StoreApiKey(key)).contains("abc_DEF"));
+        assert!(ApiKey::parse("sk-ant api03").is_none());
+        assert!(ApiKey::parse(" \n").is_none());
+    }
 
     #[test]
     fn long_text_goes_in_pieces_that_fit() {

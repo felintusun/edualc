@@ -229,6 +229,27 @@ impl ToSlint for present::HanLanguage {
     }
 }
 
+impl ToSlint for present::Program {
+    type Slint = slint_ui::Program;
+    fn to_slint(&self, _: &Drawing) -> Self::Slint {
+        match self {
+            Self::Claude => slint_ui::Program::Claude,
+            Self::ClaudeApiKey => slint_ui::Program::ClaudeApiKey,
+            Self::Agy => slint_ui::Program::Agy,
+        }
+    }
+}
+
+impl ToSlint for present::SignInWith {
+    type Slint = slint_ui::SignInWith;
+    fn to_slint(&self, _: &Drawing) -> Self::Slint {
+        match self {
+            Self::Account => slint_ui::SignInWith::Account,
+            Self::ApiKey => slint_ui::SignInWith::ApiKey,
+        }
+    }
+}
+
 impl ToSlint for present::FocusArea {
     type Slint = slint_ui::FocusArea;
     fn to_slint(&self, _: &Drawing) -> Self::Slint {
@@ -796,8 +817,37 @@ pub(super) fn apply_sessions(
         Some(_) => {}
         None => global.set_projects(new.projects.to_slint(images)),
     }
+    if old.is_none_or(|old| old.program != new.program) {
+        global.set_program(new.program.to_slint(images));
+    }
+    if old.is_none_or(|old| old.api_key_kept != new.api_key_kept) {
+        global.set_api_key_kept(new.api_key_kept.to_slint(images));
+    }
+    if old.is_none_or(|old| old.choosing_sign_in != new.choosing_sign_in) {
+        global.set_choosing_sign_in(new.choosing_sign_in.to_slint(images));
+    }
     if old.is_none_or(|old| old.problem != new.problem) {
         global.set_problem(new.problem.to_slint(images));
+    }
+}
+
+/// Brings the `Transcript` global in line with `new`, setting what differs from `old` (all,
+/// for none).
+pub(super) fn apply_transcript(
+    window: &AppWindow,
+    old: Option<&present::Transcript>,
+    new: &present::Transcript,
+    images: &Drawing,
+) {
+    let global = window.global::<slint_ui::Transcript>();
+    if old.is_none_or(|old| old.pinned_index != new.pinned_index) {
+        global.set_pinned_index(new.pinned_index.to_slint(images));
+    }
+    if old.is_none_or(|old| old.pinned_row != new.pinned_row) {
+        global.set_pinned_row(new.pinned_row.to_slint(images));
+    }
+    if old.is_none_or(|old| old.pinned_text != new.pinned_text) {
+        global.set_pinned_text(new.pinned_text.to_slint(images));
     }
 }
 
@@ -972,6 +1022,12 @@ pub(super) fn apply_preferences(
     }
     if old.is_none_or(|old| old.running_sessions != new.running_sessions) {
         global.set_running_sessions(new.running_sessions.to_slint(images));
+    }
+    if old.is_none_or(|old| old.api_key_kept != new.api_key_kept) {
+        global.set_api_key_kept(new.api_key_kept.to_slint(images));
+    }
+    if old.is_none_or(|old| old.api_key_note != new.api_key_note) {
+        global.set_api_key_note(new.api_key_note.to_slint(images));
     }
 }
 

@@ -36,6 +36,9 @@ open = "5"
 # The desktop's own folder picker, through its portal on Linux.
 rfd = "0.17"
 tracing-subscriber.workspace = true
+# The Anthropic API key, kept in the desktop's keyring (the Secret Service) rather than a file;
+# its D-Bus (zbus) is already built for a dependency.
+oo7 = { version = "0.6", default-features = false, features = ["tokio", "native_crypto"] }
 
 [dev-dependencies]
 proptest.workspace = true

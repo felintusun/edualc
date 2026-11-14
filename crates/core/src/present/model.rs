@@ -173,6 +173,21 @@ pub enum HanLanguage {
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+pub enum Program {
+    #[default]
+    Claude,
+    ClaudeApiKey,
+    Agy,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+pub enum SignInWith {
+    #[default]
+    Account,
+    ApiKey,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
 pub enum FocusArea {
     #[default]
     Sidebar,
@@ -436,7 +451,18 @@ pub struct Sessions {
     pub rows: Vec<SessionRow>,
     pub empty: String,
     pub projects: Vec<ProjectItem>,
+    pub program: Program,
+    pub api_key_kept: bool,
+    pub choosing_sign_in: String,
     pub problem: String,
+}
+
+/// The `Transcript` global's state.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Transcript {
+    pub pinned_index: i32,
+    pub pinned_row: i32,
+    pub pinned_text: String,
 }
 
 /// The `Prompt` global's state.
@@ -487,6 +513,8 @@ pub struct Preferences {
     pub send_key: SendKey,
     pub han_language: HanLanguage,
     pub running_sessions: i32,
+    pub api_key_kept: bool,
+    pub api_key_note: String,
 }
 
 /// The `Usage` global's state.

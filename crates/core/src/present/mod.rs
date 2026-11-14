@@ -12,6 +12,7 @@ use crate::decode::Pixels;
 pub mod model;
 mod presenter;
 
+pub(crate) use presenter::clock;
 pub use presenter::{Presenter, short_count, short_duration};
 
 /// Text the window sets: plain, or with inline Markdown (emphasis, code, links) for the frontend
@@ -113,6 +114,8 @@ pub trait Frontend {
     fn side(&mut self, side: &model::Side);
     fn preferences(&mut self, preferences: &model::Preferences);
     fn usage(&mut self, usage: &model::Usage);
+    /// The newest prompt, pinned above the conversation.
+    fn transcript(&mut self, transcript: &model::Transcript);
     /// Image `key`'s pixels, or why it can't be shown.
     fn show_image(&mut self, key: ImageKey, shown: Result<&Pixels, String>);
     /// Lets go of the images but those `shown` holds: the conversation was replaced.

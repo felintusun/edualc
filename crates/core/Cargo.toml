@@ -46,6 +46,8 @@ uuid.workspace = true
 # The words of a session's name for other sessions to message it by: curated English adjectives
 # and nouns, picked by the session's id (no random generator).
 petname = { version = "3.2", default-features = false, features = ["default-words"] }
+# The Anthropic API key on its way to the daemon, cleared from memory once dropped.
+zeroize = { version = "1.9", features = ["serde"] }
 
 # What runs on Linux only: processes, sockets and the desktop a page has none of.
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]

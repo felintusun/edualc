@@ -72,6 +72,7 @@ edualc --backend agy DIR
 `edualc --help` lists every option. Your settings are in `~/.config/edualc/settings.json`.
 
 `--backend agy` runs Google's Antigravity CLI instead of Claude Code. It needs `agy` on your PATH.
+In the window, the New session button asks which of the two to start.
 
 **Coming from an earlier version?** Earlier versions ran Claude Code in a sandbox. Now Claude Code
 runs exactly as it does in your terminal. Sessions that ran in the sandbox kept their memory,
@@ -83,7 +84,6 @@ folder alone, so you can copy anything you still need from it. Their transcripts
 
 - Jumping to another session's window works only on niri.
 - You can't mention files with `@` yet, and you paste images rather than drag them in.
-- You can choose agy only on the command line, not in the window.
 - edualc builds Slint from a fork, until the features it needs are in a Slint release.
 
 ## Building

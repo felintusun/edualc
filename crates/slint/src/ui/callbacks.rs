@@ -8,8 +8,8 @@ use crate::app::{Action, Event, PermissionMode};
 use crate::cjk::CjkLanguage;
 use crate::external::wire::{RequestId, SessionId};
 use crate::generated::{
-    AppWindow, Clipboard, Composer, Focus, HanLanguage, LineBreak, Peek, Preferences, Prompt,
-    SendKey, Session, Sessions, Side, Transcript, Usage,
+    AppWindow, Clipboard, Composer, Focus, HanLanguage, LineBreak, Peek, Preferences, Program,
+    Prompt, SendKey, Session, Sessions, Side, SignInWith, Transcript, Usage,
 };
 use crate::settings::{self, Zoom};
 
@@ -184,8 +184,32 @@ pub(crate) fn wire(window: &AppWindow, events: &Sender<Event>) {
     peek.on_close(actions.on(|| Action::ClosePeek));
 
     let sessions = window.global::<Sessions>();
-    sessions.on_new_session(actions.on(|| Action::NewSession));
+    sessions.on_new_session({
+        let actions = actions.clone();
+        move |program| {
+            use crate::claude::{Backend, SignInWith};
+            let (backend, sign_in) = match program {
+                Program::Claude => (Backend::Claude, SignInWith::Account),
+                Program::ClaudeApiKey => (Backend::Claude, SignInWith::ApiKey),
+                Program::Agy => (Backend::Agy, SignInWith::Account),
+            };
+            actions.send(Action::NewSession(backend, sign_in));
+        }
+    });
     sessions.on_open(actions.on_session(Action::OpenSession));
+    sessions.on_continue_with({
+        let actions = actions.clone();
+        move |sign_in| {
+            actions.send(Action::ContinueWith(Some(match sign_in {
+                SignInWith::Account => crate::claude::SignInWith::Account,
+                SignInWith::ApiKey => crate::claude::SignInWith::ApiKey,
+            })));
+        }
+    });
+    sessions.on_cancel_continue(actions.on(|| Action::ContinueWith(None)));
+    let preferences = window.global::<Preferences>();
+    preferences.on_store_api_key(actions.on_text(Action::StoreApiKey));
+    preferences.on_remove_api_key(actions.on(|| Action::RemoveApiKey));
     sessions.on_width_chosen({
         let actions = actions.clone();
         // Zero (or what doesn't fit a `u16`) goes back to the default width.

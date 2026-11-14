@@ -3,7 +3,7 @@
 
 use serde::Deserialize;
 
-use super::{App, Doing, LimitUse, Mode, Request, SignIn, TaskProgress};
+use super::{App, Doing, LimitUse, Mode, ModelChoice, Refusal, Request, SignIn, TaskProgress};
 use crate::chat::{Origin, UserText};
 use crate::claude::Output;
 use crate::external::wire::{
@@ -72,12 +72,16 @@ impl<F: Frontend> App<F> {
             Message::Assistant {
                 error: Some(AssistantError::AuthenticationFailed),
                 ..
-            } => self.turn_refused_sign_in = true,
+            } => self.turn_refusal = Some(Refusal::SignIn),
             Message::Assistant {
                 message,
                 parent_tool_use_id,
-                ..
+                error,
             } => {
+                // Its text says which limit and when it resets; the result then waits for it.
+                if error == Some(AssistantError::RateLimit) {
+                    self.turn_refusal = Some(Refusal::UsageLimit);
+                }
                 self.chat
                     .assistant_message(&message, parent_tool_use_id.as_ref(), Origin::Live);
                 if parent_tool_use_id.is_none() {
@@ -289,12 +293,15 @@ impl<F: Frontend> App<F> {
         // says so; one that failed so on its own (an API error after the retries) is told.
         let stop_asked = std::mem::take(&mut self.status.stop_asked);
         let stopped = stop_asked && result.subtype == ResultKind::ErrorDuringExecution;
-        let refused_sign_in = std::mem::take(&mut self.turn_refused_sign_in);
+        let refusal = self.turn_refusal.take();
         // However the turn says it ended, what runs beside it went on.
         if stop_asked {
             self.tasks_after_stop();
         }
-        if result.is_error && !stopped {
+        // Claude Code's message already said which limit, and when it resets.
+        if refusal == Some(Refusal::UsageLimit) && !stopped {
+            self.limit_reached();
+        } else if result.is_error && !stopped {
             let errors: Vec<String> = result
                 .errors
                 .iter()
@@ -308,7 +315,7 @@ impl<F: Frontend> App<F> {
                 _ if !errors.is_empty() => errors.join("\n"),
                 _ => "The turn failed.".to_owned(),
             };
-            if refused_sign_in || result.sign_in_refused() {
+            if refusal == Some(Refusal::SignIn) || result.sign_in_refused() {
                 self.status.sign_in = SignIn::Refused {
                     failed: self.last_prompt.take(),
                 };
@@ -342,6 +349,7 @@ impl<F: Frontend> App<F> {
         if let Some(used) = used(&windows.seven_day) {
             self.status.limits.seven_day = Some(used);
         }
+        self.set_limit_reset();
     }
 
     fn control_response(&mut self, response: ControlResponse) {
@@ -360,7 +368,12 @@ impl<F: Frontend> App<F> {
                 Ok(initialized) => self.take_initialized(initialized),
                 Err(error) => tracing::warn!(%error, "an initialize answer that doesn't parse"),
             },
-            (Request::Model(value), Ok(_)) => self.status.model_choice = Some(value),
+            (Request::Model(value), Ok(_)) => {
+                self.status.model_choice = Some(ModelChoice {
+                    backend: self.status.backend,
+                    model: value,
+                });
+            }
             (Request::Mode(mode), Ok(_)) => {
                 self.status.mode = Some(Mode::Known(mode));
                 self.status.mode_choice = Some(mode);

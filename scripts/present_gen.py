@@ -23,7 +23,7 @@ STATE = (ROOT / "ui/state.slint").read_text()
 
 # Globals whose state the presenter owns; the others are the window's own.
 GLOBALS = ["Session", "Composer", "Sessions", "Prompt", "Peek", "Side",
-           "Preferences", "Usage"]
+           "Preferences", "Usage", "Transcript"]
 # What isn't state: the transcript's rows, which change one by one (`TranscriptChange`), and
 # the window's own counters, bumped through `Command`s.
 SKIPPED = {

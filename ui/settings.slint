@@ -1,10 +1,11 @@
 // edualc's settings, over the conversation as the usage details are; Esc or the cross closes
-// them. Each takes effect at once and is kept in `settings.json`.
+// them. Each takes effect at once and is kept in `settings.json`, but the API key, which the
+// keyring keeps.
 
 import { Theme } from "theme.slint";
 import { FocusArea, HanLanguage, SendKey } from "types.slint";
 import { Focus, Preferences } from "state.slint";
-import { AreaFence, Caption, Icon, IconButton, Pressable, Small, TextButton, Title } from "widgets.slint";
+import { AreaFence, Caption, Field, Icon, IconButton, Pressable, Small, TextButton, Title } from "widgets.slint";
 
 // One of a setting's choices: its name, what it means, and whether it is the one in use.
 component Choice inherits Pressable {
@@ -160,6 +161,50 @@ export component SettingsPanel inherits Rectangle {
                     detail: "Noto Sans CJK KR";
                     chosen: Preferences.han-language == HanLanguage.korean;
                     clicked => { Preferences.choose-han-language(HanLanguage.korean); }
+                }
+                Rectangle {
+                    height: Theme.space-m;
+                }
+                Text {
+                    text: "Anthropic API key";
+                    font-weight: 600;
+                    color: Theme.text;
+                }
+                Small {
+                    text: Preferences.api-key-kept
+                        ? "Kept in your desktop's keyring. New session offers Claude Code with it, billed by the token, and continuing a Claude Code session asks which sign-in to use."
+                        : "Paste a key from the Anthropic Console to start Claude Code sessions with it, billed by the token. It is kept in your desktop's keyring, not in a file.";
+                    wrap: word-wrap;
+                }
+                HorizontalLayout {
+                    spacing: Theme.space-s;
+                    api-key := Field {
+                        secret: true;
+                        horizontal-stretch: 1;
+                        placeholder: Preferences.api-key-kept ? "Paste a new key to replace it" : "sk-ant-api…";
+                        accepted(text) => {
+                            Preferences.store-api-key(text);
+                            self.text = "";
+                        }
+                    }
+                    TextButton {
+                        text: "Keep";
+                        enabled: api-key.text != "";
+                        clicked => {
+                            Preferences.store-api-key(api-key.text);
+                            api-key.text = "";
+                        }
+                    }
+                    if Preferences.api-key-kept: TextButton {
+                        text: "Remove";
+                        danger: true;
+                        clicked => { Preferences.remove-api-key(); }
+                    }
+                }
+                if Preferences.api-key-note != "": Small {
+                    text: Preferences.api-key-note;
+                    color: Theme.danger-text;
+                    wrap: word-wrap;
                 }
                 Rectangle {
                     height: Theme.space-m;

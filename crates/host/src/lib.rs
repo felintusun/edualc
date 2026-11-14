@@ -8,4 +8,5 @@ pub use edualc_core::*;
 pub mod agy;
 pub mod daemon;
 pub mod files;
+pub mod keyring;
 pub mod spawn;

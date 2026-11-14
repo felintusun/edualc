@@ -1,7 +1,7 @@
 // What the window shows and does, by area: Rust sets these (`window.global::<…>()`) and takes
 // the callbacks; the components read them where they're shown.
 
-import { Activity, CommandItem, ComposerSize, Entry, FocusArea, HanLanguage, ImageChip, LineBreak, MenuItem, PeekStep, PermissionKind, PlanSection, ProjectItem, PromptKind, Question, SendKey, SessionRow, SideExchange, SideView, SignInState, StatSection, TaskItem, TaskKind } from "types.slint";
+import { Activity, CommandItem, ComposerSize, Entry, FocusArea, HanLanguage, ImageChip, LineBreak, MenuItem, PeekStep, PermissionKind, PlanSection, ProjectItem, Program, PromptKind, Question, SendKey, SessionRow, SignInWith, SideExchange, SideView, SignInState, StatSection, TaskItem, TaskKind } from "types.slint";
 
 // The CLI process and the conversation it holds.
 export global Session {
@@ -151,8 +151,17 @@ export global Sessions {
     callback width-chosen(int);
     // What the list is narrowed to.
     callback filter-edited(string);
-    callback new-session;
+    // The current session's program: Ctrl+N starts a new session with it.
+    in property <Program> program;
+    // The New session menu offers Claude Code with the API key while the keyring keeps one.
+    in property <bool> api-key-kept;
+    callback new-session(Program);
     callback open(string);
+    // A Claude Code session to continue, by its title, waits for the user to pick what it
+    // signs in with; empty while none does.
+    in property <string> choosing-sign-in;
+    callback continue-with(SignInWith);
+    callback cancel-continue;
     // Turns to the folder a path names, as the daemon finds it: if it can't, `problem` says
     // why; if it does, `opened-serial` is bumped.
     callback open-project(string);
@@ -170,6 +179,12 @@ export global Transcript {
     in property <int> scroll-to-end-serial;
     // Bumped when a session's transcript is shown: it goes to the end, hidden until it settles.
     in property <int> opened-serial;
+    // The newest of the user's messages, pinned above the conversation while it is out of
+    // view: its place in the conversation (-1 before the first), its place in the list of
+    // rows shown, and its text on one line.
+    in property <int> pinned-index: -1;
+    in property <int> pinned-row;
+    in property <string> pinned-text;
     callback toggle(int);
     // Opens or folds the run of tool calls whose first call is at this place.
     callback toggle-group(int);
@@ -273,6 +288,12 @@ export global Preferences {
     // The sessions edualc's daemon runs, in every window; a shutdown ends them all.
     in property <int> running-sessions;
     callback shut-down;
+    // Whether the desktop's keyring keeps an Anthropic API key for Claude Code sessions, and
+    // what the keyring last said when it was stored, removed or looked for.
+    in property <bool> api-key-kept;
+    in property <string> api-key-note;
+    callback store-api-key(string);
+    callback remove-api-key;
 }
 
 // Where the keyboard is. Tab and Shift+Tab go round within an area (see `AreaFence`); F6 and

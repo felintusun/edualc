@@ -16,9 +16,9 @@ use super::model::{
 };
 use super::{Command, EntriesChange, Frontend, Image, Look, Styled};
 use crate::app::{
-    Answer, Ask, AskKind, CommandOutput, Conversation, Doing, Followed, LimitUse, Mode, Peek,
-    PeekView, PermissionMode, Place, Running, SideChat, SideView, SignIn, Status, Tasks,
-    UsagePanel, Watch,
+    Answer, ApiKeyKept, Ask, AskKind, CommandOutput, Conversation, Doing, Followed, LimitUse,
+    LimitWait, Mode, Peek, PeekView, PermissionMode, Place, Running, SideChat, SideView, SignIn,
+    Status, Tasks, UsagePanel, Watch,
 };
 use crate::chat::{self, Body, Change, Chat, ImageKey};
 use crate::cjk::{CjkLanguage, CjkText, Standing};
@@ -49,6 +49,7 @@ struct Parts {
     side: model::Side,
     preferences: model::Preferences,
     usage: model::Usage,
+    transcript: model::Transcript,
 }
 
 pub struct Presenter<F: Frontend> {
@@ -61,6 +62,7 @@ pub struct Presenter<F: Frontend> {
     side: model::Side,
     preferences: model::Preferences,
     usage: model::Usage,
+    transcript: model::Transcript,
     /// What the frontend was told last, for telling it only what changed.
     shown: Option<Parts>,
     /// The rows of the transcript as the frontend has them.
@@ -105,6 +107,11 @@ impl<F: Frontend> Presenter<F> {
             side: model::Side::default(),
             preferences: model::Preferences::default(),
             usage: model::Usage::default(),
+            // Nothing is pinned before the first prompt.
+            transcript: model::Transcript {
+                pinned_index: -1,
+                ..model::Transcript::default()
+            },
             shown: None,
             entries: Vec::new(),
             groups: Vec::new(),
@@ -129,6 +136,7 @@ impl<F: Frontend> Presenter<F> {
             side: self.side.clone(),
             preferences: self.preferences.clone(),
             usage: self.usage.clone(),
+            transcript: self.transcript.clone(),
         };
         let shown = self.shown.as_ref();
         let frontend = &mut self.frontend;
@@ -155,6 +163,9 @@ impl<F: Frontend> Presenter<F> {
         }
         if shown.is_none_or(|shown| shown.usage != parts.usage) {
             frontend.usage(&parts.usage);
+        }
+        if shown.is_none_or(|shown| shown.transcript != parts.transcript) {
+            frontend.transcript(&parts.transcript);
         }
         self.shown = Some(parts);
         if let Some((model, mode)) = self.menu_choice.take() {
@@ -342,6 +353,48 @@ impl<F: Frontend> Presenter<F> {
         self.command(Command::ScrollToEnd);
     }
 
+    /// Whether the keyring keeps an API key, what it last said, and the title of a session
+    /// waiting for the user to pick what it signs in with.
+    pub fn render_api_key(&mut self, kept: ApiKeyKept, note: &str, choosing: Option<&str>) {
+        let kept = kept == ApiKeyKept::Kept;
+        self.preferences.api_key_kept = kept;
+        note.clone_into(&mut self.preferences.api_key_note);
+        self.sessions.api_key_kept = kept;
+        choosing
+            .unwrap_or_default()
+            .clone_into(&mut self.sessions.choosing_sign_in);
+    }
+
+    /// Pins the newest of the user's messages above the conversation, on one line; nothing
+    /// before the first.
+    pub fn render_pinned(&mut self, chat: &Chat) {
+        /// More than a wide window shows on the pinned line.
+        const PINNED_CHARS: usize = 400;
+        let transcript = &mut self.transcript;
+        let Some((index, text)) = chat.last_prompt() else {
+            transcript.pinned_index = -1;
+            transcript.pinned_text.clear();
+            return;
+        };
+        let line: String = text
+            .split_whitespace()
+            .flat_map(|word| [" ", word])
+            .skip(1)
+            .flat_map(str::chars)
+            .take(PINNED_CHARS)
+            .collect();
+        // Its place in the list, which leaves out the later calls of folded runs.
+        let row = self
+            .entries
+            .iter()
+            .take(index)
+            .filter(|entry| !entry.hidden)
+            .count();
+        transcript.pinned_index = index_for_slint(index);
+        transcript.pinned_row = index_for_slint(row);
+        transcript.pinned_text = line;
+    }
+
     /// A session's transcript was loaded: shown at its end once the list has measured its way
     /// there, not on the way.
     pub fn open_at_end(&mut self) {
@@ -511,7 +564,15 @@ impl<F: Frontend> Presenter<F> {
     /// status bar's word for it.
     pub fn render_activity(&mut self, status: &Status, waiting: bool, shell_running: bool) {
         let session = &mut self.session;
-        session.busy = status.turns > 0 || shell_running;
+        // Stop and Esc cancel a wait for the usage limit too.
+        let limit_wait = match status.limit_wait {
+            LimitWait::Idle => None,
+            LimitWait::Asking => Some("Usage limit reached".to_owned()),
+            LimitWait::Until(at) => {
+                Some(format!("Usage limit reached · continuing at {}", clock(at)))
+            }
+        };
+        session.busy = status.turns > 0 || shell_running || limit_wait.is_some();
         session.turn = status.turns > 0;
         session.activity = match status.doing {
             Doing::Nothing if shell_running => Activity::Tool,
@@ -528,6 +589,8 @@ impl<F: Frontend> Presenter<F> {
         };
         let doing = if waiting {
             "Waiting for you".to_owned()
+        } else if let (Doing::Nothing, Some(limit_wait)) = (&status.doing, limit_wait) {
+            limit_wait
         } else if matches!(status.doing, Doing::Nothing) && shell_running {
             "Running your command".to_owned()
         } else {
@@ -561,6 +624,15 @@ impl<F: Frontend> Presenter<F> {
         status.backend.agent().clone_into(&mut session.agent);
         status.backend.program().clone_into(&mut session.program);
         session.shell_commands = status.backend == crate::claude::Backend::Claude;
+        self.sessions.program = match (status.backend, status.sign_in_with) {
+            (crate::claude::Backend::Claude, crate::claude::SignInWith::Account) => {
+                model::Program::Claude
+            }
+            (crate::claude::Backend::Claude, crate::claude::SignInWith::ApiKey) => {
+                model::Program::ClaudeApiKey
+            }
+            (crate::claude::Backend::Agy, _) => model::Program::Agy,
+        };
         let (context, fraction) = match (status.context_tokens, status.context_window) {
             (0, _) => (String::new(), 0.0),
             (used, 0) => (short_count(used), 0.0),
@@ -707,14 +779,8 @@ impl<F: Frontend> Presenter<F> {
             .map(|model| (model.display_name.clone(), model.description.clone()))
             .collect();
         let picked = status
-            .model_choice
-            .as_ref()
-            .and_then(|choice| {
-                status
-                    .models
-                    .iter()
-                    .position(|model| &model.value == choice)
-            })
+            .chosen_model()
+            .and_then(|choice| status.models.iter().position(|model| model.value == choice))
             .or_else(|| {
                 status.models.iter().position(|model| {
                     model.value == "default" && model.resolved_model == status.model
@@ -731,15 +797,15 @@ impl<F: Frontend> Presenter<F> {
                 models.push((status.model.clone(), String::new()));
                 models.len() - 1
             }
-            // Before Claude Code has said which models there are: a name, not a bare icon.
+            // Before the program has said which models there are: a name, not a bare icon.
             None if models.is_empty() => {
-                let name = status
-                    .model_choice
-                    .clone()
-                    .unwrap_or_else(|| "Default model".to_owned());
+                let name = status.chosen_model().unwrap_or("Default model").to_owned();
                 models.push((
                     name,
-                    "Claude Code says which model this is once it runs".to_owned(),
+                    format!(
+                        "{} says which model this is once it runs",
+                        status.backend.program()
+                    ),
                 ));
                 0
             }
@@ -1475,12 +1541,7 @@ fn period_section(title: &str, period: &wire::Period) -> StatSection {
 /// When a limit starts over: "resets 15:00", or with the time left, "resets in 4h 58m (15:00)".
 fn reset_text(at: jiff::Timestamp, with_time_left: bool) -> String {
     let seconds = at.as_second() - jiff::Timestamp::now().as_second();
-    let local = at.to_zoned(jiff::tz::TimeZone::system());
-    let clock = if seconds < 86_400 {
-        local.strftime("%H:%M").to_string()
-    } else {
-        local.strftime("%a %H:%M").to_string()
-    };
+    let clock = clock(at);
     if !with_time_left {
         return format!("resets {clock}");
     }
@@ -1491,6 +1552,17 @@ fn reset_text(at: jiff::Timestamp, with_time_left: bool) -> String {
         _ => format!("{}d {}h", seconds / 86_400, seconds % 86_400 / 3_600),
     };
     format!("resets in {left} ({clock})")
+}
+
+/// A time to come, on the local clock: "15:00" within a day, "Mon 15:00" later.
+pub(crate) fn clock(at: jiff::Timestamp) -> String {
+    let seconds = at.as_second() - jiff::Timestamp::now().as_second();
+    let local = at.to_zoned(jiff::tz::TimeZone::system());
+    if seconds < 86_400 {
+        local.strftime("%H:%M").to_string()
+    } else {
+        local.strftime("%a %H:%M").to_string()
+    }
 }
 
 /// A time span as [`duration_text`] writes it.

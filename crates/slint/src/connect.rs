@@ -90,7 +90,8 @@ pub(crate) fn connect() -> Result<Connected, Error> {
         | FromDaemon::Answer { .. }
         | FromDaemon::Lines { .. }
         | FromDaemon::Changed(_)
-        | FromDaemon::Pasted { .. } => return Err(Error::Version),
+        | FromDaemon::Pasted { .. }
+        | FromDaemon::ApiKeyStored { .. } => return Err(Error::Version),
     };
     let hosted = match channel.recv(&mut deframer)? {
         FromDaemon::Hosted(hosted) => hosted,
@@ -106,7 +107,8 @@ pub(crate) fn connect() -> Result<Connected, Error> {
         | FromDaemon::Answer { .. }
         | FromDaemon::Lines { .. }
         | FromDaemon::Changed(_)
-        | FromDaemon::Pasted { .. } => return Err(Error::OutOfTurn),
+        | FromDaemon::Pasted { .. }
+        | FromDaemon::ApiKeyStored { .. } => return Err(Error::OutOfTurn),
     };
     let greeting = Greeting {
         hosted,

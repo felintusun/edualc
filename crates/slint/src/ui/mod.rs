@@ -203,6 +203,7 @@ pub(crate) struct SlintFrontend {
     side: Option<present::Side>,
     preferences: Option<present::Preferences>,
     usage: Option<present::Usage>,
+    transcript: Option<present::Transcript>,
 }
 
 impl SlintFrontend {
@@ -246,6 +247,7 @@ impl SlintFrontend {
             side: None,
             preferences: None,
             usage: None,
+            transcript: None,
         }
     }
 
@@ -436,6 +438,16 @@ impl Frontend for SlintFrontend {
     fn usage(&mut self, usage: &present::Usage) {
         model::apply_usage(&self.window, self.usage.as_ref(), usage, &self.drawing);
         self.usage = Some(usage.clone());
+    }
+
+    fn transcript(&mut self, transcript: &present::Transcript) {
+        model::apply_transcript(
+            &self.window,
+            self.transcript.as_ref(),
+            transcript,
+            &self.drawing,
+        );
+        self.transcript = Some(transcript.clone());
     }
 
     fn entries(&mut self, change: EntriesChange) {

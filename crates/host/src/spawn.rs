@@ -7,7 +7,7 @@ use std::process::Stdio;
 
 use tokio::process::{Child, Command};
 
-use crate::claude::{Backend, Conversation, FolderConfiguration, Launch};
+use crate::claude::{Backend, Conversation, FolderConfiguration, Launch, SignInWith};
 use crate::sessions::MessagingName;
 
 /// Set by Claude Code for its own children. Launched from inside a Claude Code session, the
@@ -40,6 +40,12 @@ pub enum Error {
     Adapter(#[source] std::io::Error),
     #[error("agy sessions can't be copied yet, only continued")]
     AgyFork,
+    #[error("no Anthropic API key is kept: add one in edualc's settings")]
+    NoApiKey,
+    #[error("couldn't read the Anthropic API key: {0}")]
+    Keyring(#[source] crate::keyring::Error),
+    #[error("agy signs in itself, not with an Anthropic API key")]
+    AgyApiKey,
 }
 
 /// A started process, its pipes still in it. Dropped, it is killed.
@@ -58,6 +64,9 @@ pub fn spawn(launch: &Launch, runtime: &tokio::runtime::Handle) -> Result<Spawne
         .filter(|cwd| cwd.is_dir())
         .ok_or_else(|| Error::NoFolder(launch.cwd.clone()))?;
     if launch.backend == Backend::Agy {
+        if launch.sign_in == SignInWith::ApiKey {
+            return Err(Error::AgyApiKey);
+        }
         return spawn_agy(launch, &cwd, runtime);
     }
     let mut command = Command::new(crate::claude::program());
@@ -106,6 +115,18 @@ pub fn spawn(launch: &Launch, runtime: &tokio::runtime::Handle) -> Result<Spawne
     }
     for name in INHERITED_SESSION {
         command.env_remove(name);
+    }
+    match launch.sign_in {
+        SignInWith::Account => {}
+        // Claude Code takes the key from its environment, before the user's own sign-in. This
+        // runs on a thread of its own (see `daemon`), which may wait on the keyring.
+        SignInWith::ApiKey => {
+            let key = runtime
+                .block_on(crate::keyring::load())
+                .map_err(Error::Keyring)?
+                .ok_or(Error::NoApiKey)?;
+            command.env("ANTHROPIC_API_KEY", key.as_str());
+        }
     }
     command
         .current_dir(&cwd)
@@ -183,6 +204,9 @@ impl From<Error> for crate::ipc::StartFailure {
             Error::NoModel(model) => Self::NoModel(model),
             Error::Start(source) => Self::Start(source.to_string()),
             error @ (Error::Adapter(_) | Error::AgyFork) => Self::Agy(error.to_string()),
+            error @ (Error::NoApiKey | Error::Keyring(_) | Error::AgyApiKey) => {
+                Self::ApiKey(error.to_string())
+            }
         }
     }
 }

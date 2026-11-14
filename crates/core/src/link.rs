@@ -153,6 +153,7 @@ impl Inbox {
             } => joined(&mut self.pasting, request, &piece, last)
                 .map(|pasted| Event::Pasted { request, pasted }),
             FromDaemon::ShuttingDown => Some(Event::DaemonShuttingDown),
+            FromDaemon::ApiKeyStored { stored, .. } => Some(Event::ApiKeyStored(stored)),
             FromDaemon::Lines { request, text } => {
                 let (splitter, lines) = self.transcripts.entry(request).or_default();
                 lines.extend(splitter.push(text.as_bytes()));
