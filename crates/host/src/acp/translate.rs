@@ -634,9 +634,9 @@ impl Translator {
                 effects.extend(self.subagents());
                 effects
             }
-            Asked::Model(window) => window
-                .map(|request| vec![success(request, Value::Object(Map::new()))])
-                .unwrap_or_default(),
+            Asked::Model(window) => {
+                window.map_or_default(|request| vec![success(request, Value::Object(Map::new()))])
+            }
             Asked::Mode { request, mode } => {
                 self.mode = Some(mode);
                 vec![success(request, Value::Object(Map::new()))]
@@ -1466,13 +1466,12 @@ impl Translator {
             duration_ms: None,
             usage: prompted
                 .and_then(|prompted| prompted.usage.as_ref())
-                .map(|used| Usage {
+                .map_or_default(|used| Usage {
                     input_tokens: used.input_tokens,
                     cache_creation_input_tokens: 0,
                     cache_read_input_tokens: used.cached_read_tokens,
                     output_tokens: used.output_tokens,
-                })
-                .unwrap_or_default(),
+                }),
         })));
         self.busy = false;
         effects.extend(self.subagents());

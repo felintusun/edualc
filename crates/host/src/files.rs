@@ -865,7 +865,7 @@ fn start(target: &Target) -> Watch {
         Target::Records => Watch::new(sessions::config_dir().join("sessions"), None),
         Target::Transcript(place) => {
             let file = resolve(place).path().to_owned();
-            let goal = file.parent().map(Path::to_path_buf).unwrap_or_default();
+            let goal = file.parent().map_or_default(Path::to_path_buf);
             Watch::new(goal, Some(file))
         }
     }

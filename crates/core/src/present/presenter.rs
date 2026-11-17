@@ -1115,8 +1115,7 @@ impl<F: Frontend> Presenter<F> {
                 prompt.always_label = suggestions
                     .first()
                     .and_then(|offered| offered.rule.as_ref())
-                    .map(always_label)
-                    .unwrap_or_default();
+                    .map_or_default(always_label);
             }
         }
         self.prompt_shown = Some(ask.request.clone());
@@ -1502,9 +1501,7 @@ fn tool_prompt(ask: &Ask, cwd: &Path, backend: crate::claude::Backend) -> ToolPr
             .map_or("Another session", |incoming| incoming.from.as_str());
         (
             format!("Let this message from {from} in?"),
-            incoming
-                .map(|incoming| incoming.message)
-                .unwrap_or_default(),
+            incoming.map_or_default(|incoming| incoming.message),
         )
     } else if ask.tool == ToolName::Bash {
         let bash = tools::read::<BashInput>(&ask.tool, &ask.input);
@@ -1517,7 +1514,7 @@ fn tool_prompt(ask: &Ask, cwd: &Path, backend: crate::claude::Backend) -> ToolPr
         } else {
             format!("Allow {agent} to run this command?")
         };
-        (title, bash.map(|bash| bash.command).unwrap_or_default())
+        (title, bash.map_or_default(|bash| bash.command))
     } else {
         match ask.tool.kind() {
             ToolKind::Edit | ToolKind::Write => (
@@ -1527,8 +1524,7 @@ fn tool_prompt(ask: &Ask, cwd: &Path, backend: crate::claude::Backend) -> ToolPr
             ToolKind::Web if ask.tool == ToolName::WebFetch => (
                 format!("Allow {agent} to fetch this page?"),
                 tools::read::<WebFetchInput>(&ask.tool, &ask.input)
-                    .map(|fetch| fetch.url)
-                    .unwrap_or_default(),
+                    .map_or_default(|fetch| fetch.url),
             ),
             ToolKind::Read
             | ToolKind::Command

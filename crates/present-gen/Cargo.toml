@@ -3,6 +3,7 @@ name = "present-gen"
 description = "Writes edualc's presentation model, and the Slint window's side of it, from the window's Slint types"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 publish.workspace = true

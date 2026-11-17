@@ -79,8 +79,7 @@ const PROJECT_PART_CHARS: usize = 20;
 fn project_part(cwd: &Path) -> String {
     let folder = cwd
         .file_name()
-        .map(|name| name.to_string_lossy().to_lowercase())
-        .unwrap_or_default();
+        .map_or_default(|name| name.to_string_lossy().to_lowercase());
     let mut part = String::new();
     for character in folder.chars() {
         if character.is_ascii_alphanumeric() {

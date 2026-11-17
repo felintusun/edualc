@@ -3,6 +3,7 @@ name = "edualc-core"
 description = "edualc's window logic, shared by its frontends: the conversation, the presenter, the line to the daemon"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 publish.workspace = true
@@ -38,9 +39,6 @@ jiff = { version = "0.2.38", features = ["serde"] }
 web-time = { version = "1.1", features = ["serde"] }
 # Newtypes' `Display` and `From`; already built for Slint.
 derive_more = { version = "2", features = ["display", "from", "deref"] }
-# A form's fields in the order an ACP agent gives them (`external::acp::FormSchema`); already
-# built for Slint's compiler.
-indexmap = { version = "2", features = ["serde"] }
 # Images, decoded in a confined helper (see `decode`): pure-Rust PNG, JPEG, GIF and WebP, whose
 # decoders are already built for Slint (through resvg).
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp"] }
@@ -63,6 +61,10 @@ seccompiler.workspace = true
 libc.workspace = true
 landlock.workspace = true
 tokio.workspace = true
+postcard.workspace = true
+# A form's fields in the order an ACP agent gives them (`external::acp::FormSchema`); already
+# built for Slint's compiler.
+indexmap = { version = "2", features = ["serde"] }
 rustls.workspace = true
 # A native window's line over the network (`line`, `ipc::ws`): the Android app's.
 tokio-tungstenite.workspace = true

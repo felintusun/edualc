@@ -56,7 +56,7 @@ const MAX_DIFF_LINES: usize = 400;
 pub fn describe(name: &ToolName, input: &Value, cwd: &Path, depth: Depth) -> ToolView {
     let full = depth == Depth::Full;
     let path = |path: &Path| short_path(path, cwd);
-    let place = |place: Option<&PathBuf>| place.map(|place| path(place)).unwrap_or_default();
+    let place = |place: Option<&PathBuf>| place.map_or_default(|place| path(place));
     let mut view = ToolView {
         title: name.to_string(),
         ..ToolView::default()
@@ -192,8 +192,7 @@ pub fn describe(name: &ToolName, input: &Value, cwd: &Path, depth: Depth) -> Too
                     .questions
                     .into_iter()
                     .next()
-                    .map(|question| question.question)
-                    .unwrap_or_default();
+                    .map_or_default(|question| question.question);
             }
         }
         ToolName::ExitPlanMode => {

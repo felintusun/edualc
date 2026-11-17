@@ -10,7 +10,7 @@
 
 # Base images are written out in each FROM, which Dependabot updates.
 
-FROM docker.io/library/rust:1.99.1-slim-bookworm@sha256:f2c004e3d2d8b547e8cf7ffbc29205385f4e71d23e53e4e383065db5e9f822cd AS tools
+FROM docker.io/library/rust:1.100.0-slim-bookworm@sha256:7c7d4eb4d05b7781187a327809466cfddf29753f6defdc3d19a0e291951b7a37 AS tools
 RUN apt-get update \
     && apt-get install -y --no-install-recommends build-essential pkg-config
 RUN cargo install --locked --root /tools \
@@ -24,7 +24,7 @@ RUN cargo install --locked --root /tools \
 # Its binary needs the `cli` feature, which `cargo install` of several crates can't set per crate.
 RUN cargo install --locked --root /tools --features cli cargo-about@0.9.3
 
-FROM docker.io/library/rust:1.99.1-slim-bookworm@sha256:f2c004e3d2d8b547e8cf7ffbc29205385f4e71d23e53e4e383065db5e9f822cd AS debian
+FROM docker.io/library/rust:1.100.0-slim-bookworm@sha256:7c7d4eb4d05b7781187a327809466cfddf29753f6defdc3d19a0e291951b7a37 AS debian
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         ca-certificates git build-essential pkg-config libfontconfig-dev \
@@ -32,7 +32,7 @@ RUN apt-get update \
         piuparts debootstrap debian-archive-keyring
 # The image's toolchain, without rust-toolchain.toml's components and target, which only the
 # checks need.
-ENV RUSTUP_TOOLCHAIN=1.99.1
+ENV RUSTUP_TOOLCHAIN=1.100.0
 COPY --from=tools /tools/bin/just /tools/bin/nu /tools/bin/nickel /usr/local/bin/
 
 FROM docker.io/library/fedora:45@sha256:a7d72ba2745b100a3351087472e5ee7b2450af7cf331e7673007e3817612839c AS fedora
@@ -49,11 +49,11 @@ RUN pacman -Syu --noconfirm --needed \
         base-devel git rustup fontconfig pkgconf python sudo \
         shellcheck namcap appstream desktop-file-utils \
     && pacman -Scc --noconfirm
-# 1.99.1 for the checks (as ci.yml pins it), stable for the PKGBUILDs (RUSTUP_TOOLCHAIN=stable).
-RUN rustup toolchain install 1.99.1 --profile minimal \
+# 1.100.0 for the checks (as ci.yml pins it), stable for the PKGBUILDs (RUSTUP_TOOLCHAIN=stable).
+RUN rustup toolchain install 1.100.0 --profile minimal \
         --component clippy --component rustfmt --target wasm32-unknown-unknown \
     && rustup toolchain install stable --profile minimal \
-    && rustup default 1.99.1 \
+    && rustup default 1.100.0 \
     && mkdir -p "$CARGO_HOME" \
     && chmod -R a+rX "$RUSTUP_HOME" "$CARGO_HOME"
 # makepkg refuses to run as root.

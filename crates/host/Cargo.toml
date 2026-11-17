@@ -3,6 +3,7 @@ name = "edualc-host"
 description = "edualc's daemon: runs Claude Code (and ACP agents) for the windows, reads its files for them, does what the desktop is asked"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 publish.workspace = true

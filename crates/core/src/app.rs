@@ -1387,8 +1387,7 @@ impl<F: Frontend> App<F> {
         };
         let projects_dir = settings
             .effective_projects_dir()
-            .map(|dir| dir.to_string_lossy().into_owned())
-            .unwrap_or_default();
+            .map_or_default(|dir| dir.to_string_lossy().into_owned());
         view.set_text_size(desktop_text_size * settings.scale());
         view.set_composer_height(settings.composer_height_px);
         view.set_new_projects_in(&projects_dir);
@@ -1883,11 +1882,7 @@ impl<F: Frontend> App<F> {
 
     fn render(&mut self) {
         let redraw = std::mem::take(&mut self.redraw);
-        let cwd_buf = self
-            .location
-            .cwd()
-            .map(Path::to_path_buf)
-            .unwrap_or_default();
+        let cwd_buf = self.location.cwd().map_or_default(Path::to_path_buf);
         let cwd = cwd_buf.as_path();
         let (project_name, project_folder, session_title, can_back) = match &self.location {
             Location::Start => (String::new(), String::new(), String::new(), false),
@@ -3172,8 +3167,7 @@ impl<F: Frontend> App<F> {
         let shown = self
             .settings
             .effective_projects_dir()
-            .map(|dir| dir.to_string_lossy().into_owned())
-            .unwrap_or_default();
+            .map_or_default(|dir| dir.to_string_lossy().into_owned());
         self.view.set_new_projects_in(&shown);
         self.view.set_new_project_parent(&shown);
     }

@@ -20,8 +20,7 @@ fn camel(name: &str) -> String {
             let mut letters = part.chars();
             letters
                 .next()
-                .map(|first| first.to_uppercase().chain(letters).collect::<String>())
-                .unwrap_or_default()
+                .map_or_default(|first| first.to_uppercase().chain(letters).collect::<String>())
         })
         .collect()
 }

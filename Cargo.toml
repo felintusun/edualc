@@ -9,6 +9,9 @@ default-members = ["crates/core", "crates/host", "crates/slint", "crates/present
 [workspace.package]
 version = "0.1.0"
 edition = "2024"
+# The oldest Rust that builds edualc (`Option::map_or_default`); rust-toolchain.toml is what CI
+# checks with.
+rust-version = "1.100"
 # Slint is used under GPL-3.0-only, so a built binary goes out under GPL-3.0.
 license = "GPL-3.0-or-later"
 repository = "https://github.com/felintusun/edualc"
