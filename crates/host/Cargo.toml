@@ -47,6 +47,10 @@ rcgen.workspace = true
 rustls.workspace = true
 tokio-rustls.workspace = true
 
+# The file watcher's FSEvents on macOS, as Linux's inotify is rustix's.
+[target.'cfg(target_os = "macos")'.dependencies]
+notify = { version = "8", default-features = false, features = ["macos_fsevent"] }
+
 # rfd's Wayland client, loaded as it is needed rather than linked: edualcd also runs where no
 # Wayland is installed. The window's Slint asks the same; edualcd alone doesn't.
 wayland-backend = { version = "0.3", features = ["dlopen"] }
