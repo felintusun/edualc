@@ -158,6 +158,12 @@ impl Backend {
             Self::Agy | Self::Opencode => true,
         }
     }
+
+    /// Whether a session of this backend can be forked into a copy (`--fork-session` / ACP
+    /// `session/fork`).
+    pub fn can_fork(self) -> bool {
+        matches!(self, Self::Claude | Self::Opencode)
+    }
 }
 
 /// What a session's process is started with; the daemon starts it.

@@ -335,6 +335,10 @@ impl<F: Frontend> App<F> {
                 self.status.context_tokens = used;
                 self.status.context_window = size;
             }
+            System::Commands { commands } => {
+                self.set_commands(commands);
+                self.redraw.menus = true;
+            }
             System::Other => {}
         }
     }
@@ -499,15 +503,7 @@ impl<F: Frontend> App<F> {
         self.redraw.menus = true;
     }
 
-    fn take_initialized(&mut self, initialized: Initialized) {
-        self.status.models = initialized.models;
-        if let Some(program) = initialized.program_modes {
-            self.status.modes = Modes::Program {
-                offered: program.offered,
-                current: program.current,
-            };
-        }
-        let mut commands = initialized.commands;
+    fn set_commands(&mut self, mut commands: Vec<CommandInfo>) {
         if self.status.backend == crate::claude::Backend::Claude {
             // The terminal's own; this window answers it in the side panel.
             commands.push(CommandInfo {
@@ -524,6 +520,17 @@ impl<F: Frontend> App<F> {
         }
         commands.sort_by(|left, right| left.name.cmp(&right.name));
         self.status.commands = commands;
+    }
+
+    fn take_initialized(&mut self, initialized: Initialized) {
+        self.status.models = initialized.models;
+        if let Some(program) = initialized.program_modes {
+            self.status.modes = Modes::Program {
+                offered: program.offered,
+                current: program.current,
+            };
+        }
+        self.set_commands(initialized.commands);
         if !initialized.account.email.is_empty() && self.status.sign_in == SignIn::Unknown {
             self.status.sign_in = SignIn::SignedIn;
         }

@@ -7,22 +7,25 @@
 
 use std::collections::{HashMap, HashSet};
 use std::ffi::{OsStr, OsString};
+use std::io::{Read as _, Seek as _, SeekFrom};
 use std::mem::MaybeUninit;
 use std::os::fd::OwnedFd;
 use std::os::unix::ffi::OsStrExt as _;
 use std::path::{Path, PathBuf};
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
 use rustix::fs::inotify::{self, CreateFlags, WatchFlags};
 use rustix::io::Errno;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, oneshot};
 
-use crate::acp::brain;
-use crate::external::agy::{self, AgyTask};
+use crate::acp::{self, Agent, ExternalSession, brain};
+use crate::claude::Backend;
+use crate::external::agy::{self, AgyTask, Step, StepKind, StepStatus};
 use crate::external::claude_files::{ClaudeJsonWhole, ProjectWhole};
-use crate::external::wire::TranscriptLine;
+use crate::external::wire::{SessionId, TranscriptLine};
 use crate::folder::Folder;
 use crate::ipc::{self, ActId, Answer, FromDaemon, Place, ProjectOverview, Read, Target, Watched};
+use crate::sessions::{LiveKind, LiveSession, LiveStatus, MessagingName, ProjectInfo, SessionInfo};
 use crate::{sessions, settings, snapshots};
 
 /// Where what is told to a window goes.
@@ -302,12 +305,138 @@ fn translated(lines: &[String], line: fn(&str) -> Option<TranscriptLine>) -> Vec
         .collect()
 }
 
+/// How long cached ACP `session/list` results stay fresh before a background refresh.
+const CATALOG_TTL: Duration = Duration::from_secs(30);
+/// How recently an external `agy` brain transcript must be written with a `RUNNING` step to
+/// show as live.
+const AGY_LIVE_WINDOW: Duration = Duration::from_secs(120);
+/// Tail bytes read from an external `agy` brain transcript for live/last-said previews.
+const BRAIN_TAIL_BYTES: u64 = 32 * 1024;
+
+/// A handle to the daemon's single-owner ACP external session catalog actor.
+pub type Catalog = mpsc::Sender<CatalogQuery>;
+
+/// A query for cached external `agy` & `opencode` sessions.
+#[derive(Debug)]
+pub struct CatalogQuery {
+    pub cached_only: bool,
+    pub reply: oneshot::Sender<Vec<ExternalSession>>,
+}
+
+/// Maintains the cached list of external `agy` and `opencode` sessions off one actor task, so
+/// concurrent `Read::Overview`/`Read::Sessions` never spawn duplicate probes or hold locks.
+pub async fn keep_catalog(mut queries: mpsc::Receiver<CatalogQuery>) {
+    let mut cached: Vec<ExternalSession> = Vec::new();
+    let mut fetched_at: Option<tokio::time::Instant> = None;
+    let mut refreshing = false;
+    let mut waiters: Vec<oneshot::Sender<Vec<ExternalSession>>> = Vec::new();
+    let (refreshed_tx, mut refreshed_rx) = mpsc::channel::<Vec<ExternalSession>>(4);
+
+    let spawn_refresh = |refreshing: &mut bool, tx: &mpsc::Sender<Vec<ExternalSession>>| {
+        if *refreshing {
+            return;
+        }
+        *refreshing = true;
+        let tx = tx.clone();
+        tokio::spawn(async move {
+            let (agy, opencode) = tokio::join!(
+                acp::list_sessions(Agent::Agy),
+                acp::list_sessions(Agent::Opencode),
+            );
+            let mut combined = agy;
+            combined.extend(opencode);
+            if tx.send(combined).await.is_err() {
+                tracing::debug!("acp catalog actor stopped before refresh finished");
+            }
+        });
+    };
+
+    loop {
+        tokio::select! {
+            query = queries.recv() => {
+                let Some(CatalogQuery { cached_only, reply }) = query else {
+                    return;
+                };
+                let fresh = fetched_at.is_some_and(|at| at.elapsed() < CATALOG_TTL);
+                if cached_only || fetched_at.is_some() {
+                    if reply.send(cached.clone()).is_err() {
+                        tracing::debug!("catalog waiter dropped");
+                    }
+                    if !fresh {
+                        spawn_refresh(&mut refreshing, &refreshed_tx);
+                    }
+                } else {
+                    waiters.push(reply);
+                    spawn_refresh(&mut refreshing, &refreshed_tx);
+                }
+            }
+            refreshed = refreshed_rx.recv() => {
+                let Some(sessions) = refreshed else {
+                    continue;
+                };
+                refreshing = false;
+                fetched_at = Some(tokio::time::Instant::now());
+                cached = sessions;
+                for waiter in waiters.drain(..) {
+                    if waiter.send(cached.clone()).is_err() {
+                        tracing::debug!("catalog waiter dropped");
+                    }
+                }
+            }
+        }
+    }
+}
+
+async fn query_catalog(catalog: &Catalog, cached_only: bool) -> Vec<ExternalSession> {
+    let (reply, answer) = oneshot::channel();
+    if catalog
+        .send(CatalogQuery { cached_only, reply })
+        .await
+        .is_err()
+    {
+        return Vec::new();
+    }
+    answer.await.unwrap_or_default()
+}
+
+fn agy_brain_transcript(id: &SessionId) -> Option<PathBuf> {
+    let brain = agy::brain()?;
+    let log = agy::generated(&brain, id).join("logs/transcript.jsonl");
+    log.is_file().then_some(log)
+}
+
+fn is_agy_brain_log(path: &Path) -> bool {
+    agy::brain().is_some_and(|brain| path.starts_with(&brain))
+        && path.ends_with("logs/transcript.jsonl")
+}
+
+fn is_agy_board(path: &Path) -> bool {
+    agy::brain().is_some_and(|brain| path.starts_with(&brain))
+        && path.ends_with("swarm/board.jsonl")
+}
+
 /// Where a transcript is: an agy session's subagents and board are in agy's own records, by the
-/// conversation the task names.
+/// conversation the task names; external agy sessions fall back to their brain steps.
 pub fn resolve(place: &Place) -> Source {
     match place {
-        Place::Path(path) => Source::Transcript(path.clone()),
-        Place::Session { cwd, id } => Source::Transcript(sessions::locate(cwd, id)),
+        Place::Path(path) => {
+            if is_agy_brain_log(path) {
+                Source::AgySteps(path.clone())
+            } else if is_agy_board(path) {
+                Source::AgyBoard(path.clone())
+            } else {
+                Source::Transcript(path.clone())
+            }
+        }
+        Place::Session { cwd, id } => {
+            if let Some(found) = sessions::find_transcript(cwd, id) {
+                Source::Transcript(found)
+            } else if let Some(brain_log) = agy_brain_transcript(id) {
+                Source::AgySteps(brain_log)
+            } else {
+                Source::Transcript(sessions::locate(cwd, id))
+            }
+        }
         Place::Subagent { cwd, id, task } => match (AgyTask::of(task), agy::brain()) {
             (Some(AgyTask::Conversation(conversation)), Some(brain)) => Source::AgySteps(
                 agy::generated(&brain, &conversation).join("logs/transcript.jsonl"),
@@ -324,7 +453,7 @@ pub fn resolve(place: &Place) -> Source {
 }
 
 /// Reads what a window asked for, off the runtime's thread, and tells it.
-pub async fn answer(request: ActId, read: Read, outbox: Outbox) {
+pub async fn answer(request: ActId, read: Read, outbox: Outbox, catalog: Catalog) {
     if let Read::ProviderUsage { backend, cwd } = read {
         let usage = crate::usage::query(backend, cwd).await;
         if outbox
@@ -339,8 +468,23 @@ pub async fn answer(request: ActId, read: Read, outbox: Outbox) {
         }
         return;
     }
+    let external = match &read {
+        Read::Live => query_catalog(&catalog, true).await,
+        Read::Projects | Read::Overview | Read::Sessions { .. } | Read::Saved(_) => {
+            query_catalog(&catalog, false).await
+        }
+        Read::Transcript { .. }
+        | Read::WorktreeOf { .. }
+        | Read::LinkedWorktree { .. }
+        | Read::TypedFolder(_)
+        | Read::Folder(_)
+        | Read::Changes { .. }
+        | Read::Diff { .. }
+        | Read::ProviderUsage { .. } => Vec::new(),
+    };
     let pieces = outbox.clone();
-    let answered = tokio::task::spawn_blocking(move || read_for(request, read, &pieces)).await;
+    let answered =
+        tokio::task::spawn_blocking(move || read_for(request, read, &pieces, &external)).await;
     let answer = match answered {
         Ok(answer) => answer,
         Err(error) => {
@@ -361,15 +505,23 @@ pub async fn answer(request: ActId, read: Read, outbox: Outbox) {
 const OVERVIEW_SESSIONS: usize = 5;
 
 /// What `read` comes to; a transcript's lines go to `pieces` as they are read, before.
-fn read_for(request: ActId, read: Read, pieces: &Outbox) -> Answer {
+fn read_for(request: ActId, read: Read, pieces: &Outbox, external: &[ExternalSession]) -> Answer {
     match read {
-        Read::Live => Answer::Live(sessions::live()),
-        Read::Projects => Answer::Projects(sessions::projects()),
+        Read::Live => Answer::Live(merge_live(sessions::live(), external)),
+        Read::Projects => Answer::Projects(merge_projects(sessions::projects(), external)),
         Read::Overview => {
-            let overviews: Vec<ProjectOverview> = sessions::projects()
+            let recorded_ids = sessions::recorded_agent_ids();
+            let overviews: Vec<ProjectOverview> = merge_projects(sessions::projects(), external)
                 .into_iter()
                 .map(|project| {
-                    let sessions = sessions::list(&project.path, OVERVIEW_SESSIONS, Vec::new());
+                    let local = sessions::list(&project.path, OVERVIEW_SESSIONS, Vec::new());
+                    let sessions = merge_sessions(
+                        local,
+                        external,
+                        &recorded_ids,
+                        &project.path,
+                        OVERVIEW_SESSIONS,
+                    );
                     ProjectOverview {
                         path: project.path,
                         modified: project.modified,
@@ -380,7 +532,10 @@ fn read_for(request: ActId, read: Read, pieces: &Outbox) -> Answer {
             Answer::Overview(chunk_overview(request, overviews, pieces))
         }
         Read::Sessions { cwd, limit, known } => {
-            Answer::Sessions(sessions::list(&cwd, limit.min(MOST_SESSIONS), known))
+            let limit = limit.min(MOST_SESSIONS);
+            let local = sessions::list(&cwd, limit, known);
+            let recorded_ids = sessions::recorded_agent_ids();
+            Answer::Sessions(merge_sessions(local, external, &recorded_ids, &cwd, limit))
         }
         Read::Transcript { place, from } => {
             let source = resolve(&place);
@@ -431,8 +586,181 @@ fn read_for(request: ActId, read: Read, pieces: &Outbox) -> Answer {
         Read::ProviderUsage { .. } => {
             unreachable!("ProviderUsage is handled asynchronously in files::answer")
         }
-        Read::Saved(id) => Answer::Saved(sessions::saved(&id)),
+        Read::Saved(id) => {
+            let saved = sessions::saved(&id);
+            let saved = if saved == sessions::Saved::Nowhere {
+                external
+                    .iter()
+                    .find(|session| session.id == id && session.cwd.is_dir())
+                    .map_or(saved, |session| {
+                        sessions::Saved::StartedIn(session.cwd.clone())
+                    })
+            } else {
+                saved
+            };
+            Answer::Saved(saved)
+        }
     }
+}
+
+fn agy_brain_tail(path: &Path) -> Option<(SystemTime, Vec<Step>)> {
+    let mut file = std::fs::File::open(path).ok()?;
+    let metadata = file.metadata().ok()?;
+    let modified = metadata.modified().ok()?;
+    let len = metadata.len();
+    let start = len.saturating_sub(BRAIN_TAIL_BYTES);
+    file.seek(SeekFrom::Start(start)).ok()?;
+    let mut bytes = Vec::new();
+    file.take(BRAIN_TAIL_BYTES).read_to_end(&mut bytes).ok()?;
+    let text = String::from_utf8_lossy(&bytes);
+    let steps = text
+        .lines()
+        .skip(usize::from(start > 0))
+        .filter_map(|line| serde_json::from_str::<Step>(line).ok())
+        .collect();
+    Some((modified, steps))
+}
+
+fn agy_brain_last_said(id: &SessionId) -> Option<(SystemTime, String)> {
+    let path = agy_brain_transcript(id)?;
+    let (modified, steps) = agy_brain_tail(&path)?;
+    let last = steps.into_iter().rev().find_map(|step| {
+        (step.kind == StepKind::PlannerResponse)
+            .then_some(step.content)
+            .flatten()
+            .and_then(|text| sessions::first_sentence(&text))
+    })?;
+    Some((modified, last))
+}
+
+fn agy_brain_is_running(id: &SessionId, now: SystemTime) -> bool {
+    let Some(path) = agy_brain_transcript(id) else {
+        return false;
+    };
+    let Some((modified, steps)) = agy_brain_tail(&path) else {
+        return false;
+    };
+    let fresh = now.duration_since(modified).unwrap_or_default() < AGY_LIVE_WINDOW;
+    fresh
+        && steps
+            .last()
+            .is_some_and(|step| step.status == StepStatus::Running)
+}
+
+fn merge_live(mut live: Vec<LiveSession>, external: &[ExternalSession]) -> Vec<LiveSession> {
+    let now = SystemTime::now();
+    let recorded_ids = sessions::recorded_agent_ids();
+    for ext in external {
+        if ext.backend != Backend::Agy
+            || !ext.cwd.is_dir()
+            || live.iter().any(|session| session.id == ext.id)
+            || recorded_ids.contains(&ext.raw_id)
+        {
+            continue;
+        }
+        if agy_brain_is_running(&ext.id, now) {
+            live.push(LiveSession {
+                pid: 0,
+                started: String::new(),
+                id: ext.id.clone(),
+                cwd: ext.cwd.clone(),
+                name: MessagingName::of(&ext.id, &ext.cwd).to_string(),
+                title: Some(ext.title.clone()),
+                kind: LiveKind::Interactive,
+                status: LiveStatus::Busy,
+                worktree: sessions::linked_worktree(&ext.cwd),
+                agents: 0,
+                backend: Backend::Agy,
+            });
+        }
+    }
+    live.sort_by_key(|session| {
+        let urgency = match session.status {
+            LiveStatus::Waiting => 0,
+            LiveStatus::Busy => 1,
+            LiveStatus::Idle => 2,
+            LiveStatus::Other => 3,
+        };
+        (urgency, session.name.clone())
+    });
+    live
+}
+
+fn merge_projects(local: Vec<ProjectInfo>, external: &[ExternalSession]) -> Vec<ProjectInfo> {
+    let mut by_path: HashMap<PathBuf, SystemTime> = local
+        .into_iter()
+        .map(|project| (project.path, project.modified))
+        .collect();
+    for ext in external {
+        if !ext.cwd.is_dir() {
+            continue;
+        }
+        let modified = if ext.backend == Backend::Agy {
+            agy_brain_transcript(&ext.id)
+                .and_then(|path| path.metadata().ok()?.modified().ok())
+                .map_or(ext.modified, |brain_mod| brain_mod.max(ext.modified))
+        } else {
+            ext.modified
+        };
+        by_path
+            .entry(ext.cwd.clone())
+            .and_modify(|existing| {
+                if modified > *existing {
+                    *existing = modified;
+                }
+            })
+            .or_insert(modified);
+    }
+    let mut projects: Vec<ProjectInfo> = by_path
+        .into_iter()
+        .map(|(path, modified)| ProjectInfo { path, modified })
+        .collect();
+    projects.sort_by_key(|project| std::cmp::Reverse(project.modified));
+    projects
+}
+
+fn merge_sessions(
+    local: Vec<SessionInfo>,
+    external: &[ExternalSession],
+    recorded_ids: &HashSet<String>,
+    cwd: &Path,
+    limit: usize,
+) -> Vec<SessionInfo> {
+    let mut seen_ids: HashSet<SessionId> = local.iter().map(|session| session.id.clone()).collect();
+    let mut merged = local;
+    for ext in external {
+        if !sessions::belongs_to_project(&ext.cwd, cwd)
+            || seen_ids.contains(&ext.id)
+            || recorded_ids.contains(&ext.raw_id)
+        {
+            continue;
+        }
+        seen_ids.insert(ext.id.clone());
+        let (brain_mod, last_said) = if ext.backend == Backend::Agy {
+            match agy_brain_last_said(&ext.id) {
+                Some((brain_mod, said)) => (Some(brain_mod), Some(said)),
+                None => (
+                    agy_brain_transcript(&ext.id)
+                        .and_then(|path| path.metadata().ok()?.modified().ok()),
+                    None,
+                ),
+            }
+        } else {
+            (None, None)
+        };
+        let modified = brain_mod.map_or(ext.modified, |m| m.max(ext.modified));
+        merged.push(SessionInfo {
+            backend: ext.backend,
+            id: ext.id.clone(),
+            title: ext.title.clone(),
+            modified,
+            worktree: sessions::linked_worktree(&ext.cwd),
+            last_said,
+        });
+    }
+    merged.sort_by_key(|session| std::cmp::Reverse(session.modified));
+    merged.truncate(limit);
+    merged
 }
 
 /// A session's changes as the keeper wrote them.
@@ -1358,5 +1686,77 @@ mod tests {
         records.at = Some((PathBuf::from("/h"), 4));
         assert!(records.concerns(Some(OsStr::new("sessions"))));
         assert!(!records.concerns(Some(OsStr::new("projects"))));
+    }
+
+    #[test]
+    fn external_sessions_merge_dedup_and_sort_by_modified() {
+        let dir = std::env::temp_dir().join(format!("edualc-merge-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("a scratch dir");
+        let now = SystemTime::now();
+        let earlier = now - Duration::from_secs(60);
+        let local_id = SessionId::new_random();
+        let dup_ext_id = SessionId::new_random();
+        let new_ext_id = SessionId::for_external(Backend::Opencode, "ses_new1");
+        let other_dir = dir.join("other");
+        std::fs::create_dir_all(&other_dir).expect("other dir");
+
+        let local = vec![SessionInfo {
+            backend: Backend::Agy,
+            id: local_id.clone(),
+            title: "Local agy".to_owned(),
+            modified: earlier,
+            worktree: None,
+            last_said: None,
+        }];
+        let external = vec![
+            ExternalSession {
+                backend: Backend::Agy,
+                raw_id: "agy-shadowed".to_owned(),
+                id: dup_ext_id,
+                cwd: dir.clone(),
+                title: "Duplicate".to_owned(),
+                modified: now,
+            },
+            ExternalSession {
+                backend: Backend::Opencode,
+                raw_id: "ses_new1".to_owned(),
+                id: new_ext_id.clone(),
+                cwd: dir.clone(),
+                title: "External opencode".to_owned(),
+                modified: now,
+            },
+            ExternalSession {
+                backend: Backend::Opencode,
+                raw_id: "ses_other".to_owned(),
+                id: SessionId::for_external(Backend::Opencode, "ses_other"),
+                cwd: other_dir,
+                title: "Other project".to_owned(),
+                modified: now,
+            },
+        ];
+        let recorded = HashSet::from(["agy-shadowed".to_owned()]);
+        let merged = merge_sessions(local, &external, &recorded, &dir, 10);
+        let ids: Vec<(SessionId, Backend)> = merged
+            .iter()
+            .map(|session| (session.id.clone(), session.backend))
+            .collect();
+        assert_eq!(
+            ids,
+            [(new_ext_id, Backend::Opencode), (local_id, Backend::Agy),]
+        );
+        std::fs::remove_dir_all(&dir).expect("scratch cleaned");
+    }
+
+    #[test]
+    fn resolve_maps_agy_brain_logs_to_agy_steps() {
+        if let Some(brain) = agy::brain() {
+            let log = brain
+                .join("8287c7b4-6f01-4d71-95bf-8379dbf2fefa")
+                .join(".system_generated/logs/transcript.jsonl");
+            assert!(matches!(
+                resolve(&Place::Path(log.clone())),
+                Source::AgySteps(path) if path == log
+            ));
+        }
     }
 }

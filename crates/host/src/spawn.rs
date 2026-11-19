@@ -160,7 +160,14 @@ fn spawn_acp(
     match &launch.conversation {
         Conversation::New(id) => command.arg(format!("--session-id={id}")),
         Conversation::Continue(id) => command.arg(format!("--resume={id}")),
-        Conversation::Fork { .. } => return Err(Error::AcpFork),
+        Conversation::Fork { of, id } => {
+            if !launch.backend.can_fork() {
+                return Err(Error::AcpFork);
+            }
+            command
+                .arg(format!("--fork={of}"))
+                .arg(format!("--session-id={id}"))
+        }
     };
     if let Some(model) = &launch.model {
         command.arg(format!("--model={}", model_name(model)?));
@@ -226,5 +233,11 @@ mod tests {
         assert!(model_name("--dangerously-skip-permissions").is_err());
         assert!(model_name("haiku; rm -rf ~").is_err());
         assert!(model_name("").is_err());
+    }
+
+    #[test]
+    fn opencode_allows_fork_while_agy_refuses_it() {
+        assert!(crate::claude::Backend::Opencode.can_fork());
+        assert!(!crate::claude::Backend::Agy.can_fork());
     }
 }

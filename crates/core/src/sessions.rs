@@ -302,26 +302,142 @@ fn session_dirs(homes: &[PathBuf], cwd: &Path) -> Vec<PathBuf> {
         .collect()
 }
 
-/// Every folder of transcripts' folders: the user's own home's, and agy's sessions'.
+/// Every folder of transcripts' folders: the user's own home's, agy's, and opencode's sessions'.
 fn all_projects_dirs() -> Vec<PathBuf> {
     std::iter::once(projects_dir())
         .chain(agy_projects())
+        .chain(opencode_projects())
         .collect()
+}
+
+fn state_projects(backend: crate::claude::Backend) -> Option<PathBuf> {
+    let folder = match backend {
+        crate::claude::Backend::Claude => return None,
+        crate::claude::Backend::Agy => "agy",
+        crate::claude::Backend::Opencode => "opencode",
+    };
+    dirs::state_dir().map(|state| state.join("edualc").join(folder))
 }
 
 /// Where edualc keeps the transcripts of agy's sessions, a folder per project as Claude Code
 /// keeps its own: agy keeps its conversations in a database of its own, which edualc doesn't
 /// read.
 pub fn agy_projects() -> Option<PathBuf> {
-    dirs::state_dir().map(|state| state.join("edualc").join("agy"))
+    state_projects(crate::claude::Backend::Agy)
+}
+
+/// Where edualc keeps the shadow transcripts of opencode's sessions, a folder per project as
+/// Claude Code keeps its own.
+pub fn opencode_projects() -> Option<PathBuf> {
+    state_projects(crate::claude::Backend::Opencode)
+}
+
+/// Whether `path` lies inside agy's brain folder.
+#[cfg(not(target_arch = "wasm32"))]
+fn is_agy_brain_path(transcript: &Path) -> bool {
+    crate::external::agy::brain().is_some_and(|brain| transcript.starts_with(&brain))
+}
+
+#[cfg(target_arch = "wasm32")]
+fn is_agy_brain_path(_transcript: &Path) -> bool {
+    false
+}
+
+/// Whether `id` has an external agy brain transcript on disk.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn is_agy_brain_session(id: &SessionId) -> bool {
+    crate::external::agy::brain().is_some_and(|brain| {
+        crate::external::agy::generated(&brain, id)
+            .join("logs/transcript.jsonl")
+            .is_file()
+    })
+}
+
+#[cfg(target_arch = "wasm32")]
+pub fn is_agy_brain_session(_id: &SessionId) -> bool {
+    false
 }
 
 /// The program a session saved at `transcript` talks to, as where its transcript is says.
 pub fn backend_of(transcript: &Path) -> crate::claude::Backend {
-    match agy_projects() {
-        Some(agy) if transcript.starts_with(&agy) => crate::claude::Backend::Agy,
-        Some(_) | None => crate::claude::Backend::Claude,
+    if agy_projects().is_some_and(|agy| transcript.starts_with(&agy))
+        || is_agy_brain_path(transcript)
+    {
+        crate::claude::Backend::Agy
+    } else if opencode_projects().is_some_and(|oc| transcript.starts_with(&oc)) {
+        crate::claude::Backend::Opencode
+    } else {
+        crate::claude::Backend::Claude
     }
+}
+
+/// Whether `session_cwd` belongs to project `project_cwd`: the project itself, one of its
+/// `.claude/worktrees/`, or a linked git worktree whose gitdir is under `project_cwd/.git`.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn belongs_to_project(session_cwd: &Path, project_cwd: &Path) -> bool {
+    if session_cwd == project_cwd
+        || session_cwd.starts_with(project_cwd.join(".claude").join("worktrees"))
+    {
+        return true;
+    }
+    let Some(pointer) = read_small(&session_cwd.join(".git"), GIT_POINTER_BYTES) else {
+        return false;
+    };
+    let Some(gitdir) = pointer.strip_prefix("gitdir:").map(str::trim) else {
+        return false;
+    };
+    let gitdir = if Path::new(gitdir).is_absolute() {
+        PathBuf::from(gitdir)
+    } else {
+        session_cwd.join(gitdir)
+    };
+    gitdir.starts_with(project_cwd.join(".git"))
+}
+
+/// The backend's own conversation ids recorded in shadow transcripts under `agy` and
+/// `opencode` state folders, so external listings don't list them twice.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn recorded_agent_ids() -> std::collections::HashSet<String> {
+    let mut ids = std::collections::HashSet::new();
+    for root in agy_projects().into_iter().chain(opencode_projects()) {
+        let Ok(projects) = std::fs::read_dir(root) else {
+            continue;
+        };
+        for project in projects.filter_map(Result::ok) {
+            let Ok(entries) = std::fs::read_dir(project.path()) else {
+                continue;
+            };
+            for entry in entries.filter_map(Result::ok) {
+                let path = entry.path();
+                if path.extension().is_some_and(|ext| ext == "jsonl")
+                    && summary(&path).is_some()
+                    && let Some(agent_id) = first_agent_session_id(&path)
+                {
+                    ids.insert(agent_id);
+                }
+            }
+        }
+    }
+    ids
+}
+
+/// The agent's conversation id from the first lines of a shadow transcript, if recorded.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn first_agent_session_id(transcript: &Path) -> Option<String> {
+    let file = File::open(transcript).ok()?;
+    head_lines(file)
+        .filter(|line| line.contains("agySessionId"))
+        .find_map(|line| match serde_json::from_str(&line).ok()? {
+            TranscriptLine::AgySession { agent_session_id } => Some(agent_session_id),
+            TranscriptLine::User { .. }
+            | TranscriptLine::Assistant { .. }
+            | TranscriptLine::System(_)
+            | TranscriptLine::CustomTitle { .. }
+            | TranscriptLine::AiTitle { .. }
+            | TranscriptLine::Summary { .. }
+            | TranscriptLine::WorktreeState { .. }
+            | TranscriptLine::Other => None,
+        })
 }
 
 /// Where a Claude Code session in `cwd` keeps its transcript.
@@ -691,6 +807,9 @@ fn parse_line(line: &str) -> Option<TranscriptLine> {
 /// Titles are appended as the session goes on; prompts are at the start. Neither needs the
 /// whole file, which can be many megabytes.
 const PEEK_BYTES: u64 = 128 * 1024;
+/// Head scan budget so oversized initial snapshot or attachment lines (>128 KiB) don't cut off
+/// the first prompt or `cwd` on large transcripts.
+const HEAD_SCAN_BYTES: u64 = 4 * 1024 * 1024;
 
 struct Summary {
     title: String,
@@ -705,22 +824,42 @@ fn summary(path: &Path) -> Option<Summary> {
     let tail = read_range(&mut file, length.saturating_sub(PEEK_BYTES), length)?;
     let (mut custom, mut generated, mut summary, mut worktree, mut last_said) =
         (None, None, None, None, None);
-    let candidates = tail.lines().filter(|line| {
-        line.contains("itle\"")
-            || line.contains("\"summary\"")
-            || line.contains("worktree-state")
-            || line.contains("\"assistant\"")
-    });
-    for line in candidates {
+    let own_name = path
+        .file_stem()
+        .and_then(|stem| SessionId::try_from(stem.to_string_lossy().into_owned()).ok())
+        .map(|id| PetName::of(&id));
+    for line in tail.lines().rev() {
+        let want_title = custom.is_none() && line.contains("itle\"")
+            || generated.is_none() && line.contains("aiTitle")
+            || summary.is_none() && line.contains("\"summary\"")
+            || worktree.is_none() && line.contains("worktree-state");
+        let want_said =
+            last_said.is_none() && line.contains("\"assistant\"") && line.contains("\"text\"");
+        if !want_title && !want_said {
+            continue;
+        }
         match serde_json::from_str(line) {
-            Ok(TranscriptLine::CustomTitle { custom_title }) => custom = Some(custom_title),
-            Ok(TranscriptLine::AiTitle { ai_title }) => generated = Some(ai_title),
-            Ok(TranscriptLine::Summary { summary: text }) => summary = Some(text),
-            Ok(TranscriptLine::WorktreeState { worktree: state }) => worktree = Some(state),
+            Ok(TranscriptLine::CustomTitle { custom_title }) if custom.is_none() => {
+                if !own_name
+                    .as_ref()
+                    .is_some_and(|name| name.is_in(&custom_title))
+                {
+                    custom = Some(custom_title);
+                }
+            }
+            Ok(TranscriptLine::AiTitle { ai_title }) if generated.is_none() => {
+                generated = Some(ai_title);
+            }
+            Ok(TranscriptLine::Summary { summary: text }) if summary.is_none() => {
+                summary = Some(text);
+            }
+            Ok(TranscriptLine::WorktreeState { worktree: state }) if worktree.is_none() => {
+                worktree = Some(state);
+            }
             Ok(TranscriptLine::Assistant {
                 message,
                 is_sidechain: false,
-            }) => {
+            }) if last_said.is_none() => {
                 if let Some(said) = assistant_sentence(&message.content) {
                     last_said = Some(said);
                 }
@@ -728,14 +867,11 @@ fn summary(path: &Path) -> Option<Summary> {
             // The first line of the tail may be cut; other lines aren't titles.
             Ok(_) | Err(_) => {}
         }
+        if custom.is_some() && worktree.is_some() && last_said.is_some() {
+            break;
+        }
     }
     let worktree = worktree.flatten().and_then(Worktree::existing);
-    // A custom title holding the session's two words is the name edualc gave its process.
-    let own_name = path
-        .file_stem()
-        .and_then(|stem| SessionId::try_from(stem.to_string_lossy().into_owned()).ok())
-        .map(|id| PetName::of(&id));
-    let custom = custom.filter(|title| !own_name.as_ref().is_some_and(|name| name.is_in(title)));
     if let Some(title) = custom.or(generated).or(summary) {
         return Some(Summary {
             title: title_line(&title).to_owned(),
@@ -747,6 +883,7 @@ fn summary(path: &Path) -> Option<Summary> {
     // whose turn can fill more than the head before the user writes anything.
     file.seek(SeekFrom::Start(0)).ok()?;
     head_lines(file)
+        .filter(|line| line.contains("\"user\""))
         .find_map(|line| match serde_json::from_str(&line) {
             Ok(TranscriptLine::User {
                 is_sidechain: false,
@@ -786,7 +923,7 @@ pub fn assistant_sentence(blocks: &[crate::external::wire::ContentBlock]) -> Opt
     first_sentence(&combined)
 }
 
-fn first_sentence(text: &str) -> Option<String> {
+pub fn first_sentence(text: &str) -> Option<String> {
     let mut line = String::new();
     let mut heading_fallback: Option<&str> = None;
     for raw in text.lines() {
@@ -909,7 +1046,7 @@ fn prompt_text(content: &UserContent) -> Option<String> {
 
 /// The lines at the start of a transcript, read only as far as they are wanted.
 fn head_lines(file: File) -> impl Iterator<Item = String> {
-    BufReader::new(file.take(PEEK_BYTES))
+    BufReader::new(file.take(HEAD_SCAN_BYTES))
         .lines()
         .map_while(Result::ok)
 }
@@ -1315,5 +1452,60 @@ mod tests {
             Some("日本語の文です。")
         );
         std::fs::remove_dir_all(&dir).expect("the scratch directory goes");
+    }
+
+    #[test]
+    fn summary_survives_oversized_head_lines_on_large_transcripts() {
+        let dir = std::env::temp_dir().join(format!("edualc-oversized-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("a scratch directory");
+        let path = dir.join("80bdeda4-8427-4be3-b815-ea82e7490490.jsonl");
+        let huge_snapshot = json!({
+            "type": "file-history-snapshot",
+            "payload": "x".repeat(256 * 1024),
+        });
+        let prompt = json!({
+            "type": "user",
+            "message": { "role": "user", "content": "Recover after huge snapshot" },
+        });
+        let reply = json!({
+            "type": "assistant",
+            "message": { "role": "assistant", "content": [{ "type": "text", "text": "Recovered cleanly." }] },
+        });
+        std::fs::write(&path, format!("{huge_snapshot}\n{prompt}\n{reply}\n"))
+            .expect("a transcript");
+        let found = summary(&path).expect("summary past >128KB head line");
+        assert_eq!(found.title, "Recover after huge snapshot");
+        assert_eq!(found.last_said.as_deref(), Some("Recovered cleanly."));
+        std::fs::remove_dir_all(&dir).expect("the scratch directory goes");
+    }
+
+    #[test]
+    fn external_ids_map_deterministically_and_backends_identify_state_dirs() {
+        let uuid = "e4cd185b-4679-4fa9-8245-69f15bdbbbe1";
+        assert_eq!(
+            SessionId::for_external(crate::claude::Backend::Agy, uuid).as_str(),
+            uuid
+        );
+        let ses_a = SessionId::for_external(crate::claude::Backend::Opencode, "ses_abc123");
+        let ses_b = SessionId::for_external(crate::claude::Backend::Opencode, "ses_abc123");
+        let ses_c = SessionId::for_external(crate::claude::Backend::Opencode, "ses_xyz789");
+        assert_eq!(ses_a, ses_b);
+        assert_ne!(ses_a, ses_c);
+        if let Some(oc) = opencode_projects() {
+            assert_eq!(
+                backend_of(&oc.join("-w-app/x.jsonl")),
+                crate::claude::Backend::Opencode
+            );
+        }
+        if let Some(brain) = crate::external::agy::brain() {
+            assert_eq!(
+                backend_of(
+                    &brain
+                        .join(uuid)
+                        .join(".system_generated/logs/transcript.jsonl")
+                ),
+                crate::claude::Backend::Agy
+            );
+        }
     }
 }

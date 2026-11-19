@@ -1366,6 +1366,8 @@ pub struct App<F: Frontend> {
     line_comments: Vec<LineComment>,
     /// What is done with the daemon's answers to what was read, by request.
     answers: HashMap<ActId, Reading>,
+    /// The newest `Read::Sessions` request sent, so a slower earlier one doesn't overwrite it.
+    sessions_request: Option<ActId>,
     /// Why the settings couldn't be read, to say once the window is up.
     settings_problem: Option<String>,
     /// The watch on the running sessions' records.
@@ -1525,6 +1527,7 @@ impl<F: Frontend> App<F> {
             changes: None,
             line_comments: Vec::new(),
             answers: HashMap::new(),
+            sessions_request: None,
             settings_problem,
             records: None,
             side: SideChat::default(),
@@ -1665,10 +1668,17 @@ impl<F: Frontend> App<F> {
                 answer,
                 lines,
             } => {
-                if let Some(reading) = self.answers.remove(&request)
-                    && let Some(event) = reading.answered(answer, lines)
-                {
-                    return self.handle(event);
+                if let Some(reading) = self.answers.remove(&request) {
+                    if matches!(reading, Reading::Sessions { .. })
+                        && self
+                            .sessions_request
+                            .is_some_and(|latest| latest != request)
+                    {
+                        return ControlFlow::Continue(());
+                    }
+                    if let Some(event) = reading.answered(answer, lines) {
+                        return self.handle(event);
+                    }
                 }
             }
             Event::LinkedWorktreeRead {
@@ -2816,19 +2826,36 @@ impl<F: Frontend> App<F> {
         self.continue_session(id, backend, claude::SignInWith::Account);
     }
 
-    /// The program session `id` ran, as the list or its transcript says.
+    /// The program session `id` ran, as the list, running records, or its transcript says.
     fn backend_of(&self, id: &SessionId) -> claude::Backend {
         self.sessions
             .iter()
             .find(|session| &session.id == id)
-            .map_or_else(
-                || {
-                    self.location.cwd().map_or(self.status.backend, |cwd| {
-                        sessions::backend_of(&sessions::locate(cwd, id))
-                    })
-                },
-                |session| session.backend,
-            )
+            .map(|session| session.backend)
+            .or_else(|| {
+                self.live
+                    .iter()
+                    .find(|session| &session.id == id)
+                    .map(|session| session.backend)
+            })
+            .or_else(|| {
+                self.hosted
+                    .iter()
+                    .find(|hosted| &hosted.session == id)
+                    .map(|hosted| hosted.backend)
+            })
+            .or_else(|| {
+                self.location
+                    .cwd()
+                    .and_then(|cwd| sessions::find_transcript(cwd, id))
+                    .map(|path| sessions::backend_of(&path))
+            })
+            .or_else(|| sessions::is_agy_brain_session(id).then_some(claude::Backend::Agy))
+            .unwrap_or_else(|| {
+                self.location.cwd().map_or(self.status.backend, |cwd| {
+                    sessions::backend_of(&sessions::locate(cwd, id))
+                })
+            })
     }
 
     /// The session waiting for the user's pick goes on signed in so; or isn't continued.
@@ -2881,8 +2908,8 @@ impl<F: Frontend> App<F> {
         self.watch = None;
         self.chat.clear();
         if self.location.cwd() != Some(hosted.cwd.as_path()) {
+            self.switch_project_sessions(&hosted.cwd);
             self.location = Location::Session(hosted.cwd.clone());
-            self.sessions.clear();
             self.load_sessions();
         } else {
             self.location = Location::Session(hosted.cwd.clone());
@@ -3005,8 +3032,8 @@ impl<F: Frontend> App<F> {
         self.leave();
         self.chat.clear();
         if self.location.cwd() != Some(session.cwd.as_path()) {
+            self.switch_project_sessions(&session.cwd);
             self.location = Location::Session(session.cwd.clone());
-            self.sessions.clear();
             self.load_sessions();
         } else {
             self.location = Location::Session(session.cwd.clone());
@@ -3039,7 +3066,7 @@ impl<F: Frontend> App<F> {
         let Some(watch) = self.watch.take() else {
             return;
         };
-        if watch.session.backend.is_acp() {
+        if !watch.session.backend.can_fork() {
             let agent = watch.session.backend.agent();
             self.watch = Some(watch);
             self.chat
@@ -3058,6 +3085,9 @@ impl<F: Frontend> App<F> {
             return;
         };
         let pid = watch.session.pid;
+        if pid == 0 {
+            return;
+        }
         self.ask_desktop(Act::FocusWindowOf { pid }, Acting::Desktop);
     }
 
@@ -3252,9 +3282,9 @@ impl<F: Frontend> App<F> {
         // `claude-api-key` or another backend from an earlier session.
         self.reset_session(None, None, self.default_backend);
         self.touch_recent_project(&path);
+        self.switch_project_sessions(&path);
         self.location = Location::Project(path);
         self.session_filter.clear();
-        self.sessions.clear();
         self.load_sessions();
         self.list_live();
         self.redraw = Redraw::everything();
@@ -3300,7 +3330,7 @@ impl<F: Frontend> App<F> {
             overview::SessionRef::Session(session) => session,
         };
         if self.location.cwd() != Some(folder.as_path()) {
-            self.sessions.clear();
+            self.switch_project_sessions(&folder);
             self.location = Location::Session(folder);
             self.load_sessions();
         } else {
@@ -3382,6 +3412,19 @@ impl<F: Frontend> App<F> {
         self.view.set_new_project_parent(&shown);
     }
 
+    /// Keeps `self.sessions` when staying in `cwd`; otherwise seeds it from `self.overview` so
+    /// `Earlier` never blanks out while `Read::Sessions` runs.
+    fn switch_project_sessions(&mut self, cwd: &Path) {
+        if self.location.cwd() == Some(cwd) {
+            return;
+        }
+        self.sessions = self
+            .overview
+            .iter()
+            .find(|project| project.path == cwd)
+            .map_or_else(Vec::new, |project| project.sessions.clone());
+    }
+
     /// Lists the working directory's sessions anew, e.g. once a new one has its title.
     fn load_sessions(&mut self) {
         let Some(cwd) = self.location.cwd().map(Path::to_path_buf) else {
@@ -3394,6 +3437,9 @@ impl<F: Frontend> App<F> {
             known: self.sessions.clone(),
         };
         self.read(read, Reading::Sessions { cwd });
+        if self.answers.contains_key(&self.last_act) {
+            self.sessions_request = Some(self.last_act);
+        }
     }
 
     fn sessions_listed(&mut self, cwd: &Path, sessions: Vec<SessionInfo>) {
@@ -5973,5 +6019,126 @@ mod tests {
         });
         assert_eq!(test.app.usage.agy.report, Some(report));
         assert!(test.app.usage.agy.error.is_none());
+    }
+
+    /// Backing from a session into its project keeps `Earlier` intact instead of blanking to
+    /// `Running` alone, and entering another project seeds `Earlier` from overview.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn back_and_enter_project_keep_earlier_sessions_visible() {
+        let mut test = TestApp::start(None, Settings::default());
+        test.app.begin(Vec::new(), Vec::new(), None, None, None);
+        let proj = PathBuf::from("/tmp/proj-earlier-stable");
+        let s1 = SessionId::new_random();
+        let s2 = SessionId::new_random();
+        let info = |id: SessionId, title: &str| sessions::SessionInfo {
+            backend: claude::Backend::Opencode,
+            id,
+            title: title.to_owned(),
+            modified: std::time::SystemTime::UNIX_EPOCH,
+            worktree: None,
+            last_said: None,
+        };
+        test.send(Event::OverviewListed(vec![ProjectOverview {
+            path: proj.clone(),
+            modified: std::time::SystemTime::UNIX_EPOCH,
+            sessions: vec![info(s1.clone(), "From overview")],
+        }]));
+        test.send(Event::Action(Action::EnterProject(proj.clone())));
+        assert_eq!(
+            test.app
+                .sessions
+                .first()
+                .map(|session| session.title.as_str()),
+            Some("From overview")
+        );
+
+        test.send(Event::SessionsListed {
+            cwd: proj.clone(),
+            sessions: vec![info(s1.clone(), "From overview"), info(s2, "Second")],
+        });
+        assert_eq!(test.app.sessions.len(), 2);
+
+        // Open one session, then click Back into the same project: Earlier must not clear.
+        test.send(Event::Action(Action::OpenSession(s1)));
+        assert!(matches!(&test.app.location, Location::Session(p) if p == &proj));
+        test.send(Event::Action(Action::Back));
+        assert!(matches!(&test.app.location, Location::Project(p) if p == &proj));
+        assert_eq!(test.app.sessions.len(), 2);
+    }
+
+    /// Watching an opencode session allows `ContinueHere` (fork), while agy refuses it, and
+    /// `System::Commands` updates the composer's slash commands.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn opencode_can_fork_watched_session_and_takes_system_commands() {
+        let mut test = TestApp::start(None, Settings::default());
+        test.app.begin(Vec::new(), Vec::new(), None, None, None);
+        let proj = PathBuf::from("/tmp/proj-opencode-fork");
+        let id = SessionId::new_random();
+        let live = LiveSession {
+            pid: 0,
+            started: String::new(),
+            id: id.clone(),
+            cwd: proj.clone(),
+            name: "oc-live".to_owned(),
+            title: Some("Opencode chat".to_owned()),
+            kind: sessions::LiveKind::Interactive,
+            status: LiveStatus::Busy,
+            worktree: None,
+            agents: 0,
+            backend: claude::Backend::Opencode,
+        };
+        test.send(Event::LiveListed(vec![live]));
+        test.send(Event::Action(Action::EnterProject(proj)));
+        test.send(Event::Action(Action::OpenSession(id)));
+        assert!(test.app.watch.is_some());
+        drop(test.drain_daemon());
+
+        // Go to window with pid 0 is a no-op.
+        test.send(Event::Action(Action::GoToWindow));
+        assert!(test.drain_daemon().is_empty());
+
+        // Forking watched opencode session emits Start with Fork.
+        test.send(Event::Action(Action::ContinueHere));
+        assert!(test.app.watch.is_none());
+        assert!(test.drain_daemon().iter().any(|msg| matches!(
+            msg,
+            ToDaemon::Start {
+                launch: claude::Launch {
+                    backend: claude::Backend::Opencode,
+                    conversation: claude::Conversation::Fork { .. },
+                    ..
+                },
+                ..
+            }
+        )));
+
+        let generation = test.app.generation;
+        test.send(Event::Claude {
+            generation,
+            output: claude::Output::Message(wire::Message::System(wire::System::Commands {
+                commands: vec![
+                    wire::CommandInfo {
+                        name: "review".to_owned(),
+                        description: "Review".to_owned(),
+                        argument_hint: String::new(),
+                    },
+                    wire::CommandInfo {
+                        name: "init".to_owned(),
+                        description: "Init".to_owned(),
+                        argument_hint: String::new(),
+                    },
+                ],
+            })),
+        });
+        let names: Vec<&str> = test
+            .app
+            .status
+            .commands
+            .iter()
+            .map(|c| c.name.as_str())
+            .collect();
+        assert_eq!(names, ["init", "review"]);
     }
 }

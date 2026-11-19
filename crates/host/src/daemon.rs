@@ -174,6 +174,8 @@ async fn serve(listener: ipc::Listener, options: Options) -> Result<(), ipc::Err
     ));
     let (settings_keeper, settings_changes) = mpsc::channel(QUEUE);
     tokio::spawn(files::keep_settings(settings_changes));
+    let (catalog, catalog_queries) = mpsc::channel(QUEUE);
+    tokio::spawn(files::keep_catalog(catalog_queries));
     let mut windows = JoinSet::new();
     let mut last_window = WindowId::default();
     let mut quiet_since = Some(Instant::now());
@@ -194,6 +196,7 @@ async fn serve(listener: ipc::Listener, options: Options) -> Result<(), ipc::Err
                         hub.clone(),
                         keeper.clone(),
                         settings_keeper.clone(),
+                        catalog.clone(),
                     ));
                     quiet_since = None;
                 }
@@ -214,6 +217,7 @@ async fn serve(listener: ipc::Listener, options: Options) -> Result<(), ipc::Err
                         hub.clone(),
                         keeper.clone(),
                         settings_keeper.clone(),
+                        catalog.clone(),
                     ));
                     quiet_since = None;
                 }
@@ -269,6 +273,7 @@ async fn window(
     hub: mpsc::Sender<ToHub>,
     keeper: mpsc::Sender<snapshots::Job>,
     settings_keeper: mpsc::Sender<files::SettingsChange>,
+    catalog: files::Catalog,
 ) {
     let (mut reading, writing) = channel.split();
     let (line, requests, answers) = Line::pair();
@@ -290,7 +295,16 @@ async fn window(
         }
     });
     let writer = tokio::spawn(write(writing, answers));
-    window_over(line, Reach::Local, id, hub, keeper, settings_keeper).await;
+    window_over(
+        line,
+        Reach::Local,
+        id,
+        hub,
+        keeper,
+        settings_keeper,
+        catalog,
+    )
+    .await;
     reader.abort();
     if let Err(error) = writer.await {
         tracing::debug!(%error, "the writer ended");
@@ -306,6 +320,7 @@ async fn window_over(
     hub: mpsc::Sender<ToHub>,
     keeper: mpsc::Sender<snapshots::Job>,
     settings_keeper: mpsc::Sender<files::SettingsChange>,
+    catalog: files::Catalog,
 ) {
     let Line {
         mut requests,
@@ -354,7 +369,7 @@ async fn window_over(
         }
     }
     let connection = Connection::new(id, reach)
-        .event_loop(requests, outbox, hub, keeper, settings_keeper)
+        .event_loop(requests, outbox, hub, keeper, settings_keeper, catalog)
         .await;
     tracing::info!(window = ?connection.id, "a window's connection ended");
 }
@@ -459,6 +474,7 @@ impl Connection {
         hub: mpsc::Sender<ToHub>,
         keeper: mpsc::Sender<snapshots::Job>,
         settings_keeper: mpsc::Sender<files::SettingsChange>,
+        catalog: files::Catalog,
     ) -> Self {
         let window = self.id;
         if hub
@@ -477,7 +493,12 @@ impl Connection {
             for effect in self.handle(request) {
                 match effect {
                     Effect::Read { request, read } => {
-                        tokio::spawn(files::answer(request, read, outbox.clone()));
+                        tokio::spawn(files::answer(
+                            request,
+                            read,
+                            outbox.clone(),
+                            catalog.clone(),
+                        ));
                     }
                     Effect::ChangeSettings(change) => {
                         let change = files::SettingsChange {
@@ -2085,6 +2106,7 @@ mod tests {
         let (line, asks, mut says) = Line::pair();
         let (hub, _hub_requests) = mpsc::channel(8);
         let (settings_keeper, _settings_changes) = mpsc::channel(8);
+        let (catalog, _catalog_queries) = mpsc::channel(8);
         let window = tokio::spawn(window_over(
             line,
             Reach::Network,
@@ -2092,6 +2114,7 @@ mod tests {
             hub,
             no_keeper(),
             settings_keeper,
+            catalog,
         ));
         asks.send(ToDaemon::Hello {
             protocol: ipc::PROTOCOL,

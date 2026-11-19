@@ -63,6 +63,26 @@ impl SessionId {
     pub fn new_random() -> Self {
         Self::from(uuid::Uuid::new_v4())
     }
+
+    /// The stable window id for an external session whose own backend id is `raw_id`: kept as
+    /// itself when already a UUID (Claude, agy), or mapped deterministically to a UUID (opencode).
+    pub fn for_external(backend: crate::claude::Backend, raw_id: &str) -> Self {
+        use sha2::Digest as _;
+        if let Ok(uuid) = Self::try_from(raw_id.to_owned()) {
+            return uuid;
+        }
+        let mut hasher = sha2::Sha256::new();
+        hasher.update(<&'static str>::from(backend).as_bytes());
+        hasher.update(b":");
+        hasher.update(raw_id.as_bytes());
+        let digest = hasher.finalize();
+        let mut bytes = [0_u8; 16];
+        bytes.copy_from_slice(digest.get(..16).unwrap_or(&[]));
+        // Set RFC 4122 version (5) and variant bits so the identifier parses as a standard UUID.
+        bytes[6] = (bytes[6] & 0x0f) | 0x50;
+        bytes[8] = (bytes[8] & 0x3f) | 0x80;
+        Self::from(uuid::Uuid::from_bytes(bytes))
+    }
 }
 
 /// A tool call, which permission requests and results refer back to.
@@ -599,6 +619,11 @@ pub enum System {
     ContextUsed {
         used: u64,
         size: u64,
+    },
+    /// The slash commands an agent program offers (ACP `available_commands_update`), sent after
+    /// the session opens or when they change.
+    Commands {
+        commands: Vec<CommandInfo>,
     },
     /// What runs in the background now (subagents, shell commands, monitors), all of it,
     /// whenever that changes. Their tool calls are done by then, so nothing else shows them.
@@ -1796,6 +1821,84 @@ impl From<Value> for PermissionUpdate {
 #[serde(rename_all = "camelCase")]
 pub enum Destination {
     Session,
+}
+
+/// Parameters for ACP `session/list`.
+#[cfg(not(target_arch = "wasm32"))]
+#[derive(Debug, Clone, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AcpListParams {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cwd: Option<PathBuf>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cursor: Option<String>,
+}
+
+/// JSON-RPC request for ACP `session/list`.
+#[cfg(not(target_arch = "wasm32"))]
+#[derive(Debug, Clone, Serialize)]
+pub struct AcpListRequest {
+    pub jsonrpc: super::acp::JsonRpc,
+    pub id: u64,
+    pub method: AcpListMethod,
+    pub params: AcpListParams,
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[derive(Debug, Clone, Copy, Serialize)]
+pub enum AcpListMethod {
+    #[serde(rename = "session/list")]
+    SessionList,
+}
+
+/// Response `result` of ACP `session/list`.
+#[cfg(not(target_arch = "wasm32"))]
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AcpListResult {
+    #[serde(default)]
+    pub sessions: Vec<AcpListedSession>,
+    #[serde(default)]
+    pub next_cursor: Option<String>,
+}
+
+/// One session entry returned by ACP `session/list`.
+#[cfg(not(target_arch = "wasm32"))]
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AcpListedSession {
+    pub session_id: String,
+    pub cwd: PathBuf,
+    #[serde(default)]
+    pub title: Option<String>,
+    #[serde(default)]
+    pub updated_at: Option<String>,
+}
+
+/// Parameters for ACP `session/fork`.
+#[cfg(not(target_arch = "wasm32"))]
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AcpForkParams {
+    pub session_id: String,
+    pub cwd: PathBuf,
+}
+
+/// JSON-RPC request for ACP `session/fork`.
+#[cfg(not(target_arch = "wasm32"))]
+#[derive(Debug, Clone, Serialize)]
+pub struct AcpForkRequest {
+    pub jsonrpc: super::acp::JsonRpc,
+    pub id: u64,
+    pub method: AcpForkMethod,
+    pub params: AcpForkParams,
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[derive(Debug, Clone, Copy, Serialize)]
+pub enum AcpForkMethod {
+    #[serde(rename = "session/fork")]
+    SessionFork,
 }
 
 #[cfg(test)]
