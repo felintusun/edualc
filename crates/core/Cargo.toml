@@ -73,8 +73,9 @@ futures-util.workspace = true
 seccompiler.workspace = true
 landlock.workspace = true
 
-# What macOS tells of a process, which Linux tells in `/proc`.
+# What macOS tells of a socket's peer and of a process, which Linux tells in `/proc`.
 [target.'cfg(target_os = "macos")'.dependencies]
+nix = { version = "0.31", default-features = false, features = ["socket", "user"] }
 libproc = "0.14"
 
 # A page: its clock, random numbers and timers.

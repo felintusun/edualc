@@ -2827,6 +2827,7 @@ dependencies = [
  "landlock",
  "libc",
  "libproc",
+ "nix",
  "petname",
  "postcard",
  "proptest",
@@ -5885,6 +5886,7 @@ dependencies = [
  "cfg-if",
  "cfg_aliases",
  "libc",
+ "memoffset",
 ]
 
 [[package]]
