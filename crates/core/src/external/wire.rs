@@ -1050,7 +1050,7 @@ pub struct ModelInfo {
     pub description: String,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct CommandInfo {
     pub name: String,
     #[serde(default)]
@@ -1821,84 +1821,6 @@ impl From<Value> for PermissionUpdate {
 #[serde(rename_all = "camelCase")]
 pub enum Destination {
     Session,
-}
-
-/// Parameters for ACP `session/list`.
-#[cfg(not(target_arch = "wasm32"))]
-#[derive(Debug, Clone, Default, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AcpListParams {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub cwd: Option<PathBuf>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub cursor: Option<String>,
-}
-
-/// JSON-RPC request for ACP `session/list`.
-#[cfg(not(target_arch = "wasm32"))]
-#[derive(Debug, Clone, Serialize)]
-pub struct AcpListRequest {
-    pub jsonrpc: super::acp::JsonRpc,
-    pub id: u64,
-    pub method: AcpListMethod,
-    pub params: AcpListParams,
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-#[derive(Debug, Clone, Copy, Serialize)]
-pub enum AcpListMethod {
-    #[serde(rename = "session/list")]
-    SessionList,
-}
-
-/// Response `result` of ACP `session/list`.
-#[cfg(not(target_arch = "wasm32"))]
-#[derive(Debug, Clone, Default, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AcpListResult {
-    #[serde(default)]
-    pub sessions: Vec<AcpListedSession>,
-    #[serde(default)]
-    pub next_cursor: Option<String>,
-}
-
-/// One session entry returned by ACP `session/list`.
-#[cfg(not(target_arch = "wasm32"))]
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AcpListedSession {
-    pub session_id: String,
-    pub cwd: PathBuf,
-    #[serde(default)]
-    pub title: Option<String>,
-    #[serde(default)]
-    pub updated_at: Option<String>,
-}
-
-/// Parameters for ACP `session/fork`.
-#[cfg(not(target_arch = "wasm32"))]
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AcpForkParams {
-    pub session_id: String,
-    pub cwd: PathBuf,
-}
-
-/// JSON-RPC request for ACP `session/fork`.
-#[cfg(not(target_arch = "wasm32"))]
-#[derive(Debug, Clone, Serialize)]
-pub struct AcpForkRequest {
-    pub jsonrpc: super::acp::JsonRpc,
-    pub id: u64,
-    pub method: AcpForkMethod,
-    pub params: AcpForkParams,
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-#[derive(Debug, Clone, Copy, Serialize)]
-pub enum AcpForkMethod {
-    #[serde(rename = "session/fork")]
-    SessionFork,
 }
 
 #[cfg(test)]

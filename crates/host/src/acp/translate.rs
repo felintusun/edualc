@@ -47,12 +47,17 @@ const METHOD_NOT_FOUND: i64 = -32601;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct CallId(pub u64);
 
-/// How the session starts: afresh, or going on with a conversation of the agent's.
+/// How the session starts: afresh, going on with a conversation of the agent's, or forking one.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Start {
     New,
     /// The agent's id for the conversation, as the transcript keeps it.
     Resume(String),
+    /// Resumes an external session that has no local shadow transcript yet, replaying `session/load`
+    /// history into the window and transcript.
+    ResumeReplay(String),
+    /// Forks an existing conversation of the agent's via ACP `session/fork`.
+    Fork(String),
 }
 
 /// What the agent is given to start edualc's messaging tool: this program, and the socket the
@@ -205,6 +210,9 @@ pub struct Translator {
     mode_config_id: Option<String>,
     /// Slash commands announced via `available_commands_update`.
     commands: Vec<CommandInfo>,
+    /// User prompt text accumulated from `user_message_chunk` updates while replaying an external
+    /// session via `session/load`.
+    replay_user: String,
     next_rpc: u64,
     asked: HashMap<u64, Asked>,
     /// What the window said before the session was open.
@@ -289,6 +297,7 @@ impl Translator {
             mode: None,
             mode_config_id: None,
             commands: Vec::new(),
+            replay_user: String::new(),
             next_rpc: 0,
             asked: HashMap::new(),
             held: Vec::new(),
@@ -581,13 +590,20 @@ impl Translator {
                         }),
                         false,
                     ),
-                    Start::Resume(session) => (
+                    Start::Resume(session) | Start::ResumeReplay(session) => (
                         acp::ClientCall::LoadSession(acp::LoadSessionParams {
                             session_id: session.clone(),
                             cwd: self.cwd.clone(),
                             mcp_servers: self.mcp_servers(),
                         }),
                         true,
+                    ),
+                    Start::Fork(session) => (
+                        acp::ClientCall::ForkSession(acp::ForkSessionParams {
+                            session_id: session.clone(),
+                            cwd: self.cwd.clone(),
+                        }),
+                        false,
                     ),
                 };
                 self.phase = Phase::Opening { loading };
@@ -597,7 +613,7 @@ impl Translator {
                 let opened: acp::Opened = match serde_json::from_value(result) {
                     Ok(opened) => opened,
                     Err(error) => match &self.start {
-                        Start::New => {
+                        Start::New | Start::Fork(_) => {
                             return self.failed(
                                 &format!(
                                     "its answer to opening the session can't be read: {error}"
@@ -606,7 +622,7 @@ impl Translator {
                             );
                         }
                         // The session asked for is open whatever else the answer says.
-                        Start::Resume(_) => {
+                        Start::Resume(_) | Start::ResumeReplay(_) => {
                             tracing::warn!(%error, agent = %self.agent, "the answer to loading the session can't be read: its models and modes are left out");
                             acp::Opened::default()
                         }
@@ -614,14 +630,18 @@ impl Translator {
                 };
                 // A load answers without the id: the session is the one asked for.
                 let session = match (&self.start, opened.session_id) {
-                    (Start::Resume(session), _) => session.clone(),
-                    (Start::New, Some(session)) => session,
-                    (Start::New, None) => {
+                    (Start::Resume(session) | Start::ResumeReplay(session), _) => session.clone(),
+                    (Start::New | Start::Fork(_), Some(session)) => session,
+                    (Start::New | Start::Fork(_), None) => {
                         return self.failed(&format!("{} opened no session", self.agent), false);
                     }
                 };
                 let mut effects = Vec::new();
-                if self.start == Start::New {
+                if matches!(self.start, Start::ResumeReplay(_)) {
+                    effects.extend(self.flush_replay_user());
+                    effects.extend(self.message_done(None));
+                }
+                if matches!(self.start, Start::New | Start::Fork(_)) {
                     effects.push(Effect::Transcript(TranscriptLine::AgySession {
                         agent_session_id: session.clone(),
                     }));
@@ -1224,6 +1244,26 @@ impl Translator {
         mode_changed
     }
 
+    fn flush_replay_user(&mut self) -> Vec<Effect> {
+        if self.replay_user.is_empty() {
+            return Vec::new();
+        }
+        let text = std::mem::take(&mut self.replay_user);
+        vec![
+            Effect::ToWindow(Message::User(UserLine::replayed(UserContent::Text(
+                text.clone(),
+            )))),
+            Effect::Transcript(TranscriptLine::User {
+                message: wire::UserMessage {
+                    content: UserContent::Text(text),
+                },
+                is_meta: false,
+                is_sidechain: false,
+                origin: None,
+            }),
+        ]
+    }
+
     /// What changed in the session.
     fn updated(&mut self, update: Change) -> Vec<Effect> {
         match update {
@@ -1238,6 +1278,11 @@ impl Translator {
             }
             Change::AvailableCommandsUpdate { available_commands } => {
                 self.commands = available_commands.into_iter().map(command_info).collect();
+                if matches!(self.phase, Phase::Ready(_)) {
+                    return vec![Effect::ToWindow(Message::System(System::Commands {
+                        commands: self.commands.clone(),
+                    }))];
+                }
                 return Vec::new();
             }
             Change::ConfigOptionUpdate { config_options } => {
@@ -1276,21 +1321,51 @@ impl Translator {
             | Change::Plan { .. }
             | Change::Other => {}
         }
-        if matches!(self.phase, Phase::Opening { loading: true }) {
-            // A loaded session's history: the transcript has it.
+        let replaying = matches!(self.phase, Phase::Opening { loading: true });
+        if replaying && !matches!(self.start, Start::ResumeReplay(_)) {
+            // A loaded session's history: the transcript already has it.
             return Vec::new();
         }
         match update {
+            Change::UserMessageChunk {
+                content: Some(Chunk::Text { text }),
+            } if replaying => {
+                let effects = self.message_done(None);
+                self.replay_user.push_str(&text);
+                effects
+            }
             Change::AgentMessageChunk {
                 content: Chunk::Text { text },
             } => {
+                let mut effects = if replaying {
+                    self.flush_replay_user()
+                } else {
+                    Vec::new()
+                };
                 self.said.push_str(&text);
-                self.streamed(&Block::Text(text))
+                effects.extend(self.streamed(&Block::Text(text)));
+                effects
             }
             Change::AgentThoughtChunk {
                 content: Chunk::Text { text },
-            } => self.streamed(&Block::Thinking(text)),
-            Change::ToolCall(call) => self.tool_call(&call),
+            } => {
+                let mut effects = if replaying {
+                    self.flush_replay_user()
+                } else {
+                    Vec::new()
+                };
+                effects.extend(self.streamed(&Block::Thinking(text)));
+                effects
+            }
+            Change::ToolCall(call) => {
+                let mut effects = if replaying {
+                    self.flush_replay_user()
+                } else {
+                    Vec::new()
+                };
+                effects.extend(self.tool_call(&call));
+                effects
+            }
             Change::ToolCallUpdate(call) => self.tool_call_update(&call),
             Change::Plan { entries } => self.plan_updated(&entries),
             Change::AgentMessageChunk { .. }
@@ -4395,6 +4470,61 @@ mod tests {
                 .first()
                 .and_then(|line| line.pointer("/result/outcome/optionId")),
             Some(&json!("always"))
+        );
+    }
+
+    #[test]
+    fn fork_and_resume_replay_and_ready_commands_emit_expected_effects() {
+        // Fork sends session/fork and records the returned session id.
+        let mut forking = translator_for(Agent::Opencode, Start::Fork("ses_old".to_owned()));
+        forking.start();
+        let ask_fork =
+            forking.agent_said(r#"{"jsonrpc":"2.0","result":{"protocolVersion":1},"id":1}"#);
+        assert_eq!(
+            agent_lines(&ask_fork)
+                .first()
+                .and_then(|line| line.pointer("/method")),
+            Some(&json!("session/fork"))
+        );
+        let forked =
+            forking.agent_said(r#"{"jsonrpc":"2.0","result":{"sessionId":"ses_new"},"id":2}"#);
+        assert!(forked.iter().any(|effect| matches!(
+            effect,
+            Effect::Transcript(TranscriptLine::AgySession { agent_session_id }) if agent_session_id == "ses_new"
+        )));
+
+        // Ready available_commands_update emits System::Commands to the window.
+        let ready_cmds = forking.agent_said(
+            r#"{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"ses_new","update":{"sessionUpdate":"available_commands_update","availableCommands":[{"name":"review","description":"Review changes"}]}}}"#,
+        );
+        assert!(ready_cmds.iter().any(|effect| matches!(
+            effect,
+            Effect::ToWindow(Message::System(System::Commands { commands }))
+                if commands.iter().any(|c| c.name == "review")
+        )));
+
+        // ResumeReplay preserves replayed user & assistant chunks during session/load.
+        let mut replaying =
+            translator_for(Agent::Opencode, Start::ResumeReplay("ses_ext".to_owned()));
+        replaying.start();
+        replaying.agent_said(r#"{"jsonrpc":"2.0","result":{"protocolVersion":1},"id":1}"#);
+        let u = replaying.agent_said(
+            r#"{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"ses_ext","update":{"sessionUpdate":"user_message_chunk","content":{"type":"text","text":"Hi"}}}}"#,
+        );
+        assert!(u.is_empty());
+        let a = replaying.agent_said(
+            r#"{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"ses_ext","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"Hello!"}}}}"#,
+        );
+        assert!(
+            a.iter()
+                .any(|effect| matches!(effect, Effect::Transcript(TranscriptLine::User { .. })))
+        );
+        let loaded = replaying.agent_said(r#"{"jsonrpc":"2.0","result":{},"id":2}"#);
+        assert!(
+            loaded.iter().any(|effect| matches!(
+                effect,
+                Effect::Transcript(TranscriptLine::Assistant { .. })
+            ))
         );
     }
 }

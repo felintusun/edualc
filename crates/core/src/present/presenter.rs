@@ -670,7 +670,7 @@ impl<F: Frontend> Presenter<F> {
         session.shell_commands = is_claude;
         session.can_shell = is_claude;
         session.can_btw = is_claude;
-        session.can_fork = !status.backend.is_acp();
+        session.can_fork = status.backend.can_fork();
         self.sessions.program = program_shown(crate::claude::Program::of(
             status.backend,
             status.sign_in_with,

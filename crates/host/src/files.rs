@@ -285,20 +285,24 @@ impl Source {
         let (lines, offset) = sessions::read_lines_from(self.path(), from)?;
         let lines = match self {
             Self::Transcript(_) => lines,
-            Self::AgySteps(_) => translated(&lines, brain::step_line),
-            Self::AgyBoard(_) => translated(&lines, brain::post_line),
+            Self::AgySteps(_) => encode_lines(&brain::step_lines(&lines)),
+            Self::AgyBoard(_) => encode_lines(
+                &lines
+                    .iter()
+                    .filter_map(|written| brain::post_line(written))
+                    .collect::<Vec<_>>(),
+            ),
         };
         Ok((lines, offset))
     }
 }
 
-/// Lines another program wrote, as transcript lines; a line giving none is left out.
-fn translated(lines: &[String], line: fn(&str) -> Option<TranscriptLine>) -> Vec<String> {
+/// Serializes translated transcript lines; a line that can't be written is left out.
+fn encode_lines(lines: &[TranscriptLine]) -> Vec<String> {
     lines
         .iter()
-        .filter_map(|written| line(written))
         .filter_map(|transcribed| {
-            serde_json::to_string(&transcribed)
+            serde_json::to_string(transcribed)
                 .inspect_err(|error| tracing::warn!(%error, "a transcript line not written"))
                 .ok()
         })

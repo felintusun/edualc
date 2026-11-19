@@ -101,6 +101,56 @@ fn read<Record: DeserializeOwned>(path: &Path) -> Option<Record> {
         .ok()
 }
 
+/// Translates a batch of agy conversation steps into transcript lines, pairing each
+/// `Generic` tool result with its preceding `PlannerResponse` tool call.
+pub(crate) fn step_lines(lines: &[String]) -> Vec<TranscriptLine> {
+    let mut pending_tools = std::collections::VecDeque::new();
+    let mut out = Vec::new();
+    for raw in lines {
+        let Ok(step) = serde_json::from_str::<Step>(raw) else {
+            continue;
+        };
+        match step.kind {
+            StepKind::Generic if !pending_tools.is_empty() => {
+                if let Some(tool_use_id) = pending_tools.pop_front() {
+                    let is_error = step.status == StepStatus::Error;
+                    let text = step.error.or(step.content).unwrap_or_default();
+                    let content = (!text.trim().is_empty()).then_some(UserContent::Text(text));
+                    out.push(TranscriptLine::User {
+                        message: UserMessage {
+                            content: UserContent::Blocks(vec![ContentBlock::ToolResult {
+                                tool_use_id,
+                                content,
+                                is_error,
+                            }]),
+                        },
+                        is_meta: false,
+                        is_sidechain: false,
+                        origin: None,
+                    });
+                }
+            }
+            StepKind::SystemMessage
+            | StepKind::UserInput
+            | StepKind::PlannerResponse
+            | StepKind::Generic
+            | StepKind::Checkpoint
+            | StepKind::Other => {
+                if step.kind == StepKind::PlannerResponse {
+                    for n in 0..step.tool_calls.len() {
+                        pending_tools
+                            .push_back(ToolUseId::from(format!("agy-{}-{n}", step.step_index)));
+                    }
+                }
+                if let Some(line) = step_line(raw) {
+                    out.push(line);
+                }
+            }
+        }
+    }
+    out
+}
+
 /// A line of a conversation's steps as a transcript line: a message to the model as a prompt,
 /// the model's answer with its tool calls by Claude Code's names, and any error step.
 pub(crate) fn step_line(line: &str) -> Option<TranscriptLine> {
@@ -406,6 +456,29 @@ mod tests {
         assert!(matches!(
             message.content.first(),
             Some(ContentBlock::Text { text }) if text == "acp-worker (#4): Ready for review."
+        ));
+    }
+
+    #[test]
+    fn step_lines_pairs_generic_tool_results_with_planner_tool_calls() {
+        let lines = vec![
+            r#"{"step_index":2,"source":"MODEL","type":"PLANNER_RESPONSE","status":"DONE","tool_calls":[{"name":"read_file","args":{"Path":"/w/a.rs"}}]}"#.to_owned(),
+            r#"{"step_index":3,"source":"MODEL","type":"GENERIC","status":"DONE","content":"fn main() {}"}"#.to_owned(),
+        ];
+        let parsed = step_lines(&lines);
+        assert_eq!(parsed.len(), 2);
+        assert!(matches!(
+            parsed.get(1),
+            Some(TranscriptLine::User { message, .. })
+                if matches!(
+                    &message.content,
+                    UserContent::Blocks(blocks)
+                        if matches!(
+                            blocks.first(),
+                            Some(ContentBlock::ToolResult { tool_use_id, is_error: false, .. })
+                                if tool_use_id.to_string() == "agy-2-0"
+                        )
+                )
         ));
     }
 }
