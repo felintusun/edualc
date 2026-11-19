@@ -41,6 +41,25 @@ fn lstart(started: jiff::Timestamp) -> String {
     started.strftime("%a %b %e %H:%M:%S %Y").to_string()
 }
 
+/// Which machine and pid namespace this process is in, as Claude Code writes it:
+/// `linux:<boot id>:pid:[<namespace>]`.
+#[cfg(any(target_os = "linux", target_os = "android"))]
+pub fn pid_domain() -> Option<String> {
+    let boot = std::fs::read_to_string("/proc/sys/kernel/random/boot_id").ok()?;
+    let namespace = std::fs::read_link("/proc/self/ns/pid").ok()?;
+    Some(format!(
+        "linux:{}:{}",
+        boot.trim().replace('-', ""),
+        namespace.to_string_lossy()
+    ))
+}
+
+/// Which system this process is in, as Claude Code writes it on macOS: `darwin`, no more.
+#[cfg(target_os = "macos")]
+pub fn pid_domain() -> Option<String> {
+    Some("darwin".to_owned())
+}
+
 /// Whether process `pid` runs, and is the one that started at `started`.
 pub fn is_running(pid: u32, started: &str) -> bool {
     stat(pid).is_some_and(|stat| stat.started == started)
@@ -105,7 +124,9 @@ mod tests {
         assert!(!runs_claude(std::process::id()));
         assert_eq!(
             program(std::process::id()).and_then(|path| path.canonicalize().ok()),
-            std::env::current_exe().and_then(|path| path.canonicalize()).ok()
+            std::env::current_exe()
+                .and_then(|path| path.canonicalize())
+                .ok()
         );
     }
 

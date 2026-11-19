@@ -26,7 +26,7 @@ const TOKEN_BYTES: usize = 16;
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
-    #[error("no runtime folder (XDG_RUNTIME_DIR) for the inbox")]
+    #[error("no folder for the inbox (XDG_RUNTIME_DIR isn't set)")]
     NoRuntime,
     #[error("couldn't make the inbox: {0}")]
     Socket(#[source] std::io::Error),
@@ -77,10 +77,7 @@ impl Inbox {
     pub fn open(id: &SessionId, cwd: &Path, name: &MessagingName) -> Result<Self, Error> {
         let pid = std::process::id();
         let started = process::stat(pid).ok_or(Error::NoStart)?.started;
-        let runtime = std::env::var_os("XDG_RUNTIME_DIR")
-            .map(PathBuf::from)
-            .ok_or(Error::NoRuntime)?;
-        let folder = runtime.join("cc-socks");
+        let folder = super::outbox::inbox_folder().ok_or(Error::NoRuntime)?;
         std::fs::DirBuilder::new()
             .recursive(true)
             .mode(0o700)
@@ -101,7 +98,7 @@ impl Inbox {
             .mode(0o700)
             .create(&sessions)
             .map_err(Error::Publish)?;
-        let domain = pid_domain();
+        let domain = process::pid_domain();
         let key_name = format!(
             "{pid}.{}.key",
             hex(&sha2::Sha256::digest(socket.to_string_lossy().as_bytes()))
@@ -217,18 +214,6 @@ fn hex(bytes: &[u8]) -> String {
 
 fn now_ms() -> u64 {
     u64::try_from(jiff::Timestamp::now().as_millisecond()).unwrap_or_default()
-}
-
-/// Which machine and pid namespace the pid is in, as Claude Code writes it:
-/// `linux:<boot id>:pid:[<namespace>]`.
-fn pid_domain() -> Option<String> {
-    let boot = std::fs::read_to_string("/proc/sys/kernel/random/boot_id").ok()?;
-    let namespace = std::fs::read_link("/proc/self/ns/pid").ok()?;
-    Some(format!(
-        "linux:{}:{}",
-        boot.trim().replace('-', ""),
-        namespace.to_string_lossy()
-    ))
 }
 
 #[cfg(test)]

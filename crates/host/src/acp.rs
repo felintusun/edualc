@@ -279,7 +279,7 @@ enum Error {
     NoConversation(Agent, SessionId),
     #[error("continuing {0} sessions isn't supported yet")]
     ResumeNotSupported(Agent),
-    #[error("no runtime folder (XDG_RUNTIME_DIR)")]
+    #[error("no runtime folder (XDG_RUNTIME_DIR, or on macOS, TMPDIR)")]
     NoRuntime,
     #[error("couldn't make the session's folder: {0}")]
     Folder(#[source] std::io::Error),
@@ -330,9 +330,7 @@ struct Own {
 
 impl Own {
     fn make(agent: Agent) -> Result<Self, Error> {
-        let runtime = std::env::var_os("XDG_RUNTIME_DIR")
-            .map(PathBuf::from)
-            .ok_or(Error::NoRuntime)?;
+        let runtime = crate::ipc::runtime_dir().ok_or(Error::NoRuntime)?;
         let folder = runtime.join(format!("edualc-{agent}-{}", std::process::id()));
         std::fs::DirBuilder::new()
             .mode(0o700)
