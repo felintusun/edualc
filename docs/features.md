@@ -138,9 +138,8 @@ appears beside it.
 - **A cut-off title** shows in full when you hover over it.
 - **Ctrl+K inside a session** opens a quick switcher across every session in every project.
   **Alt+Left** (or **Alt+Up**) steps back to the project page, and from there to the start page.
-- **New session** on a project page (or **Ctrl+N** inside a project or session) starts a new
-  session there; its dropdown lets you pick Claude Code, Claude Code with the API key (when one
-  is stored), or agy.
+- **New session** on a project page, inside a session, or with **Ctrl+N** asks whether to start
+  Claude Code, Claude Code with the API key (when one is stored), agy, or opencode.
 
 ### Sessions running elsewhere
 
@@ -336,9 +335,9 @@ effect at once and is kept in `~/.config/edualc/settings.json`.
 
 ## agy (Google's Antigravity CLI)
 
-`edualc --backend agy DIR` runs agy instead of Claude Code. On a project page, the New session
-dropdown offers Claude Code, agy and opencode; Ctrl+N in a project or session starts a new session with the
-program of the one you're in (on the start page, Ctrl+N opens New project). The window shows an agy
+`edualc --backend agy DIR` runs agy instead of Claude Code. In the window, **New session here**,
+**New session**, or **Ctrl+N** inside a project or session asks whether to start Claude Code, agy
+or opencode (on the start page, **Ctrl+N** opens New project). The window shows an agy
 session like any other: streamed text and thinking, tool cards, permission requests, and the model
 menu from `agy models`. A model you pick stays with its program: a new session with the other
 program starts with that program's default.

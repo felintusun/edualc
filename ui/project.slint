@@ -4,7 +4,7 @@ import { ListView } from "std-widgets.slint";
 import { Theme } from "theme.slint";
 import { FocusArea, LiveState, Program, SessionRow, SessionRowKind } from "types.slint";
 import { Focus, Nav, Session, Sessions } from "state.slint";
-import { AgentCount, AreaFence, Caption, Field, Icon, IconButton, LiveDot, Pressable, ProgramMark, Small, TextButton, Title } from "widgets.slint";
+import { AgentCount, AreaFence, Caption, Field, Icon, LiveDot, Pressable, ProgramMark, Small, TextButton, Title } from "widgets.slint";
 
 component SessionHeading inherits Rectangle {
     in property <SessionRow> entry;
@@ -152,17 +152,6 @@ component EarlierRow inherits Pressable {
 }
 
 export component ProjectPage inherits Rectangle {
-    property <[{program: Program, title: string}]> programs: Sessions.api-key-kept ? [
-        { program: Program.claude, title: "Claude Code" },
-        { program: Program.claude-api-key, title: "Claude Code with the API key…" },
-        { program: Program.agy, title: "agy" },
-        { program: Program.opencode, title: "opencode" },
-    ] : [
-        { program: Program.claude, title: "Claude Code" },
-        { program: Program.agy, title: "agy" },
-        { program: Program.opencode, title: "opencode" },
-    ];
-    property <int> new-highlighted;
     property <bool> narrow: self.width < 36rem;
     property <length> page-padding: root.narrow ? Theme.space-m : Theme.space-xl;
     property <int> wanted: Focus.wanted-serial;
@@ -176,14 +165,6 @@ export component ProjectPage inherits Rectangle {
         if Focus.pending && Focus.wanted == FocusArea.page {
             Focus.pending = false;
             filter.focus();
-        }
-    }
-
-    function start(program: Program) {
-        if program == Program.claude-api-key {
-            Sessions.api-key-dialog = true;
-        } else {
-            Sessions.new-session-in-project(program);
         }
     }
 
@@ -240,101 +221,7 @@ export component ProjectPage inherits Rectangle {
                             horizontal-stretch: 0;
                             may-shorten: true;
                             y: (parent.height - self.height) / 2;
-                            clicked => { root.start(Sessions.program); }
-                        }
-                        // Holds the popup as a direct child so its coordinates anchor right below
-                        // the button instead of an outer layout's origin.
-                        program-anchor := Rectangle {
-                            width: Theme.button;
-                            height: Theme.button;
-                            horizontal-stretch: 0;
-                            y: (parent.height - self.height) / 2;
-                            program-button := IconButton {
-                                icon: @image-url("@lucide/chevron-down.svg");
-                                label: "Choose program for a new session";
-                                clicked => {
-                                    root.new-highlighted = 0;
-                                    new-menu.show();
-                                }
-                            }
-                            new-menu := PopupWindow {
-                                x: max(-program-anchor.absolute-position.x + Theme.space-s, program-anchor.width - self.width);
-                                y: program-anchor.height + Theme.space-xs;
-                                width: min(280px, max(200px, root.width - 2 * Theme.space-m));
-                                height: new-items.preferred-height;
-                                close-policy: close-on-click-outside;
-                                FocusScope {
-                                    init => { self.focus(); }
-                                    key-pressed(event) => {
-                                        if event.text == Key.Escape {
-                                            new-menu.close();
-                                            return accept;
-                                        }
-                                        if event.text == Key.UpArrow {
-                                            root.new-highlighted = max(0, root.new-highlighted - 1);
-                                            return accept;
-                                        }
-                                        if event.text == Key.DownArrow {
-                                            root.new-highlighted = min(root.programs.length - 1, root.new-highlighted + 1);
-                                            return accept;
-                                        }
-                                        if event.text == Key.Return || event.text == " " {
-                                            new-menu.close();
-                                            root.start(root.programs[root.new-highlighted].program);
-                                            return accept;
-                                        }
-                                        return reject;
-                                    }
-                                }
-                                Rectangle {
-                                    background: Theme.surface-raised;
-                                    border-radius: Theme.radius-m;
-                                    border-width: 1px;
-                                    border-color: Theme.control-border;
-                                    drop-shadow-blur: 12px;
-                                    drop-shadow-color: Theme.shadow;
-                                    new-items := VerticalLayout {
-                                        padding: Theme.space-xs;
-                                        spacing: 2px;
-                                        HorizontalLayout {
-                                            padding-left: Theme.space-m;
-                                            padding-right: Theme.space-s;
-                                            padding-top: Theme.space-xs;
-                                            padding-bottom: Theme.space-xs;
-                                            Caption {
-                                                text: "New session";
-                                                horizontal-alignment: left;
-                                            }
-                                        }
-                                        for item[index] in root.programs: Pressable {
-                                            highlighted: index == root.new-highlighted;
-                                            tab-stop: false;
-                                            accessible-label: "New \{item.title} session";
-                                            clicked => {
-                                                new-menu.close();
-                                                root.start(item.program);
-                                            }
-                                            HorizontalLayout {
-                                                padding: Theme.space-s;
-                                                padding-left: Theme.space-m;
-                                                spacing: Theme.space-s;
-                                                Text {
-                                                    text: item.title;
-                                                    color: Theme.text;
-                                                    vertical-alignment: center;
-                                                    horizontal-stretch: 1;
-                                                    min-width: 0px;
-                                                    overflow: elide;
-                                                }
-                                                if item.program == Sessions.program: Caption {
-                                                    text: "Ctrl+N";
-                                                    vertical-alignment: center;
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
+                            clicked => { Sessions.new-session-dialog = true; }
                         }
                     }
                 }

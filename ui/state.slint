@@ -169,6 +169,8 @@ export global Sessions {
     // Starts a fresh session in the current project (using `program`), opening the API key dialog
     // only when `Program.claude-api-key` is explicitly chosen.
     callback new-session-in-project(Program);
+    // Opens the dialog asking which program to start for a new session.
+    in-out property <bool> new-session-dialog;
     // The dialog that starts a Claude Code session with the API key: what it costs, and the
     // model, an alias Claude Code takes ("opus"), or empty for the model menu's.
     in-out property <bool> api-key-dialog;

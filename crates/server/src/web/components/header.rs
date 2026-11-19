@@ -27,6 +27,7 @@ pub fn Header() -> Element {
     let view = use_context::<View>();
     let settings = use_context::<super::panels::SettingsOpen>();
     let switcher = use_context::<super::pages::SwitcherOpen>();
+    let mut dialog = use_context::<super::pages::DialogOpen>().0;
     // What a narrow window keeps behind one button: shown as it is pressed.
     let mut more = use_signal(|| false);
     // Of all the page holds, only these: its other changes don't draw the bar again.
@@ -206,7 +207,7 @@ pub fn Header() -> Element {
                     IconButton {
                         icon: Lucide::SquarePen,
                         label: "New session",
-                        onclick: move |_| view.new_session(),
+                        onclick: move |_| dialog.set(Some(super::pages::Dialog::NewSession)),
                     }
                 }
                 if in_session || session.limit_five_hour >= 0.0 {

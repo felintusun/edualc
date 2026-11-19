@@ -123,7 +123,7 @@
     padding: var(--space-l) 0 var(--space-xl); display: flex; flex-direction: column; gap: var(--space-xs);
 }
 .settings-page p { margin: 0; }
-.settings-page .small { color: var(--text-tertiary); }
+.settings-page .small, .setting-text .small { color: var(--text-tertiary); }
 .settings-heading { margin: 0; font-size: var(--base); font-weight: 600; color: var(--text); }
 .settings-heading.spaced { margin-top: var(--space-m); }
 .choices { display: flex; flex-direction: column; gap: var(--space-xs); }

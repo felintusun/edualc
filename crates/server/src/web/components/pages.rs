@@ -7,12 +7,12 @@
 
 use dioxus::prelude::*;
 use edualc_core::app::Action;
-use edualc_core::present::model::{LiveState, ProjectCard, SwitcherItem, WaitingItem};
+use edualc_core::present::model::{LiveState, Program, ProjectCard, SwitcherItem, WaitingItem};
 
 use super::sessions::{FolderRow, LiveDot, SessionRows};
 use crate::web::View;
 use crate::web::view::use_bumped;
-use crate::web::widgets::{Button, Icon, IconButton, Lucide, take_focus};
+use crate::web::widgets::{Button, Icon, IconButton, Lucide, focus, take_focus};
 
 /// A page's filter: its home for the keyboard (Ctrl+K, F6).
 pub(super) const FILTER: &str = "page-filter";
@@ -49,6 +49,7 @@ impl SwitcherOpen {
 pub enum Dialog {
     NewProject,
     OpenFolder,
+    NewSession,
 }
 
 /// The dialog shown, if one is: the window's, as the native window's is. The start page's
@@ -231,6 +232,9 @@ pub fn Dialogs() -> Element {
         },
         Some(Dialog::OpenFolder) => rsx! {
             OpenFolder { onclose: close }
+        },
+        Some(Dialog::NewSession) => rsx! {
+            NewSession { onclose: close }
         },
     }
 }
@@ -522,6 +526,121 @@ fn OpenFolder(onclose: EventHandler<()>) -> Element {
     }
 }
 
+/// Each program a new session can run, in the order the dialog shows them.
+const NEW_SESSION_PROGRAMS: &[Program] = &[
+    Program::Claude,
+    Program::ClaudeApiKey,
+    Program::Agy,
+    Program::Opencode,
+];
+
+/// The element id, title, and description shown for `program` in the new-session dialog.
+fn program_choice(program: Program) -> (&'static str, &'static str, &'static str) {
+    match program {
+        Program::Claude => (
+            "new-program-claude",
+            "Claude Code",
+            "Claude Code with your own sign-in",
+        ),
+        Program::ClaudeApiKey => (
+            "new-program-claude-api-key",
+            "Claude Code with the API key",
+            "Claude Code billed by the token with your stored Anthropic API key",
+        ),
+        Program::Agy => ("new-program-agy", "agy", "Google's Antigravity CLI"),
+        Program::Opencode => (
+            "new-program-opencode",
+            "opencode",
+            "opencode in this folder",
+        ),
+    }
+}
+
+/// Asks which program to run for a new session in the current project.
+#[component]
+fn NewSession(onclose: EventHandler<()>) -> Element {
+    let view = use_context::<View>();
+    let api_key_kept = view.sessions.read().api_key_kept;
+    let folder = {
+        let cwd = view.session.read().cwd.clone();
+        if cwd.is_empty() {
+            view.nav.read().project_folder.clone()
+        } else {
+            cwd
+        }
+    };
+    let choices: Vec<Program> = NEW_SESSION_PROGRAMS
+        .iter()
+        .copied()
+        .filter(|program| *program != Program::ClaudeApiKey || api_key_kept)
+        .collect();
+    let initial = {
+        let current = view.sessions.peek().program;
+        choices
+            .iter()
+            .position(|program| *program == current)
+            .unwrap_or(0)
+    };
+    let mut picked = use_signal(move || initial);
+    let at = picked().min(choices.len().saturating_sub(1));
+    let chosen = choices.get(at).copied().unwrap_or(Program::Claude);
+    let start = move |program: Program| {
+        onclose.call(());
+        view.new_session(program);
+    };
+    let count = choices.len();
+    rsx! {
+        Modal { title: "New session", icon: Lucide::SquarePen, onclose,
+            div { class: "dialog-body",
+                p { class: "small dialog-hint trimmed", title: "{folder}", "In {folder}" }
+                div { id: "new-session-program", class: "dialog-label", "Program" }
+                div {
+                    class: "choices",
+                    role: "radiogroup",
+                    "aria-labelledby": "new-session-program",
+                    onkeydown: move |event: KeyboardEvent| {
+                        let key = event.key();
+                        if key == Key::ArrowUp {
+                            event.prevent_default();
+                            picked.set(picked().saturating_sub(1));
+                        } else if key == Key::ArrowDown {
+                            event.prevent_default();
+                            picked.set((picked() + 1).min(count.saturating_sub(1)));
+                        } else if key == Key::Enter {
+                            event.prevent_default();
+                            start(chosen);
+                        }
+                    },
+                    for (index, &program) in choices.iter().enumerate() {
+                        {
+                            let (id, title, detail) = program_choice(program);
+                            rsx! {
+                                super::panels::Choice {
+                                    key: "{id}",
+                                    id,
+                                    title,
+                                    detail,
+                                    chosen: index == at,
+                                    onmounted: move |event| {
+                                        if index == initial {
+                                            focus(Some(event));
+                                        }
+                                    },
+                                    onclick: move |()| picked.set(index),
+                                }
+                            }
+                        }
+                    }
+                }
+                div { class: "dialog-actions",
+                    Button { onclick: move |_| onclose.call(()), "Cancel" }
+                    Button { primary: true, onclick: move |_| start(chosen), "Start" }
+                }
+            }
+        }
+    }
+}
+
 /// A project's page: its sessions, running and earlier, and a new one begun here.
 #[component]
 pub fn ProjectPage() -> Element {
@@ -536,6 +655,7 @@ pub fn ProjectPage() -> Element {
     } else {
         cwd()
     };
+    let mut dialog = use_context::<DialogOpen>().0;
     rsx! {
         main { class: "page", "aria-label": "Project {nav.project_name}",
             div { class: "page-column narrow",
@@ -547,7 +667,7 @@ pub fn ProjectPage() -> Element {
                     Button {
                         primary: true,
                         icon: Lucide::SquarePen,
-                        onclick: move |_| view.new_session(),
+                        onclick: move |_| dialog.set(Some(Dialog::NewSession)),
                         "New session here"
                     }
                 }

@@ -28,10 +28,13 @@ WebAssembly, with a demo project. A script plays Claude, so nothing you type lea
   each answer goes to the request it was meant for.
 - **Plans you review like a document.** Comment on any heading, paragraph or list item. Then send
   Claude back to planning, or approve the plan with your comments attached.
-- **All your sessions across projects.** The start page highlights what needs you and your recent
-  projects, the quick switcher (**Ctrl+K**) jumps to any running session across terminals and
-  folders, and you get a notification when one needs you. A session you've prompted keeps running
-  when you switch away or close the window.
+- **Changes you inspect and comment on.** edualc snapshots your folder before and after each turn
+  so you can read diffs by last turn, since you looked, or whole session, mark files reviewed, and
+  send line comments back to Claude.
+- **All your sessions across projects.** The start page pins projects and lifts any session that
+  needs you to the top, each project page lists its running and earlier sessions, the quick switcher
+  (**Ctrl+K**) jumps to any session across terminals and folders, and you get a notification when
+  one needs you. A session you've prompted keeps running when you switch away or close the window.
 - **Side questions on the side.** `/btw` answers in a panel next to the conversation, which carries
   on meanwhile.
 - **A native app.** It's built with Rust and Slint, with no browser engine, and it does almost
@@ -44,6 +47,7 @@ Every feature in detail: [docs/features.md](docs/features.md).
 
 | | |
 |---|---|
+| ![The start page with a pinned project, recent projects and a session waiting for you](docs/screenshots/start.webp) | ![The changes view showing what the last turn edited, with per-line diffs and review marks](docs/screenshots/changes.webp) |
 | ![An edit waiting for permission, its diff shown in full](docs/screenshots/edit-permission.webp) | ![A plan under review, with comments on two of its steps](docs/screenshots/plan-review.webp) |
 | ![Claude's questions as choices, with a code preview beside the selected one](docs/screenshots/questions.webp) | ![A side question answered in a panel beside the conversation](docs/screenshots/side-question.webp) |
 | ![A cloned folder's hook, environment and MCP server, listed before anything runs](docs/screenshots/trust.webp) | ![The same conversation in light Gruvbox](docs/screenshots/light.webp) |
@@ -56,7 +60,8 @@ There is no release yet. Until there is, build the main branch: on Arch with `ma
 [`dist/aur/edualc-git`](dist/aur/edualc-git), anywhere else with Cargo:
 
 ```sh
-cargo install --locked --git https://github.com/felintusun/edualc edualc edualc-host
+cargo install --locked --git https://github.com/felintusun/edualc edualc
+cargo install --locked --git https://github.com/felintusun/edualc edualc-server --features server
 ```
 
 That puts `edualc` and its daemon `edualcd` side by side in `~/.cargo/bin`, as edualc needs
@@ -81,8 +86,10 @@ edualc --backend agy DIR
 
 `edualc` with no folder opens the start page. `edualc --help` lists every option. Your settings are in `~/.config/edualc/settings.json`.
 
-`--backend agy` runs Google's Antigravity CLI instead of Claude Code. It needs `agy` on your PATH.
-In the window, the New session button asks which of the two to start.
+`--backend` runs another program instead of Claude Code: `agy` (Google's Antigravity CLI) or
+`opencode`, provided that program is on your PATH. In the window, **New session** (or
+**New session here**) asks whether to start Claude Code, Claude Code with a stored API key, `agy`
+or `opencode`.
 
 **Coming from an earlier version?** Earlier versions ran Claude Code in a sandbox. Now Claude Code
 runs exactly as it does in your terminal. Sessions that ran in the sandbox kept their memory,
@@ -93,6 +100,7 @@ folder alone, so you can copy anything you still need from it. Their transcripts
 ## Known limits
 
 - Jumping to another session's window works only on niri.
+- `opencode` sessions keep their own transcripts and can't be continued from edualc yet.
 - You can't mention files with `@` yet, and you paste images rather than drag them in.
 - edualc builds Slint from a fork, until the features it needs are in a Slint release.
 - The Android app keeps its connection only while it's on screen. Android stops an app in the
@@ -137,13 +145,6 @@ dx builds the Android app too. It needs the Android SDK and NDK (`ANDROID_HOME`,
 -p edualc-server --features mobile --target aarch64-linux-android` (for the emulator,
 `x86_64-linux-android`). `dx serve` with the same arguments installs and starts it on a running
 emulator or a connected phone. In the emulator, the machine it runs on is `10.0.2.2`, so
-`edualcd --demo` there is `http://10.0.2.2:7878/`.
-
-The Android app is built by dx too, with the Android SDK and NDK (`ANDROID_HOME`,
-`ANDROID_NDK_HOME`, a JDK 17 or later as `JAVA_HOME`) and the Rust target:
-`dx build --android -p edualc-server --features mobile --target aarch64-linux-android` (for the
-emulator, `x86_64-linux-android`); `dx serve` with the same arguments installs and starts it on
-a running emulator or a connected phone. In the emulator, the machine it runs on is `10.0.2.2`:
 `edualcd --demo` there is `http://10.0.2.2:7878/`.
 
 ## License

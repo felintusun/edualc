@@ -652,7 +652,7 @@ fn SettingsPanel() -> Element {
 
 /// One of a setting's choices: its name, what it means, and whether it is the one in use.
 #[component]
-fn Choice(
+pub(super) fn Choice(
     #[props(into)] id: String,
     #[props(into)] title: String,
     #[props(into)] detail: String,

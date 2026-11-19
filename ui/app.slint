@@ -1497,6 +1497,145 @@ component ApiKeySessionDialog inherits Rectangle {
     }
 }
 
+// Asks which program to run for a new session in the current project. Esc or Cancel closes it;
+// Enter or Start launches the picked program (or opens the API key model picker).
+component NewSessionDialog inherits Rectangle {
+    property <[{program: Program, title: string, detail: string}]> programs: Sessions.api-key-kept ? [
+        { program: Program.claude, title: "Claude Code", detail: "Claude Code with your own sign-in" },
+        { program: Program.claude-api-key, title: "Claude Code with the API key…", detail: "Claude Code billed by the token with your stored Anthropic API key" },
+        { program: Program.agy, title: "agy", detail: "Google's Antigravity CLI" },
+        { program: Program.opencode, title: "opencode", detail: "opencode in this folder" },
+    ] : [
+        { program: Program.claude, title: "Claude Code", detail: "Claude Code with your own sign-in" },
+        { program: Program.agy, title: "agy", detail: "Google's Antigravity CLI" },
+        { program: Program.opencode, title: "opencode", detail: "opencode in this folder" },
+    ];
+    property <int> picked: Sessions.program == Program.agy ? (Sessions.api-key-kept ? 2 : 1)
+        : Sessions.program == Program.opencode ? (Sessions.api-key-kept ? 3 : 2)
+        : Sessions.program == Program.claude-api-key && Sessions.api-key-kept ? 1
+        : 0;
+    property <FocusArea> fence-area: Nav.view == PlaceView.project ? FocusArea.page : FocusArea.conversation;
+
+    function start() {
+        let chosen = root.programs[min(max(0, root.picked), root.programs.length - 1)].program;
+        Sessions.new-session-dialog = false;
+        if chosen == Program.claude-api-key {
+            Sessions.api-key-dialog = true;
+        } else {
+            Sessions.new-session-in-project(chosen);
+        }
+    }
+
+    border-radius: Theme.radius-l;
+    border-width: 1px;
+    border-color: Theme.divider;
+    background: Theme.surface;
+    drop-shadow-blur: 24px;
+    drop-shadow-color: Theme.shadow;
+    clip: true;
+    // Clicks on the dialog stay with it.
+    TouchArea { }
+    FocusScope {
+        init => { self.focus(); }
+        key-pressed(event) => {
+            if event.text == Key.Escape {
+                Sessions.new-session-dialog = false;
+                return accept;
+            }
+            if event.text == Key.Return {
+                root.start();
+                return accept;
+            }
+            if event.text == Key.UpArrow {
+                root.picked = max(0, root.picked - 1);
+                return accept;
+            }
+            if event.text == Key.DownArrow {
+                root.picked = min(root.programs.length - 1, root.picked + 1);
+                return accept;
+            }
+            return reject;
+        }
+    }
+    content := VerticalLayout {
+        padding: Theme.space-l;
+        spacing: Theme.space-s;
+        first-fence := AreaFence {
+            area: root.fence-area;
+            crossed => {
+                if !Focus.going-round {
+                    Focus.going-round = true;
+                    last-fence.focus();
+                    Focus.step(false);
+                }
+            }
+        }
+        HorizontalLayout {
+            spacing: Theme.space-s;
+            Icon {
+                source: @image-url("@lucide/square-pen.svg");
+                tint: Theme.claude;
+                y: (parent.height - self.height) / 2;
+            }
+            Title {
+                text: "New session";
+                vertical-alignment: center;
+                horizontal-stretch: 1;
+                wrap: word-wrap;
+                min-width: 0px;
+            }
+        }
+        Flickable {
+            vertical-stretch: 1;
+            preferred-height: body.preferred-height;
+            content-height: body.preferred-height;
+            body := VerticalLayout {
+                width: parent.width;
+                spacing: Theme.space-s;
+                Small {
+                    text: "In " + (Session.cwd != "" ? Session.cwd : Nav.project-folder);
+                    overflow: elide;
+                    min-width: 0px;
+                }
+                Caption {
+                    text: "Program";
+                }
+                for item[index] in root.programs: Choice {
+                    title: item.title;
+                    detail: item.detail;
+                    chosen: index == root.picked;
+                    tab-stop: false;
+                    clicked => { root.picked = index; }
+                }
+            }
+        }
+        HorizontalLayout {
+            alignment: end;
+            spacing: Theme.space-s;
+            padding-top: Theme.space-s;
+            TextButton {
+                text: "Cancel";
+                clicked => { Sessions.new-session-dialog = false; }
+            }
+            TextButton {
+                text: "Start";
+                primary: true;
+                clicked => { root.start(); }
+            }
+        }
+        last-fence := AreaFence {
+            area: root.fence-area;
+            crossed => {
+                if !Focus.going-round {
+                    Focus.going-round = true;
+                    first-fence.focus();
+                    Focus.step(true);
+                }
+            }
+        }
+    }
+}
+
 // A Claude Code session to continue, while the keyring keeps an API key: the user picks
 // whether it signs in as they do in the terminal, or with the key, billed by the token.
 component SignInChoiceBar inherits Rectangle {
@@ -1727,7 +1866,7 @@ export component AppWindow inherits Window {
     init => { self.update-breakpoints(); }
     changed width => { self.update-breakpoints(); }
     changed rem-unit => { self.update-breakpoints(); }
-    property <bool> modal-open: Preferences.open || Usage.open || root.new-project-open || root.open-folder-open || root.switcher-open || Sessions.api-key-dialog;
+    property <bool> modal-open: Preferences.open || Usage.open || root.new-project-open || root.open-folder-open || root.switcher-open || Sessions.new-session-dialog || Sessions.api-key-dialog;
     property <int> switcher-serial: Nav.switcher-serial;
     property <int> new-project-serial: Nav.new-project-serial;
     property <PlaceView> current-view: Nav.view;
@@ -1758,6 +1897,8 @@ export component AppWindow inherits Window {
         root.switcher-open = false;
         root.open-folder-open = false;
         root.switcher-preedit = false;
+        Sessions.new-session-dialog = false;
+        Sessions.api-key-dialog = false;
         root.side-preedit = false;
         root.tall-preedit = false;
         TextSelection.clear();
@@ -1854,6 +1995,10 @@ export component AppWindow inherits Window {
                     root.open-folder-open = false;
                     return accept;
                 }
+                if Sessions.new-session-dialog {
+                    Sessions.new-session-dialog = false;
+                    return accept;
+                }
                 if Sessions.api-key-dialog {
                     Sessions.api-key-dialog = false;
                     return accept;
@@ -1926,7 +2071,7 @@ export component AppWindow inherits Window {
                 if Nav.view == PlaceView.start {
                     root.new-project-open = true;
                 } else {
-                    Sessions.new-session(Sessions.program);
+                    Sessions.new-session-dialog = true;
                 }
                 return accept;
             }
@@ -2022,7 +2167,7 @@ export component AppWindow inherits Window {
                                         height: Theme.chip;
                                         border-radius: Theme.radius-m;
                                         accessible-label: "New session in project (Ctrl+N)";
-                                        clicked => { Sessions.new-session-in-project(Sessions.program); }
+                                        clicked => { Sessions.new-session-dialog = true; }
                                         HorizontalLayout {
                                             padding-left: Theme.space-s;
                                             padding-right: Theme.space-s;
@@ -2811,6 +2956,24 @@ export component AppWindow inherits Window {
                     height: parent.height;
                     close => { root.close-settings(); }
                 }
+            }
+        }
+        // Asking which program to run for a new session, over the workspace.
+        if Sessions.new-session-dialog: Rectangle {
+            x: 0;
+            y: 0;
+            width: parent.width;
+            height: parent.height;
+            background: Theme.dim;
+            TouchArea {
+                clicked => { Sessions.new-session-dialog = false; }
+                scroll-event(event) => { return accept; }
+            }
+            new-session-dialog := NewSessionDialog {
+                width: min(parent.width - 2 * Theme.space-xl, 560px);
+                height: min(parent.height - 2 * Theme.space-xl, self.preferred-height);
+                x: (parent.width - self.width) / 2;
+                y: max(Theme.space-m, (parent.height - self.height) / 3);
             }
         }
         // Starting a session with the API key, over the workspace.
