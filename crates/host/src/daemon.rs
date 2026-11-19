@@ -100,6 +100,9 @@ pub struct Options {
 pub fn run(options: Options) -> std::process::ExitCode {
     // Closed to the user's other processes: its memory, and the descriptors it holds (the
     // claude processes' and the image decoder's pipes). Windows check it by user, not program.
+    // macOS closes a process's memory to others of the user's without this: reaching it takes
+    // a debugger's entitlement.
+    #[cfg(any(target_os = "linux", target_os = "android"))]
     if let Err(error) =
         rustix::process::set_dumpable_behavior(rustix::process::DumpableBehavior::NotDumpable)
     {

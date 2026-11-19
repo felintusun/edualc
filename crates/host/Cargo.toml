@@ -53,6 +53,7 @@ notify = { version = "8", default-features = false, features = ["macos_fsevent"]
 
 # rfd's Wayland client, loaded as it is needed rather than linked: edualcd also runs where no
 # Wayland is installed. The window's Slint asks the same; edualcd alone doesn't.
+[target.'cfg(any(target_os = "linux", target_os = "android"))'.dependencies]
 wayland-backend = { version = "0.3", features = ["dlopen"] }
 
 [dev-dependencies]
