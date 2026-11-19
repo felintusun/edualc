@@ -57,9 +57,7 @@ zeroize = { version = "1.9", features = ["serde"] }
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 # inotify, the daemon's Unix socket, its folder's checks.
 rustix.workspace = true
-seccompiler.workspace = true
 libc.workspace = true
-landlock.workspace = true
 tokio.workspace = true
 postcard.workspace = true
 # A form's fields in the order an ACP agent gives them (`external::acp::FormSchema`); already
@@ -69,6 +67,11 @@ rustls.workspace = true
 # A native window's line over the network (`line`, `ipc::ws`): the Android app's.
 tokio-tungstenite.workspace = true
 futures-util.workspace = true
+
+# The image decoder's confinement: kernel features of Linux, which Android shares.
+[target.'cfg(any(target_os = "linux", target_os = "android"))'.dependencies]
+seccompiler.workspace = true
+landlock.workspace = true
 
 # A page: its clock, random numbers and timers.
 [target.'cfg(target_arch = "wasm32")'.dependencies]

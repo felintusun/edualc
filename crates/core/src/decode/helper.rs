@@ -1,21 +1,13 @@
-//! The helper process that decodes images, confined (see the parent module): Linux only, as
-//! in the browser demo the page is the sandbox and images are decoded where they are shown.
+//! The helper process that decodes images, confined (see the parent module): not in the
+//! browser demo, where the page is the sandbox and images are decoded where they are shown.
 
-use std::collections::BTreeMap;
 use std::io::{Read, Write};
 use std::os::fd::AsRawFd;
 use std::process::{ExitCode, Stdio};
 use std::time::Duration;
 
-use landlock::{
-    ABI, Access, AccessFs, AccessNet, CompatLevel, Compatible, Ruleset, RulesetAttr, Scope,
-};
 use rustix::fs::{Mode, OFlags};
-use rustix::process::{DumpableBehavior, Resource, Rlimit};
-use seccompiler::{
-    BpfProgram, SeccompAction, SeccompCmpArgLen, SeccompCmpOp, SeccompCondition, SeccompFilter,
-    SeccompRule,
-};
+use rustix::process::{Resource, Rlimit};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 use super::{
@@ -24,13 +16,21 @@ use super::{
     THUMBNAIL_SIDE_PX, decoded, shown,
 };
 
-/// The newest Landlock this helper knows.
-const ABI_KNOWN: ABI = ABI::V9;
+// How the helper is confined differs by system: on Linux it confines itself; on macOS, which
+// offers that only through `unsafe` (`sandbox_init`), it is started inside a sandbox.
+#[cfg(any(target_os = "linux", target_os = "android"))]
+mod linux;
+#[cfg(any(target_os = "linux", target_os = "android"))]
+use linux as confinement;
+#[cfg(target_os = "macos")]
+mod macos;
+#[cfg(target_os = "macos")]
+use macos as confinement;
+
+use confinement::{OPEN_DESCRIPTORS, confine};
 
 /// How long a decode may take, and the helper's own processor time.
 const PATIENCE: Duration = Duration::from_secs(10);
-/// The helper's address space: decoding's allocations and the program around them.
-const MAX_ADDRESS_SPACE_BYTES: u64 = 1024 * 1024 * 1024;
 
 /// Why the daemon has no image from the helper.
 #[derive(Debug, thiserror::Error)]
@@ -57,23 +57,20 @@ pub enum Error {
     Refused(#[from] Refusal),
 }
 
-/// The helper: this program, as it runs.
-const HELPER: &str = "/proc/self/exe";
-
 /// Has the helper decode `bytes`, to send.
 pub async fn decode(bytes: &[u8]) -> Result<Picture, Error> {
-    let answer = exchange(std::path::Path::new(HELPER), Job::Send, bytes).await?;
+    let answer = exchange(Job::Send, bytes).await?;
     checked(&answer)
 }
 
 /// Has the helper decode `bytes`, to show.
 pub async fn show(bytes: &[u8]) -> Result<Pixels, Error> {
-    let answer = exchange(std::path::Path::new(HELPER), Job::Show, bytes).await?;
+    let answer = exchange(Job::Show, bytes).await?;
     checked_shown(&answer)
 }
 
 /// The helper's whole answer to `job` for `bytes`.
-async fn exchange(program: &std::path::Path, job: Job, bytes: &[u8]) -> Result<Vec<u8>, Error> {
+async fn exchange(job: Job, bytes: &[u8]) -> Result<Vec<u8>, Error> {
     if bytes.len() > MAX_INPUT_BYTES {
         return Err(Refusal::TooManyBytes.into());
     }
@@ -81,8 +78,8 @@ async fn exchange(program: &std::path::Path, job: Job, bytes: &[u8]) -> Result<V
         Job::Send => MAX_ANSWER_BYTES,
         Job::Show => MAX_SHOWN_ANSWER_BYTES,
     };
-    let mut child = tokio::process::Command::new(program)
-        .arg(job.as_ref())
+    let mut child = confinement::command(job)
+        .map_err(Error::Start)?
         .env_clear()
         .current_dir("/")
         .stdin(Stdio::piped())
@@ -222,59 +219,32 @@ pub fn run(job: Job) -> ExitCode {
     ExitCode::SUCCESS
 }
 
+/// Why the helper couldn't confine itself, and so won't decode.
 #[derive(Debug, thiserror::Error)]
 enum ConfineError {
     #[error("{0}")]
     System(#[from] rustix::io::Errno),
     #[error("descriptor {fd} is open ({target})")]
     Inherited { fd: i32, target: String },
+    #[cfg(any(target_os = "linux", target_os = "android"))]
     #[error("{0}")]
     Landlock(#[from] landlock::RulesetError),
+    #[cfg(any(target_os = "linux", target_os = "android"))]
     #[error("{0}")]
     Seccomp(#[from] seccompiler::Error),
+    #[cfg(any(target_os = "linux", target_os = "android"))]
     #[error("{0}")]
     SeccompBackend(#[from] seccompiler::BackendError),
-}
-
-/// Confines the helper, in an order where nothing set up later needs what was taken earlier:
-/// closed to other processes, sure to hold nothing but its standard streams, then no file,
-/// socket or signal (Landlock), bounded (rlimits), and last the system calls decoding makes,
-/// with no memory made executable (seccomp).
-fn confine() -> Result<(), ConfineError> {
-    rustix::process::set_dumpable_behavior(DumpableBehavior::NotDumpable)?;
-    only_standard_streams()?;
-    Ruleset::default()
-        .set_compatibility(CompatLevel::BestEffort)
-        .handle_access(AccessFs::from_all(ABI_KNOWN))?
-        .handle_access(AccessNet::BindTcp | AccessNet::ConnectTcp)?
-        .scope(Scope::AbstractUnixSocket | Scope::Signal)?
-        .create()?
-        .restrict_self()?;
-    let seconds = PATIENCE.as_secs();
-    for (resource, limit) in [
-        (Resource::As, MAX_ADDRESS_SPACE_BYTES),
-        (Resource::Cpu, seconds),
-        (Resource::Fsize, 0),
-        (Resource::Core, 0),
-        (Resource::Nofile, 3),
-    ] {
-        rustix::process::setrlimit(
-            resource,
-            Rlimit {
-                current: Some(limit),
-                maximum: Some(limit),
-            },
-        )?;
-    }
-    seccompiler::apply_filter(&filter()?)?;
-    Ok(())
+    #[cfg(target_os = "macos")]
+    #[error("it isn't in a sandbox: it can read a file the sandbox keeps out of reach")]
+    Unconfined,
 }
 
 /// Refuses to go on with any descriptor but the standard streams: one inherited by mistake
 /// could reach what the rest of the confinement keeps away.
 fn only_standard_streams() -> Result<(), ConfineError> {
     let listing = rustix::fs::open(
-        "/proc/self/fd",
+        OPEN_DESCRIPTORS,
         OFlags::RDONLY | OFlags::DIRECTORY | OFlags::CLOEXEC,
         Mode::empty(),
     )?;
@@ -286,7 +256,7 @@ fn only_standard_streams() -> Result<(), ConfineError> {
             continue;
         };
         if fd > 2 && fd != own {
-            let target = std::fs::read_link(format!("/proc/self/fd/{fd}"))
+            let target = std::fs::read_link(format!("{OPEN_DESCRIPTORS}/{fd}"))
                 .map_or_else(|error| error.to_string(), |path| path.display().to_string());
             return Err(ConfineError::Inherited { fd, target });
         }
@@ -294,53 +264,29 @@ fn only_standard_streams() -> Result<(), ConfineError> {
     Ok(())
 }
 
-/// The system calls the helper makes once confined: reading its input, writing its answer,
-/// memory (never executable), and ending. Any other kills it.
-fn filter() -> Result<BpfProgram, ConfineError> {
-    let on_fd = |fd: u64| -> Result<SeccompRule, ConfineError> {
-        Ok(SeccompRule::new(vec![SeccompCondition::new(
-            0,
-            SeccompCmpArgLen::Dword,
-            SeccompCmpOp::Eq,
-            fd,
-        )?])?)
-    };
-    let not_executable = || -> Result<SeccompRule, ConfineError> {
-        let exec = u64::from(libc::PROT_EXEC.unsigned_abs());
-        Ok(SeccompRule::new(vec![SeccompCondition::new(
-            2,
-            SeccompCmpArgLen::Dword,
-            SeccompCmpOp::MaskedEq(exec),
-            0,
-        )?])?)
-    };
-    let mut rules: BTreeMap<i64, Vec<SeccompRule>> = BTreeMap::new();
-    rules.insert(libc::SYS_read, vec![on_fd(0)?]);
-    rules.insert(libc::SYS_write, vec![on_fd(1)?, on_fd(2)?]);
-    rules.insert(libc::SYS_mmap, vec![not_executable()?]);
-    rules.insert(libc::SYS_mprotect, vec![not_executable()?]);
-    for always in [
-        libc::SYS_munmap,
-        libc::SYS_mremap,
-        libc::SYS_brk,
-        libc::SYS_madvise,
-        libc::SYS_futex,
-        libc::SYS_rt_sigreturn,
-        libc::SYS_rt_sigprocmask,
-        libc::SYS_sigaltstack,
-        libc::SYS_getrandom,
-        libc::SYS_exit,
-        libc::SYS_exit_group,
+/// Bounds the helper as every system lets it: its processor time, no file written, no core
+/// dumped, and no descriptor opened past its standard streams.
+fn bounded() -> rustix::io::Result<()> {
+    for (resource, most) in [
+        (Resource::Cpu, PATIENCE.as_secs()),
+        (Resource::Fsize, 0),
+        (Resource::Core, 0),
+        (Resource::Nofile, 3),
     ] {
-        rules.insert(always, Vec::new());
+        limit(resource, most)?;
     }
-    let filter = SeccompFilter::new(
-        rules,
-        SeccompAction::KillProcess,
-        SeccompAction::Allow,
-        std::env::consts::ARCH.try_into()?,
-    )?;
-    Ok(filter.try_into()?)
+    Ok(())
+}
+
+/// Bounds `resource` at `most`, for good: the helper can't raise it again.
+fn limit(resource: Resource, most: u64) -> rustix::io::Result<()> {
+    rustix::process::setrlimit(
+        resource,
+        Rlimit {
+            current: Some(most),
+            maximum: Some(most),
+        },
+    )
 }
 
 #[cfg(test)]
@@ -485,34 +431,6 @@ mod tests {
             decoded(cut, MAX_SIDE_PX),
             Err(Refusal::Undecodable(_))
         ));
-    }
-
-    /// The confinement holds: confined as the helper is, a process reaching for a file is killed
-    /// (the real filter, whose answer to anything not allowed is death). The test starts itself
-    /// again as that process.
-    #[test]
-    fn a_confined_helper_is_killed_reaching_for_a_file() {
-        use std::os::unix::process::ExitStatusExt;
-        const CHILD: &str = "EDUALC_CONFINED_CHILD";
-        if std::env::var_os(CHILD).is_some() {
-            confine().expect("confined");
-            let opened = std::fs::File::open("/etc/hostname");
-            // Still here: the parent sees an exit, not the kill it waits for.
-            std::process::exit(if opened.is_ok() { 3 } else { 4 });
-        }
-        let status = std::process::Command::new(std::env::current_exe().expect("this test"))
-            .args([
-                "--exact",
-                "decode::helper::tests::a_confined_helper_is_killed_reaching_for_a_file",
-                "--test-threads=1",
-            ])
-            .env(CHILD, "1")
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status()
-            .expect("ran");
-        assert_eq!(status.signal(), Some(libc::SIGSYS), "{status}");
     }
 
     /// The helper's answer is taken as untrusted: one whole answer, sizes that agree.
