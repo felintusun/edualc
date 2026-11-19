@@ -73,6 +73,10 @@ futures-util.workspace = true
 seccompiler.workspace = true
 landlock.workspace = true
 
+# What macOS tells of a process, which Linux tells in `/proc`.
+[target.'cfg(target_os = "macos")'.dependencies]
+libproc = "0.14"
+
 # A page: its clock, random numbers and timers.
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 jiff = { version = "0.2.38", features = ["js"] }
