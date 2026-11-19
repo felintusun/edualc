@@ -198,6 +198,9 @@ pub(crate) fn main() -> Result<std::process::ExitCode, slint::PlatformError> {
     // Before `show`: the compositor is told the id once, as the window is made.
     slint::set_xdg_app_id(desktop::APP_ID)?;
     ui::wire(&window, &events);
+    window
+        .global::<generated::Nav>()
+        .set_show_window_controls(show_window_controls());
     let frontend = ui::SlintFrontend::new(window.clone_strong(), fonts, events.clone());
     let mut app = app::App::new(
         frontend,
@@ -222,6 +225,30 @@ pub(crate) fn main() -> Result<std::process::ExitCode, slint::PlatformError> {
     window.show()?;
     slint::run_event_loop_until_quit()?;
     Ok(std::process::ExitCode::SUCCESS)
+}
+
+/// Custom window controls (minimize/maximize/close) are hidden under tiling Wayland
+/// compositors such as `niri` that manage windows without client-side titlebar buttons.
+fn show_window_controls() -> bool {
+    show_window_controls_with(
+        std::env::var_os("NIRI_SOCKET").as_deref(),
+        std::env::var_os("XDG_CURRENT_DESKTOP").as_deref(),
+    )
+}
+
+fn show_window_controls_with(
+    niri_socket: Option<&std::ffi::OsStr>,
+    xdg_current_desktop: Option<&std::ffi::OsStr>,
+) -> bool {
+    if niri_socket.is_some() {
+        return false;
+    }
+    !xdg_current_desktop.is_some_and(|desktop| {
+        desktop
+            .to_string_lossy()
+            .split(':')
+            .any(|part| part.eq_ignore_ascii_case("niri"))
+    })
 }
 
 #[cfg(test)]
@@ -350,5 +377,21 @@ mod tests {
                 .map(Folder::into_path),
             PathBuf::from("/tmp").canonicalize().ok()
         );
+    }
+
+    #[test]
+    fn window_controls_hidden_under_niri() {
+        use std::ffi::OsStr;
+        assert!(show_window_controls_with(None, None));
+        assert!(show_window_controls_with(None, Some(OsStr::new("GNOME"))));
+        assert!(!show_window_controls_with(
+            Some(OsStr::new("/run/user/1000/niri.sock")),
+            None
+        ));
+        assert!(!show_window_controls_with(
+            None,
+            Some(OsStr::new("niri:wlroots"))
+        ));
+        assert!(!show_window_controls_with(None, Some(OsStr::new("Niri"))));
     }
 }

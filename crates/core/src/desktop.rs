@@ -9,7 +9,6 @@ use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
 use crate::external::niri;
-use crate::sessions::{LiveKind, LiveSession};
 
 #[derive(
     Debug,
@@ -38,7 +37,6 @@ pub enum Program {
     Wezterm,
     Konsole,
     GnomeTerminal,
-    Kill,
     Claude,
     FcList,
     FcMatch,
@@ -155,10 +153,6 @@ pub enum Error {
         "no window holds process {0}; it may run in the background or in a terminal multiplexer"
     )]
     NoWindow(u32),
-    #[error("process {0} was asked to stop but is still running")]
-    StillRunning(u32),
-    #[error("process {0} isn't that Claude Code session (any more)")]
-    NotThatSession(u32),
 }
 
 /// How long a program edualc runs gets to end. Each is quick (`claude stop`, git's
@@ -345,55 +339,6 @@ pub fn focus_window_of(pid: u32) -> Result<(), Error> {
         .ok_or(Error::NoWindow(pid))?;
     let focus = niri::Request::Action(niri::Action::FocusWindow { id: window.id });
     niri::ask(&focus).map(drop).map_err(Error::Niri)
-}
-
-/// How long a stopped session gets to end (it writes its transcript and tidies up first).
-const STOP_GRACE_STEPS: u32 = 100;
-
-/// A session running elsewhere, as far as stopping it takes: which process, started when (to
-/// tell it from a later one with the pid), and how it runs.
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct Running {
-    pub pid: u32,
-    pub started: String,
-    pub kind: LiveKind,
-    pub id: crate::external::wire::SessionId,
-}
-
-impl From<&LiveSession> for Running {
-    fn from(session: &LiveSession) -> Self {
-        Self {
-            pid: session.pid,
-            started: session.started.clone(),
-            kind: session.kind,
-            id: session.id.clone(),
-        }
-    }
-}
-
-/// Stops a Claude Code session where it runs, and waits until it has ended: a background
-/// session as `claude stop` stops it (its conversation is kept), one in a terminal as closing
-/// the terminal would (SIGTERM). Its transcript is complete afterwards, to be resumed.
-pub fn stop_session(session: &Running) -> Result<(), Error> {
-    // The record says which process; it must still be that one, and Claude Code, right before
-    // it is signalled: records are files anyone running as the user can write.
-    let still_it = || crate::process::is_running(session.pid, &session.started);
-    if !still_it() || !crate::process::runs_claude(session.pid) {
-        return Err(Error::NotThatSession(session.pid));
-    }
-    let pid = session.pid.to_string();
-    match session.kind {
-        LiveKind::Bg => run(Program::Claude, &["stop", "--", session.id.as_str()])?,
-        LiveKind::Interactive | LiveKind::Other => run(Program::Kill, &["-TERM", &pid])?,
-    };
-    for _ in 0..STOP_GRACE_STEPS {
-        if !still_it() {
-            return Ok(());
-        }
-        std::thread::sleep(std::time::Duration::from_millis(100));
-    }
-    Err(Error::StillRunning(session.pid))
 }
 
 /// `pid` and its parents, nearest first, up to (not including) init.

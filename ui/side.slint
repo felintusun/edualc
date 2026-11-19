@@ -4,14 +4,22 @@
 
 import { ListView } from "std-widgets.slint";
 import { Theme } from "theme.slint";
-import { FocusArea, SideState } from "types.slint";
-import { Focus, Side } from "state.slint";
+import { Cjk, CjkChars, FocusArea, HanLanguage, SideState } from "types.slint";
+import { Focus, Preferences, Session, Side } from "state.slint";
 import { AreaFence, Caption, Field, Icon, IconButton, Small, TextButton } from "widgets.slint";
 import { BlockView } from "transcript.slint";
 
 export component SidePanel inherits Rectangle {
     background: Theme.surface-raised;
+    property <CjkChars> han-cjk: {
+        language: Preferences.han-language == HanLanguage.japanese ? Cjk.japanese
+            : Preferences.han-language == HanLanguage.simplified-chinese ? Cjk.simplified-chinese
+            : Preferences.han-language == HanLanguage.traditional-chinese ? Cjk.traditional-chinese
+            : Cjk.korean,
+        main: false,
+    };
     property <int> focus-serial: Side.focus-serial;
+    out property <bool> has-preedit: follow-up.preedit-text != "";
     changed focus-serial => { follow-up.focus(); }
     follow-timer := Timer {
         interval: 1ms;
@@ -49,9 +57,11 @@ export component SidePanel inherits Rectangle {
     }
     VerticalLayout {
         HorizontalLayout {
-            height: 52px;
+            min-height: 52px;
             padding-left: Theme.space-m;
             padding-right: Theme.space-xs;
+            padding-top: Theme.space-xs;
+            padding-bottom: Theme.space-xs;
             spacing: Theme.space-s;
             Icon {
                 source: @image-url("@lucide/message-circle-question-mark.svg");
@@ -61,6 +71,7 @@ export component SidePanel inherits Rectangle {
             VerticalLayout {
                 alignment: center;
                 horizontal-stretch: 1;
+                min-width: 0px;
                 Text {
                     text: "By the way";
                     font-weight: 600;
@@ -68,7 +79,8 @@ export component SidePanel inherits Rectangle {
                 }
                 Caption {
                     text: "Sees the conversation; doesn't join it or run tools";
-                    overflow: elide;
+                    wrap: word-wrap;
+                    min-width: 0px;
                 }
             }
             IconButton {
@@ -110,6 +122,9 @@ export component SidePanel inherits Rectangle {
                                 text: exchange.question;
                                 color: Theme.text;
                                 wrap: word-wrap;
+                                min-width: 0px;
+                                language: Theme.language-tag(root.han-cjk);
+                                line-height-factor: Theme.line-factor(root.han-cjk);
                             }
                         }
                     }
@@ -158,7 +173,7 @@ export component SidePanel inherits Rectangle {
         if Side.exchanges.length == 0: VerticalLayout {
             padding: Theme.space-l;
             Small {
-                text: "Ask something on the side while Claude works: about the code, the conversation, anything. The conversation goes on undisturbed.";
+                text: "Ask something on the side while " + Session.agent-name + " works: about the code, the conversation, anything. The conversation goes on undisturbed.";
                 wrap: word-wrap;
             }
         }

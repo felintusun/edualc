@@ -5,8 +5,8 @@
 
 import { ScrollView } from "std-widgets.slint";
 import { Theme } from "theme.slint";
-import { BlockKind, DiffKind, DiffLine, Entry, EntryKind, GroupRole, ImageState, MdBlock, ShownImage, ToolState } from "types.slint";
-import { Changes, Clipboard, Transcript } from "state.slint";
+import { BlockKind, Cjk, CjkChars, DiffKind, DiffLine, Entry, EntryKind, GroupRole, HanLanguage, ImageState, MdBlock, ShownImage, ToolState } from "types.slint";
+import { Changes, Clipboard, Preferences, Transcript } from "state.slint";
 import { Caption, CodeBox, Icon, IconButton, Pressable, Selectable, Small, TableCell } from "widgets.slint";
 
 // A table as wide as its cells need, up to the column. Narrower, its cells wrap, each column
@@ -327,6 +327,13 @@ component ToolCard inherits Rectangle {
                     color: Theme.text-secondary;
                     font-family: root.entry.tool-summary-prose ? Theme.sans : Theme.mono;
                     font-size: root.entry.tool-summary-prose ? 1rem : 1rem * Theme.code-size;
+                    language: Theme.language-tag(root.entry.cjk.language != Cjk.none ? root.entry.cjk : {
+                        language: Preferences.han-language == HanLanguage.japanese ? Cjk.japanese
+                            : Preferences.han-language == HanLanguage.simplified-chinese ? Cjk.simplified-chinese
+                            : Preferences.han-language == HanLanguage.traditional-chinese ? Cjk.traditional-chinese
+                            : Cjk.korean,
+                        main: false,
+                    });
                     overflow: elide;
                     vertical-alignment: center;
                     horizontal-stretch: 1;
@@ -440,6 +447,8 @@ component PeerBubble inherits HorizontalLayout {
                     color: Theme.text-tertiary;
                     font-size: 1rem * Theme.small;
                     vertical-alignment: center;
+                    overflow: elide;
+                    min-width: 0px;
                 }
             }
             Selectable {
@@ -599,6 +608,7 @@ export component EntryView inherits VerticalLayout {
             default-color: Theme.text-faint;
             default-font-size: 1rem * Theme.small;
             cjk: root.entry.cjk;
+            line-height-factor: Theme.tight-line-factor(root.entry.cjk);
         }
         if root.entry.changed != "": Pressable {
             horizontal-stretch: 0;

@@ -729,8 +729,7 @@ fn MenuButton(
     let chosen = usize::try_from(chosen).ok().filter(|index| *index < count);
     let current = chosen
         .and_then(|index| items.get(index))
-        .map(|item| item.title.clone())
-        .unwrap_or_default();
+        .map_or_default(|item| item.title.clone());
     let list = format!("{class}-choices");
     let mut show = move || {
         highlighted.set(chosen.unwrap_or(0));

@@ -104,9 +104,7 @@ pub fn TasksChip() -> Element {
         focus(chip.peek().clone());
     };
     let session = view.session.read();
-    let style = room()
-        .map(|top| format!("max-height: calc({top}px - var(--space-m));"))
-        .unwrap_or_default();
+    let style = room().map_or_default(|top| format!("max-height: calc({top}px - var(--space-m));"));
     rsx! {
         div { class: "tasks",
             button {

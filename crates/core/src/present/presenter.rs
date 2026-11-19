@@ -11,19 +11,21 @@ use super::model::{
     self, Activity, BlockKind, CardSessionItem, Cjk, CjkChars, CommandItem, DiffKind, DiffLine,
     Entry, EntryKind, GroupRole, HanLanguage, ImageChip, ImageState, LiveState, MdBlock, MenuItem,
     PeekStep, PeerMessages, PermissionKind, PlaceView, PlanSection, ProjectCard, ProjectItem,
-    PromptKind, Question, QuestionOption, SendKey, SessionRow, SessionRowKind, ShownImage,
-    SideExchange, SideState, SignInState, StatRow, StatSection, StepKind, SwitcherItem, TableRow,
-    TaskItem, TaskKind, ToolState, WaitingItem,
+    ProjectSort, PromptKind, Question, QuestionOption, SendKey, SessionRow, SessionRowKind,
+    ShownImage, SideExchange, SideState, SignInState, StatRow, StatSection, StepKind, SwitcherItem,
+    TableRow, TaskItem, TaskKind, ToolState, UsageTab, WaitingItem,
 };
 use super::{Command, EntriesChange, Frontend, Image, Look, Styled};
 use crate::app::{
     Answer, ApiKeyKept, Ask, AskKind, ChangesView, CommandOutput, Conversation, Doing, Followed,
     LimitUse, LimitWait, LineComment, Listed, Mode, Modes, Peek, PeekView, PermissionMode, Place,
-    Running, SideChat, SideView, SignIn, Status, Tasks, UsagePanel, Watch, comments_on, diff_rows,
+    ProviderUsageState, Running, SideChat, SideView, SignIn, Status, Tasks, UsagePanel, Watch,
+    comments_on, diff_rows,
 };
 use crate::changes;
 use crate::chat::{self, Body, Change, Chat, ImageKey};
 use crate::cjk::{CjkLanguage, CjkText, Standing};
+use crate::claude::Backend;
 use crate::decode::{Picture, Pixels};
 use crate::desktop::Opener;
 use crate::external::tool_input::{BashInput, IncomingMessageInput, WebFetchInput};
@@ -104,6 +106,13 @@ impl<F: Frontend> Presenter<F> {
             limit_five_hour: -1.0,
             limit_seven_day: -1.0,
             title: "New session".to_owned(),
+            agent: "Claude".to_owned(),
+            agent_name: "Claude".to_owned(),
+            program: "Claude Code".to_owned(),
+            shell_commands: true,
+            can_shell: true,
+            can_btw: true,
+            can_fork: true,
             ..model::Session::default()
         };
         Self {
@@ -114,7 +123,10 @@ impl<F: Frontend> Presenter<F> {
             sessions: model::Sessions::default(),
             prompt: model::Prompt::default(),
             peek: model::Peek::default(),
-            changes: model::Changes::default(),
+            changes: model::Changes {
+                can_send: true,
+                ..model::Changes::default()
+            },
             side: model::Side::default(),
             preferences: model::Preferences::default(),
             usage: model::Usage::default(),
@@ -652,8 +664,13 @@ impl<F: Frontend> Presenter<F> {
         session.asks_claude_trust = asks_claude_trust;
         session.trust_runs = asking.unwrap_or_default().iter().map(run_line).collect();
         status.backend.agent().clone_into(&mut session.agent);
+        status.backend.agent().clone_into(&mut session.agent_name);
         status.backend.program().clone_into(&mut session.program);
-        session.shell_commands = status.backend == crate::claude::Backend::Claude;
+        let is_claude = status.backend == crate::claude::Backend::Claude;
+        session.shell_commands = is_claude;
+        session.can_shell = is_claude;
+        session.can_btw = is_claude;
+        session.can_fork = !status.backend.is_acp();
         self.sessions.program = program_shown(crate::claude::Program::of(
             status.backend,
             status.sign_in_with,
@@ -715,48 +732,39 @@ impl<F: Frontend> Presenter<F> {
                 LiveStatus::Other => "running",
             };
             let text = format!(
-                "{} runs in another Claude Code window ({doing}). This view follows it.",
-                watch.session.name
+                "{} runs in another {} window ({doing}). This view follows it.",
+                watch.session.name,
+                watch.session.backend.program()
             );
             session.watch_text = text;
         }
     }
 
-    /// The usage panel: the plan's limits, this session, the context, the last day and week.
+    /// The usage panel: tabs for every coding agent (`Claude Code`, `agy`, `opencode`) with plan
+    /// limits, active session cost/time, context breakdown, and recent activity.
     pub fn render_usage(&mut self, panel: &UsagePanel, status: &Status) {
         let usage = &mut self.usage;
         usage.open = panel.open;
         if !panel.open {
             return;
         }
-        usage.loading = panel.waiting > 0;
-        usage.note = panel.error.as_deref().unwrap_or("").into();
-        status.backend.program().clone_into(&mut usage.program);
-        let mut sections = vec![limits_section(panel.report.as_ref(), status)];
-        if let Some(session) = panel
-            .report
-            .as_ref()
-            .and_then(|report| report.session.as_ref())
-        {
-            sections.push(session_section(session));
+        let mut tabs = Vec::with_capacity(Backend::ALL.len());
+        let mut active_index = 0_usize;
+        for (idx, backend) in Backend::ALL.iter().copied().enumerate() {
+            if backend == panel.active_backend {
+                active_index = idx;
+            }
+            let state = panel.for_backend(backend);
+            tabs.push(usage_tab(backend, state, status));
         }
-        if let Some(context) = &panel.context {
-            sections.push(context_section(context));
+        usage.active_tab = index_for_slint(active_index);
+        if let Some(active) = tabs.get(active_index) {
+            usage.program.clone_from(&active.label);
+            usage.loading = active.loading;
+            usage.note.clone_from(&active.note);
+            usage.sections.clone_from(&active.sections);
         }
-        if let Some(report) = &panel.report {
-            let periods = [
-                ("The last 24 hours", &report.behaviors.day),
-                ("The last 7 days", &report.behaviors.week),
-            ];
-            sections.extend(
-                periods
-                    .into_iter()
-                    .filter_map(|(title, period)| Some(period_section(title, period.as_ref()?))),
-            );
-        }
-        // A tab with nothing behind it says nothing.
-        sections.retain(|section| !section.rows.is_empty() || !section.note.is_empty());
-        usage.sections = sections;
+        usage.tabs = tabs;
     }
 
     /// What runs in the background: each task, and how much of each kind.
@@ -793,11 +801,13 @@ impl<F: Frontend> Presenter<F> {
             *global = model::Changes {
                 last_turn: std::mem::take(&mut global.last_turn),
                 comments: global.comments,
+                can_send: true,
                 ..model::Changes::default()
             };
             return;
         };
         global.open = true;
+        global.can_send = !view.elsewhere;
         global.editing_comment = view.editing.is_some();
         global.scope = match view.scope {
             changes::Scope::Turn => model::ChangeScope::Turn,
@@ -854,7 +864,10 @@ impl<F: Frontend> Presenter<F> {
                     changes::Scope::Session => "The session changed no files.",
                 }
                 .to_owned(),
-                if view.elsewhere {
+                if view.send_blocked {
+                    "This session runs in another window: continue here as a copy to send your comments."
+                        .to_owned()
+                } else if view.elsewhere {
                     "This session runs in another program: edualc keeps the changes only of \
                      sessions it runs."
                         .to_owned()
@@ -864,7 +877,12 @@ impl<F: Frontend> Presenter<F> {
             ),
             Listed::Read(read) => (
                 summary_words(changes::Summary::from(read)),
-                left_out_words(read.left_out),
+                if view.send_blocked {
+                    "This session runs in another window: continue here as a copy to send your comments."
+                        .to_owned()
+                } else {
+                    left_out_words(read.left_out)
+                },
             ),
         };
         let picked_file = picked.and_then(|picked| {
@@ -1148,8 +1166,27 @@ impl<F: Frontend> Presenter<F> {
         self.nav.session_title = session_title.into();
         self.nav.can_back = can_back;
     }
+}
 
-    pub fn render_overview(&mut self, built: &overview::Built, shown: Option<&SessionId>) {
+/// Start-page view preferences and filter applied when presenting project cards.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct OverviewView<'a> {
+    pub sort: settings::ProjectSort,
+    pub show_hidden: bool,
+    pub show_all: bool,
+    pub filter: &'a str,
+}
+
+/// How many recent project cards stay visible on the start page when `show_all` is off.
+const COMPACT_PROJECTS: usize = 9;
+
+impl<F: Frontend> Presenter<F> {
+    pub fn render_overview(
+        &mut self,
+        built: &overview::Built,
+        shown: Option<&SessionId>,
+        view: OverviewView<'_>,
+    ) {
         self.nav.needs_you = index_for_slint(built.waiting.len());
         self.nav.waiting = built
             .waiting
@@ -1174,10 +1211,89 @@ impl<F: Frontend> Presenter<F> {
                 }
             })
             .collect();
-        let mut switcher = Vec::new();
-        self.nav.cards = built
+
+        let hidden_count = built.cards.iter().filter(|card| card.hidden).count();
+        let eligible: Vec<&overview::Card> = built
             .cards
             .iter()
+            .filter(|card| view.show_hidden || !card.hidden)
+            .collect();
+        let total_projects = eligible.len();
+        let needle = view.filter.trim().to_lowercase();
+
+        let mut switcher = Vec::new();
+        for card in &eligible {
+            let project_folder = card.path.to_string_lossy().into_owned();
+            for session in &card.sessions {
+                let age = sessions::age(session.modified);
+                let id = session.opens.session().as_str().to_owned();
+                let hosted_id = session
+                    .opens
+                    .hosted()
+                    .map_or_else(String::new, |id| id.to_string());
+                let detail = match session.worktree.as_deref() {
+                    Some(worktree) if !worktree.is_empty() => {
+                        format!("{worktree} · {age}")
+                    }
+                    _ => age,
+                };
+                switcher.push(SwitcherItem {
+                    project_name: card.name.clone(),
+                    project_folder: project_folder.clone(),
+                    id,
+                    hosted_id,
+                    title: session.title.clone(),
+                    detail,
+                    state: live_state(session.state),
+                    selected: shown.is_some_and(|current| session.opens.session() == current),
+                });
+            }
+        }
+
+        let filtered: Vec<&overview::Card> = if needle.is_empty() {
+            eligible
+        } else {
+            eligible
+                .into_iter()
+                .filter(|card| {
+                    card.name.to_lowercase().contains(&needle)
+                        || card.path.to_string_lossy().to_lowercase().contains(&needle)
+                        || card
+                            .last_said
+                            .as_deref()
+                            .is_some_and(|said| said.to_lowercase().contains(&needle))
+                })
+                .collect()
+        };
+
+        let visible: Vec<&overview::Card> = if view.show_all || !needle.is_empty() {
+            filtered.clone()
+        } else {
+            let mut remaining_unpinned = COMPACT_PROJECTS.saturating_sub(
+                filtered
+                    .iter()
+                    .filter(|card| card.pinned || card.needs_you > 0 || card.running > 0)
+                    .count(),
+            );
+            filtered
+                .iter()
+                .copied()
+                .filter(|card| {
+                    if card.pinned || card.needs_you > 0 || card.running > 0 {
+                        true
+                    } else if remaining_unpinned > 0 {
+                        remaining_unpinned -= 1;
+                        true
+                    } else {
+                        false
+                    }
+                })
+                .collect()
+        };
+        let has_more = !view.show_all && needle.is_empty() && visible.len() < filtered.len();
+
+        self.nav.cards = visible
+            .into_iter()
             .map(|card| {
                 let project_folder = card.path.to_string_lossy().into_owned();
                 let sessions = card
@@ -1190,23 +1306,6 @@ impl<F: Frontend> Presenter<F> {
                             .opens
                             .hosted()
                             .map_or_else(String::new, |id| id.to_string());
-                        let detail = match session.worktree.as_deref() {
-                            Some(worktree) if !worktree.is_empty() => {
-                                format!("{worktree} · {age}")
-                            }
-                            _ => age.clone(),
-                        };
-                        switcher.push(SwitcherItem {
-                            project_name: card.name.clone(),
-                            project_folder: project_folder.clone(),
-                            id: id.clone(),
-                            hosted_id: hosted_id.clone(),
-                            title: session.title.clone(),
-                            detail,
-                            state: live_state(session.state),
-                            selected: shown
-                                .is_some_and(|current| session.opens.session() == current),
-                        });
                         CardSessionItem {
                             id,
                             hosted_id,
@@ -1226,10 +1325,22 @@ impl<F: Frontend> Presenter<F> {
                     last_said: card.last_said.clone().unwrap_or_default(),
                     has_sessions: !sessions.is_empty(),
                     sessions,
+                    pinned: card.pinned,
+                    hidden: card.hidden,
                 }
             })
             .collect();
         self.nav.all_sessions = switcher;
+
+        self.nav.project_sort = match view.sort {
+            settings::ProjectSort::PinnedFirst => ProjectSort::PinnedFirst,
+            settings::ProjectSort::Recent => ProjectSort::Recent,
+        };
+        self.nav.show_hidden_projects = view.show_hidden;
+        self.nav.show_all_projects = view.show_all;
+        self.nav.total_projects = index_for_slint(total_projects);
+        self.nav.hidden_projects_count = index_for_slint(hidden_count);
+        self.nav.has_more_projects = has_more;
     }
 
     pub fn set_new_projects_in(&mut self, folder: &str) {
@@ -1251,6 +1362,10 @@ impl<F: Frontend> Presenter<F> {
 
     pub fn focus_page(&mut self) {
         self.command(Command::FocusPage);
+    }
+
+    pub fn clear_selection(&mut self) {
+        self.command(Command::ClearSelection);
     }
 
     pub fn toggle_switcher(&mut self) {
@@ -1778,9 +1893,50 @@ fn limit_row(label: &str, limit: LimitUse) -> StatRow {
     )
 }
 
+fn usage_tab(backend: Backend, state: &ProviderUsageState, status: &Status) -> UsageTab {
+    let mut sections = vec![limits_section(backend, state.report.as_ref(), status)];
+    if backend == status.backend {
+        if let Some(session) = state
+            .report
+            .as_ref()
+            .and_then(|report| report.session.as_ref())
+        {
+            sections.push(session_section(session));
+        }
+        if let Some(context) = &state.context {
+            sections.push(context_section(context));
+        }
+    }
+    if let Some(report) = &state.report {
+        let periods = [
+            ("The last 24 hours", &report.behaviors.day),
+            ("The last 7 days", &report.behaviors.week),
+        ];
+        sections.extend(
+            periods
+                .into_iter()
+                .filter_map(|(title, period)| Some(period_section(title, period.as_ref()?))),
+        );
+    }
+    // A section with nothing behind it says nothing.
+    sections.retain(|section| !section.rows.is_empty() || !section.note.is_empty());
+    UsageTab {
+        id: <&'static str>::from(backend).to_owned(),
+        label: backend.program().to_owned(),
+        available: state.available,
+        loading: state.waiting > 0,
+        note: state.error.clone().unwrap_or_default(),
+        sections,
+    }
+}
+
 /// The plan's limits: every one the CLI's `/usage` lists, or the two its status events
 /// carry until it answers.
-fn limits_section(report: Option<&wire::UsageReport>, status: &Status) -> StatSection {
+fn limits_section(
+    backend: Backend,
+    report: Option<&wire::UsageReport>,
+    status: &Status,
+) -> StatSection {
     let rows: Vec<StatRow> = match report {
         Some(report) if !report.rate_limits.limits.is_empty() => report
             .rate_limits
@@ -1808,7 +1964,7 @@ fn limits_section(report: Option<&wire::UsageReport>, status: &Status) -> StatSe
             })
             .collect(),
         Some(_) | None => {
-            let limits = status.plan_limits().unwrap_or_default();
+            let limits = status.limits.for_backend(backend).unwrap_or_default();
             [
                 ("This session window (5 hours)", limits.five_hour),
                 ("This week", limits.seven_day),
@@ -1819,7 +1975,11 @@ fn limits_section(report: Option<&wire::UsageReport>, status: &Status) -> StatSe
         }
     };
     // The plan as Claude Code names it ("max"), its first letter raised: "Max plan".
-    let plan = &status.account.subscription_type;
+    let plan = if backend == Backend::Claude {
+        status.claude_subscription.as_str()
+    } else {
+        ""
+    };
     let note = plan.chars().next().map_or_else(String::new, |first| {
         let rest = plan.get(first.len_utf8()..).unwrap_or_default();
         format!("{}{rest} plan", first.to_uppercase())
@@ -2612,6 +2772,8 @@ mod tests {
                     program: crate::claude::Program::Claude,
                     worktree: Some("rework".to_owned()),
                 }],
+                pinned: false,
+                hidden: false,
             }],
             waiting: vec![overview::WaitingItem {
                 opens: overview::SessionRef::Session(id.clone()),
@@ -2625,7 +2787,7 @@ mod tests {
         };
 
         presenter.render_nav(PlaceView::Project, "edualc", "/code/edualc", "", true);
-        presenter.render_overview(&built, Some(&id));
+        presenter.render_overview(&built, Some(&id), OverviewView::default());
         presenter.flush();
         presenter.flush();
 

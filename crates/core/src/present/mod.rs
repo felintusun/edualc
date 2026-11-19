@@ -12,7 +12,7 @@ pub mod model;
 mod presenter;
 
 pub(crate) use presenter::clock;
-pub use presenter::{Presenter, short_count, short_duration};
+pub use presenter::{OverviewView, Presenter, short_count, short_duration};
 
 /// Text the window sets: plain, or with inline Markdown (emphasis, code, links) for the frontend
 /// to style.
@@ -84,6 +84,8 @@ pub enum Command {
     AppendDraft(String),
     FocusComposer,
     FocusSide,
+    /// Clears any active transcript text selection on navigation.
+    ClearSelection,
     /// Goes to the transcript's end.
     ScrollToEnd,
     /// A session's transcript was loaded: shown at its end once the list has measured its way

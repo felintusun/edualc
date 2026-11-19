@@ -273,7 +273,6 @@ async fn window(
     let (mut reading, writing) = channel.split();
     let (line, requests, answers) = Line::pair();
     let mut deframer = Deframer::default();
-
     // The socket's two directions: pumps, not actors.
     let reader = tokio::spawn(async move {
         loop {
@@ -315,7 +314,7 @@ async fn window_over(
     match tokio::time::timeout(HELLO, requests.recv()).await {
         Ok(Some(ToDaemon::Hello { protocol })) => {
             let local = reach == Reach::Local;
-            let (settings, openers, live) = tokio::task::spawn_blocking(move || {
+            let (settings, openers, live, backends) = tokio::task::spawn_blocking(move || {
                 (
                     settings::load().map_err(|error| error.to_string()),
                     // Editors and windows are the desktop's the window is on.
@@ -325,10 +324,11 @@ async fn window_over(
                         Vec::new()
                     },
                     sessions::live(),
+                    crate::usage::available_backends(),
                 )
             })
             .await
-            .unwrap_or_else(|error| (Err(error.to_string()), Vec::new(), Vec::new()));
+            .unwrap_or_else(|error| (Err(error.to_string()), Vec::new(), Vec::new(), Vec::new()));
             let answer = FromDaemon::Hello {
                 protocol: ipc::PROTOCOL,
                 settings,
@@ -337,6 +337,7 @@ async fn window_over(
                 finds_windows: local && std::env::var_os("NIRI_SOCKET").is_some(),
                 local,
                 home: dirs::home_dir().unwrap_or_else(|| std::path::PathBuf::from("/")),
+                backends,
             };
             if outbox.send(answer).await.is_err() {
                 tracing::warn!("a window left as it came");
@@ -654,7 +655,6 @@ async fn act_for(request: ActId, act: Act, reach: Reach, outbox: mpsc::Sender<Fr
             | Act::CheckTrust { .. }
             | Act::CheckClaudeTrust { .. }
             | Act::TrustForClaudeCode { .. }
-            | Act::StopSession(_)
             | Act::StoreApiKey(_)
             | Act::RemoveApiKey
             | Act::CheckApiKey
@@ -727,8 +727,7 @@ async fn act_for(request: ActId, act: Act, reach: Reach, outbox: mpsc::Sender<Fr
         | Act::CheckTrust { .. }
         | Act::CreateProject { .. }
         | Act::Notify { .. }
-        | Act::FocusWindowOf { .. }
-        | Act::StopSession(_)) => act,
+        | Act::FocusWindowOf { .. }) => act,
         // For the changes' keeper, which a window's connection hands them to.
         Act::ChangesLooked { .. } | Act::MarkReviewed { .. } | Act::UnmarkReviewed { .. } => {
             return;
@@ -914,7 +913,6 @@ fn perform(act: Act) -> Result<(), ActFailure> {
             })?;
         }
         Act::FocusWindowOf { pid } => desktop::focus_window_of(pid)?,
-        Act::StopSession(running) => desktop::stop_session(&running)?,
         // Answered in `act_for`: as `Picked`, `Pasted`, `Trusted`, `Created` and `ApiKeyStored`,
         // or done with the keyring there.
         Act::PickFolder
@@ -1021,6 +1019,7 @@ enum ToHub {
 struct Kept {
     cwd: PathBuf,
     session: SessionId,
+    backend: crate::claude::Backend,
     /// What it was started signed in with: a window attaching to it is told.
     sign_in: SignInWith,
     /// The window and key it is shown under.
@@ -1036,7 +1035,7 @@ struct Hub {
 }
 
 /// What the hub's own decisions come to.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq)]
 enum Step {
     /// A new session, as `id`, shown under the window's key.
     Start { id: HostedId, launch: Launch },
@@ -1224,6 +1223,7 @@ impl Hub {
                     Kept {
                         cwd: launch.cwd.clone(),
                         session: launch.conversation.id().clone(),
+                        backend: launch.backend,
                         sign_in: launch.sign_in,
                         shown: Some((window, key)),
                         state: HostedState::Idle,
@@ -1333,6 +1333,7 @@ impl Hub {
                 id: *id,
                 session: kept.session.clone(),
                 cwd: kept.cwd.clone(),
+                backend: kept.backend,
                 sign_in: kept.sign_in,
                 attached: kept.shown.is_some(),
                 state: kept.state.clone(),

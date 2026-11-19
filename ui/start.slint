@@ -3,7 +3,7 @@
 
 import { ListView, ScrollView } from "std-widgets.slint";
 import { Theme } from "theme.slint";
-import { CardSessionItem, FocusArea, LiveState, ProjectCard, WaitingItem } from "types.slint";
+import { CardSessionItem, FocusArea, LiveState, ProjectCard, ProjectSort, WaitingItem } from "types.slint";
 import { Focus, Nav, Sessions } from "state.slint";
 import { AreaFence, Caption, Field, Icon, IconButton, LiveDot, Pressable, Small, TextButton, Title } from "widgets.slint";
 
@@ -11,6 +11,7 @@ import { AreaFence, Caption, Field, Icon, IconButton, LiveDot, Pressable, Small,
 export component OpenFolderDialog inherits Rectangle {
     callback close;
     property <int> opened: Sessions.opened-serial;
+    property <bool> can-open: path.text != "";
     changed opened => { root.close(); }
 
     background: Theme.surface;
@@ -33,9 +34,11 @@ export component OpenFolderDialog inherits Rectangle {
             }
         }
         HorizontalLayout {
-            height: Theme.header;
-            padding-left: Theme.space-xl;
+            min-height: Theme.header;
+            padding-left: root.width < 28rem ? Theme.space-m : Theme.space-xl;
             padding-right: Theme.space-m;
+            padding-top: Theme.space-s;
+            padding-bottom: Theme.space-s;
             spacing: Theme.space-m;
             Icon {
                 source: @image-url("@lucide/folder.svg");
@@ -46,6 +49,8 @@ export component OpenFolderDialog inherits Rectangle {
             Title {
                 text: "Open a folder";
                 horizontal-stretch: 1;
+                min-width: 0px;
+                overflow: elide;
                 vertical-alignment: center;
             }
             IconButton {
@@ -68,11 +73,18 @@ export component OpenFolderDialog inherits Rectangle {
                 path := Field {
                     init => { self.focus(); }
                     horizontal-stretch: 1;
+                    min-width: 80px;
                     placeholder: "Path to a folder";
-                    accepted(text) => { Sessions.open-project(text); }
+                    accepted(text) => {
+                        if text != "" {
+                            Sessions.open-project(text);
+                        }
+                    }
                 }
                 TextButton {
                     text: "Browse…";
+                    horizontal-stretch: 0;
+                    may-shorten: true;
                     clicked => {
                         Sessions.browse-project();
                         root.close();
@@ -80,8 +92,10 @@ export component OpenFolderDialog inherits Rectangle {
                 }
                 TextButton {
                     text: "Open";
-                    primary: true;
-                    enabled: path.text != "";
+                    primary: root.can-open;
+                    enabled: root.can-open;
+                    opacity: root.can-open ? 1 : 0.72;
+                    horizontal-stretch: 0;
                     clicked => { Sessions.open-project(path.text); }
                 }
             }
@@ -91,11 +105,17 @@ export component OpenFolderDialog inherits Rectangle {
                 font-size: 1rem * Theme.small;
                 wrap: word-wrap;
             }
-            Caption {
+            if Sessions.projects.length > 0: Caption {
                 text: "Recent";
             }
-            ListView {
+            if Sessions.projects.length == 0: Caption {
+                text: "No recent folders yet.";
+                wrap: word-wrap;
+            }
+            if Sessions.projects.length > 0: ListView {
                 vertical-stretch: 1;
+                min-height: 0px;
+                preferred-height: min(Sessions.projects.length * Theme.row-tall, 8 * Theme.row-tall);
                 for project in Sessions.projects: Pressable {
                     height: Theme.row-tall;
                     accessible-label: project.name;
@@ -113,15 +133,18 @@ export component OpenFolderDialog inherits Rectangle {
                                 text: project.name;
                                 color: Theme.text;
                                 overflow: elide;
+                                accessible-role: none;
                             }
                             Caption {
                                 text: project.shown;
                                 overflow: elide;
+                                accessible-role: none;
                             }
                         }
                         Caption {
                             text: project.age;
                             vertical-alignment: center;
+                            accessible-role: none;
                         }
                     }
                 }
@@ -146,7 +169,7 @@ component ProjectCardView inherits Rectangle {
     background: Theme.card;
     border-radius: Theme.radius-l;
     border-width: 1px;
-    border-color: Theme.divider;
+    border-color: root.card.pinned ? Theme.accent.with-alpha(0.5) : Theme.divider;
 
     // A card is as tall as the tallest in its row; what it shows stays at its top.
     VerticalLayout {
@@ -154,70 +177,135 @@ component ProjectCardView inherits Rectangle {
         spacing: Theme.space-s;
         alignment: start;
 
-        Pressable {
-            accessible-label: "Open project " + root.card.name;
-            accessible-description: root.card.shown;
-            clicked => { Nav.open-project-page(root.card.path); }
-            HorizontalLayout {
-                padding: Theme.space-xs;
-                spacing: Theme.space-s;
+        // Pin and Hide sit beside the project button rather than inside it, so clicking them
+        // never opens the project.
+        HorizontalLayout {
+            spacing: Theme.space-xs;
+            Pressable {
+                horizontal-stretch: 1;
+                min-width: 0px;
+                accessible-label: "Open project " + root.card.name
+                    + (root.card.pinned ? ", pinned" : "")
+                    + (root.card.hidden ? ", hidden" : "");
+                accessible-description: root.card.shown;
+                clicked => { Nav.open-project-page(root.card.path); }
                 VerticalLayout {
-                    horizontal-stretch: 1;
-                    min-width: 0px;
+                    padding: Theme.space-xs;
                     spacing: 2px;
-                    Text {
-                        text: root.card.name;
-                        color: Theme.text;
-                        font-weight: 600;
-                        overflow: elide;
-                        accessible-role: none;
-                    }
-                    Caption {
-                        text: root.card.shown;
-                        overflow: elide;
-                        accessible-role: none;
-                    }
-                }
-                VerticalLayout {
-                    alignment: start;
-                    spacing: Theme.space-xs;
+                    min-width: 0px;
                     HorizontalLayout {
-                        alignment: end;
                         spacing: Theme.space-xs;
-                        if root.card.needs-you > 0: Rectangle {
-                            border-radius: Theme.radius-s;
-                            border-width: 1px;
-                            border-color: Theme.warning-text;
-                            HorizontalLayout {
-                                padding-left: Theme.space-xs;
-                                padding-right: Theme.space-xs;
-                                Text {
-                                    text: "\{root.card.needs-you} waiting";
-                                    font-size: 1rem * Theme.caption;
-                                    color: Theme.warning-text;
-                                    vertical-alignment: center;
-                                }
-                            }
-                        }
-                        if root.card.running > 0: Rectangle {
-                            border-radius: Theme.radius-s;
-                            border-width: 1px;
-                            border-color: Theme.claude;
-                            HorizontalLayout {
-                                padding-left: Theme.space-xs;
-                                padding-right: Theme.space-xs;
-                                Text {
-                                    text: "\{root.card.running} running";
-                                    font-size: 1rem * Theme.caption;
-                                    color: Theme.claude;
-                                    vertical-alignment: center;
-                                }
-                            }
+                        Text {
+                            text: root.card.name;
+                            color: root.card.hidden ? Theme.text-secondary : Theme.text;
+                            font-weight: 600;
+                            overflow: elide;
+                            horizontal-stretch: 1;
+                            min-width: 0px;
+                            accessible-role: none;
                         }
                         if root.card.age != "": Caption {
                             text: root.card.age;
                             vertical-alignment: center;
+                            accessible-role: none;
                         }
+                    }
+                    Caption {
+                        text: root.card.shown;
+                        overflow: elide;
+                        min-width: 0px;
+                        accessible-role: none;
+                    }
+                }
+            }
+            HorizontalLayout {
+                spacing: 2px;
+                height: Theme.chip;
+                y: Theme.space-xs;
+                horizontal-stretch: 0;
+                IconButton {
+                    width: Theme.chip;
+                    height: Theme.chip;
+                    icon-size: Theme.icon-small;
+                    icon: @image-url("@lucide/pin.svg");
+                    tint: root.card.pinned ? Theme.accent : Theme.text-tertiary;
+                    label: root.card.pinned ? "Unpin " + root.card.name : "Pin " + root.card.name;
+                    clicked => { Nav.toggle-pin-project(root.card.path); }
+                }
+                IconButton {
+                    width: Theme.chip;
+                    height: Theme.chip;
+                    icon-size: Theme.icon-small;
+                    icon: root.card.hidden ? @image-url("@lucide/eye.svg") : @image-url("@lucide/eye-off.svg");
+                    tint: root.card.hidden ? Theme.warning-text : Theme.text-tertiary;
+                    label: root.card.hidden ? "Unhide " + root.card.name : "Hide " + root.card.name;
+                    clicked => { Nav.toggle-hide-project(root.card.path); }
+                }
+            }
+        }
+
+        if root.card.pinned || root.card.hidden || root.card.needs-you > 0 || root.card.running > 0: FlexboxLayout {
+            flex-direction: FlexboxLayoutDirection.row;
+            flex-wrap: FlexboxLayoutWrap.wrap;
+            alignment: LayoutAlignment.start;
+            spacing: Theme.space-xs;
+            if root.card.pinned: Rectangle {
+                border-radius: Theme.radius-s;
+                border-width: 1px;
+                border-color: Theme.accent.with-alpha(0.5);
+                HorizontalLayout {
+                    padding-left: Theme.space-xs;
+                    padding-right: Theme.space-xs;
+                    Text {
+                        text: "Pinned";
+                        font-size: 1rem * Theme.caption;
+                        color: Theme.accent;
+                        vertical-alignment: center;
+                    }
+                }
+            }
+            if root.card.hidden: Rectangle {
+                border-radius: Theme.radius-s;
+                border-width: 1px;
+                border-color: Theme.control-border;
+                HorizontalLayout {
+                    padding-left: Theme.space-xs;
+                    padding-right: Theme.space-xs;
+                    Text {
+                        text: "Hidden";
+                        font-size: 1rem * Theme.caption;
+                        color: Theme.text-secondary;
+                        vertical-alignment: center;
+                    }
+                }
+            }
+            if root.card.needs-you > 0: Rectangle {
+                border-radius: Theme.radius-s;
+                border-width: 1px;
+                border-color: Theme.warning-text;
+                HorizontalLayout {
+                    padding-left: Theme.space-xs;
+                    padding-right: Theme.space-xs;
+                    Text {
+                        text: "\{root.card.needs-you} waiting";
+                        font-size: 1rem * Theme.caption;
+                        color: Theme.warning-text;
+                        vertical-alignment: center;
+                    }
+                }
+            }
+            if root.card.running > 0: Rectangle {
+                border-radius: Theme.radius-s;
+                border-width: 1px;
+                border-color: Theme.claude;
+                HorizontalLayout {
+                    padding-left: Theme.space-xs;
+                    padding-right: Theme.space-xs;
+                    Text {
+                        text: "\{root.card.running} running";
+                        font-size: 1rem * Theme.caption;
+                        color: Theme.claude;
+                        vertical-alignment: center;
                     }
                 }
             }
@@ -227,6 +315,7 @@ component ProjectCardView inherits Rectangle {
             text: root.card.last-said;
             color: Theme.text-secondary;
             overflow: elide;
+            min-width: 0px;
         }
 
         if root.card.has-sessions: Rectangle {
@@ -269,6 +358,8 @@ component ProjectCardView inherits Rectangle {
 
         if !root.card.has-sessions: Caption {
             text: "No sessions yet — open to start one";
+            wrap: word-wrap;
+            min-width: 0px;
         }
     }
 }
@@ -279,14 +370,19 @@ export component StartPage inherits Rectangle {
 
     property <string> filter;
     property <[ProjectCard]> shown-cards: Nav.filter-cards(Nav.cards, root.filter);
+    property <bool> narrow: self.width < 40rem;
+    property <length> page-padding: root.narrow ? Theme.space-m : Theme.space-xl;
     property <int> wanted: Focus.wanted-serial;
     property <int> focus-page: Nav.page-focus-serial;
     changed wanted => { self.take-wanted(); }
     changed focus-page => { filter-field.focus(); }
     // The page comes with the change that asks for it, so `focus-page` doesn't change for it;
     // and what had the focus went with the page before, which leaves the window's shortcuts
-    // nothing to hear them.
-    init => { filter-field.focus(); }
+    // nothing to hear them. Reset any earlier backend filter to match the freshly mounted field.
+    init => {
+        filter-field.focus();
+        Nav.start-filter-edited("");
+    }
 
     function take-wanted() {
         if Focus.pending && Focus.wanted == FocusArea.page {
@@ -310,24 +406,61 @@ export component StartPage inherits Rectangle {
         }
         ScrollView {
             vertical-stretch: 1;
+            horizontal-scrollbar-policy: always-off;
             HorizontalLayout {
-                padding: Theme.space-xl;
+                padding: root.page-padding;
                 Rectangle { horizontal-stretch: 1; }
                 VerticalLayout {
-                    width: min(root.width - 2 * Theme.space-xl, 1080px);
+                    width: min(max(0px, root.width - 2 * root.page-padding), 1080px);
                     spacing: Theme.space-l;
                     alignment: start;
 
-                    HorizontalLayout {
+                    VerticalLayout {
                         spacing: Theme.space-s;
-                        Title {
-                            text: "Projects";
-                            vertical-alignment: center;
+                        FlexboxLayout {
+                            flex-direction: FlexboxLayoutDirection.row;
+                            flex-wrap: FlexboxLayoutWrap.wrap;
+                            alignment: LayoutAlignment.space-between;
+                            spacing: Theme.space-s;
+                            Title {
+                                text: "Projects";
+                                vertical-alignment: center;
+                                min-height: Theme.control;
+                            }
+                            FlexboxLayout {
+                                flex-direction: FlexboxLayoutDirection.row;
+                                flex-wrap: FlexboxLayoutWrap.wrap;
+                                alignment: LayoutAlignment.start;
+                                spacing: Theme.space-s;
+                                TextButton {
+                                    text: "New project…";
+                                    primary: true;
+                                    has-icon: true;
+                                    icon: @image-url("@lucide/folder-plus.svg");
+                                    may-shorten: true;
+                                    horizontal-stretch: 0;
+                                    clicked => { root.open-new-project(); }
+                                }
+                                TextButton {
+                                    text: "Open a folder…";
+                                    has-icon: true;
+                                    icon: @image-url("@lucide/folder.svg");
+                                    may-shorten: true;
+                                    horizontal-stretch: 0;
+                                    clicked => {
+                                        Sessions.refresh-projects();
+                                        root.open-folder-dialog();
+                                    }
+                                }
+                            }
                         }
+
                         filter-field := Field {
-                            horizontal-stretch: 1;
                             placeholder: "Filter projects (Ctrl+K)";
-                            edited(text) => { root.filter = text; }
+                            edited(text) => {
+                                root.filter = text;
+                                Nav.start-filter-edited(text);
+                            }
                             init => { root.take-wanted(); }
                             changed has-focus => {
                                 if self.has-focus {
@@ -335,22 +468,135 @@ export component StartPage inherits Rectangle {
                                 }
                             }
                         }
-                        TextButton {
-                            text: "New project…";
-                            primary: true;
-                            has-icon: true;
-                            icon: @image-url("@lucide/folder-plus.svg");
-                            y: (parent.height - self.height) / 2;
-                            clicked => { root.open-new-project(); }
-                        }
-                        TextButton {
-                            text: "Open a folder…";
-                            has-icon: true;
-                            icon: @image-url("@lucide/folder.svg");
-                            y: (parent.height - self.height) / 2;
-                            clicked => {
-                                Sessions.refresh-projects();
-                                root.open-folder-dialog();
+
+                        FlexboxLayout {
+                            flex-direction: FlexboxLayoutDirection.row;
+                            flex-wrap: FlexboxLayoutWrap.wrap;
+                            alignment: LayoutAlignment.start;
+                            spacing: Theme.space-xs;
+
+                            Pressable {
+                                height: Theme.chip;
+                                selected: Nav.project-sort == ProjectSort.pinned-first;
+                                border-width: 1px;
+                                border-color: Nav.project-sort == ProjectSort.pinned-first ? Theme.accent.with-alpha(0.5) : Theme.divider;
+                                accessible-role: radio-button;
+                                accessible-checkable: true;
+                                accessible-checked: Nav.project-sort == ProjectSort.pinned-first;
+                                accessible-label: "Sort pinned projects first";
+                                clicked => { Nav.set-project-sort(ProjectSort.pinned-first); }
+                                HorizontalLayout {
+                                    padding-left: Theme.space-m;
+                                    padding-right: Theme.space-s;
+                                    spacing: Theme.space-xs;
+                                    Icon {
+                                        source: @image-url("@lucide/pin.svg");
+                                        tint: Nav.project-sort == ProjectSort.pinned-first ? Theme.accent : Theme.text-tertiary;
+                                        width: Theme.icon-small;
+                                        y: (parent.height - self.height) / 2;
+                                    }
+                                    Text {
+                                        text: "Pinned first";
+                                        font-size: 1rem * Theme.small;
+                                        color: Nav.project-sort == ProjectSort.pinned-first ? Theme.text : Theme.text-secondary;
+                                        vertical-alignment: center;
+                                        accessible-role: none;
+                                    }
+                                }
+                            }
+
+                            Pressable {
+                                height: Theme.chip;
+                                selected: Nav.project-sort == ProjectSort.recent;
+                                border-width: 1px;
+                                border-color: Nav.project-sort == ProjectSort.recent ? Theme.accent.with-alpha(0.5) : Theme.divider;
+                                accessible-role: radio-button;
+                                accessible-checkable: true;
+                                accessible-checked: Nav.project-sort == ProjectSort.recent;
+                                accessible-label: "Sort by most recent";
+                                clicked => { Nav.set-project-sort(ProjectSort.recent); }
+                                HorizontalLayout {
+                                    padding-left: Theme.space-m;
+                                    padding-right: Theme.space-s;
+                                    spacing: Theme.space-xs;
+                                    Icon {
+                                        source: @image-url("@lucide/clock.svg");
+                                        tint: Nav.project-sort == ProjectSort.recent ? Theme.accent : Theme.text-tertiary;
+                                        width: Theme.icon-small;
+                                        y: (parent.height - self.height) / 2;
+                                    }
+                                    Text {
+                                        text: "Most recent";
+                                        font-size: 1rem * Theme.small;
+                                        color: Nav.project-sort == ProjectSort.recent ? Theme.text : Theme.text-secondary;
+                                        vertical-alignment: center;
+                                        accessible-role: none;
+                                    }
+                                }
+                            }
+
+                            if Nav.hidden-projects-count > 0: Pressable {
+                                height: Theme.chip;
+                                selected: Nav.show-hidden-projects;
+                                border-width: 1px;
+                                border-color: Nav.show-hidden-projects ? Theme.accent.with-alpha(0.5) : Theme.divider;
+                                accessible-role: checkbox;
+                                accessible-checkable: true;
+                                accessible-checked: Nav.show-hidden-projects;
+                                accessible-label: Nav.show-hidden-projects
+                                    ? "Hide hidden projects (\{Nav.hidden-projects-count})"
+                                    : "Show hidden projects (\{Nav.hidden-projects-count})";
+                                clicked => { Nav.toggle-show-hidden-projects(); }
+                                HorizontalLayout {
+                                    padding-left: Theme.space-m;
+                                    padding-right: Theme.space-s;
+                                    spacing: Theme.space-xs;
+                                    Icon {
+                                        source: Nav.show-hidden-projects ? @image-url("@lucide/eye.svg") : @image-url("@lucide/eye-off.svg");
+                                        tint: Nav.show-hidden-projects ? Theme.accent : Theme.text-tertiary;
+                                        width: Theme.icon-small;
+                                        y: (parent.height - self.height) / 2;
+                                    }
+                                    Text {
+                                        text: Nav.show-hidden-projects
+                                            ? "Showing hidden (\{Nav.hidden-projects-count})"
+                                            : "Show hidden (\{Nav.hidden-projects-count})";
+                                        font-size: 1rem * Theme.small;
+                                        color: Nav.show-hidden-projects ? Theme.text : Theme.text-secondary;
+                                        vertical-alignment: center;
+                                        accessible-role: none;
+                                    }
+                                }
+                            }
+
+                            if root.filter == "" && (Nav.has-more-projects || Nav.show-all-projects): Pressable {
+                                height: Theme.chip;
+                                border-width: 1px;
+                                border-color: Theme.divider;
+                                accessible-label: Nav.show-all-projects
+                                    ? "Show fewer projects"
+                                    : "Show all \{Nav.total-projects} projects";
+                                clicked => { Nav.toggle-show-all-projects(); }
+                                HorizontalLayout {
+                                    padding-left: Theme.space-s;
+                                    padding-right: Theme.space-s;
+                                    spacing: Theme.space-xs;
+                                    Icon {
+                                        source: Nav.show-all-projects ? @image-url("@lucide/chevron-up.svg") : @image-url("@lucide/chevron-down.svg");
+                                        tint: Theme.text-tertiary;
+                                        width: Theme.icon-small;
+                                        y: (parent.height - self.height) / 2;
+                                    }
+                                    Text {
+                                        text: Nav.show-all-projects
+                                            ? "Show fewer"
+                                            : "Show all (\{Nav.total-projects})";
+                                        font-size: 1rem * Theme.small;
+                                        color: Theme.text-secondary;
+                                        vertical-alignment: center;
+                                        accessible-role: none;
+                                    }
+                                }
                             }
                         }
                     }
@@ -378,6 +624,7 @@ export component StartPage inherits Rectangle {
                                 }
                                 VerticalLayout {
                                     horizontal-stretch: 1;
+                                    min-width: 0px;
                                     spacing: Theme.space-xs;
                                     HorizontalLayout {
                                         spacing: Theme.space-s;
@@ -388,20 +635,25 @@ export component StartPage inherits Rectangle {
                                             overflow: elide;
                                             horizontal-stretch: 1;
                                             min-width: 0px;
+                                            accessible-role: none;
                                         }
                                         Caption {
                                             text: item.waited;
                                             vertical-alignment: center;
+                                            accessible-role: none;
                                         }
                                     }
                                     Text {
                                         text: item.question;
                                         color: Theme.text-secondary;
                                         wrap: word-wrap;
+                                        min-width: 0px;
+                                        accessible-role: none;
                                     }
                                 }
-                                TextButton {
+                                if !root.narrow: TextButton {
                                     text: "Open session";
+                                    horizontal-stretch: 0;
                                     y: (parent.height - self.height) / 2;
                                     clicked => { Nav.jump-to(item.project-folder, item.session-id, item.hosted-id); }
                                 }
@@ -414,7 +666,7 @@ export component StartPage inherits Rectangle {
                         flex-wrap: FlexboxLayoutWrap.wrap;
                         alignment: LayoutAlignment.start;
                         spacing: Theme.space-m;
-                        property <int> cols: grid.width >= 980px ? 3 : grid.width >= 640px ? 2 : 1;
+                        property <int> cols: grid.width >= 65rem ? 3 : grid.width >= 42rem ? 2 : 1;
                         property <length> card-width: (grid.width - (self.cols - 1) * Theme.space-m) / self.cols;
                         for card in root.shown-cards: ProjectCardView {
                             card: card;
@@ -422,9 +674,23 @@ export component StartPage inherits Rectangle {
                         }
                     }
 
+                    if root.filter == "" && Nav.has-more-projects: HorizontalLayout {
+                        alignment: center;
+                        TextButton {
+                            text: "Show all (\{Nav.total-projects})";
+                            label: "Show all \{Nav.total-projects} projects";
+                            has-icon: true;
+                            icon: @image-url("@lucide/chevron-down.svg");
+                            horizontal-stretch: 0;
+                            clicked => { Nav.toggle-show-all-projects(); }
+                        }
+                    }
+
                     if root.shown-cards.length == 0: Small {
                         text: root.filter != ""
                             ? "No project matches the filter."
+                            : Nav.hidden-projects-count > 0 && !Nav.show-hidden-projects
+                            ? "All projects are hidden. Turn on Show hidden above to see them."
                             : "No recent projects yet. Create a new project or open a folder to begin.";
                         wrap: word-wrap;
                     }

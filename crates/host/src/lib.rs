@@ -13,6 +13,7 @@ mod keyring;
 pub mod net;
 mod snapshots;
 mod spawn;
+mod usage;
 
 // What `edualcd` starts as: the daemon (with its network side, [`net`], if it is given one), or
 // an ACP session's adapter or its messaging tool. The image decoder's helper is the window's

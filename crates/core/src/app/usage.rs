@@ -1,79 +1,158 @@
-//! The usage panel (the CLI's `/usage` and `/context`), and bringing a session that runs in
-//! another window here.
+//! The usage panel (the CLI's `/usage` and `/context`).
+
+use std::path::Path;
 
 use serde::de::DeserializeOwned;
 use serde_json::Value;
 
-use super::{Acting, App, LimitUse, Request};
-use crate::claude::Resume;
-use crate::desktop::Running;
-use crate::external::wire::{ContextReport, ControlRequest, LimitKind, SessionId, UsageReport};
-use crate::ipc::{Act, ActFailure};
+use super::{App, LimitUse, Reading, Request};
+use crate::claude::Backend;
+use crate::external::wire::{ContextReport, ControlRequest, LimitKind, UsageReport};
+use crate::ipc::{ProviderUsage, Read};
 use crate::present::Frontend;
 
 impl<F: Frontend> App<F> {
     pub(super) fn show_usage(&mut self) {
+        if !self.usage.open {
+            self.usage.active_backend = self.status.backend;
+        }
         self.usage.open = true;
-        self.usage.error = None;
         self.redraw.usage = true;
         self.ask_usage();
     }
 
-    /// Asks the CLI for the panel's numbers. A session watched from another window has no
-    /// process here to ask.
+    pub(super) fn refresh_usage(&mut self) {
+        self.usage.open = true;
+        self.redraw.usage = true;
+        self.ask_usage();
+    }
+
+    pub(super) fn select_usage_tab(&mut self, index: usize) {
+        if let Some(&backend) = Backend::ALL.get(index) {
+            self.usage.active_backend = backend;
+            self.redraw.usage = true;
+        }
+    }
+
+    /// Queries usage for all coding agent providers: the active session's own process when one runs
+    /// here, and on-demand daemon probes for every available provider otherwise.
     pub(super) fn ask_usage(&mut self) {
-        if self.watch.is_some() {
-            self.usage.error = Some(
-                "This session runs in another window; bring it here (or open one of your own) for its numbers."
-                    .into(),
-            );
-            return;
-        }
-        self.ensure_process();
-        let asked = [
-            self.request(ControlRequest::GetUsage, Request::Usage),
-            self.request(ControlRequest::GetContextUsage, Request::ContextUsage),
-        ];
-        self.usage.waiting = asked.iter().filter(|sent| **sent).count();
-        if self.usage.waiting == 0 {
-            self.usage.error = Some("Claude Code isn't running to ask.".into());
+        let cwd = self.location.cwd().map(Path::to_path_buf);
+        for backend in Backend::ALL {
+            let live_here =
+                self.watch.is_none() && self.process.is_some() && self.status.backend == backend;
+            let available = self.available_backends.contains(&backend)
+                || (self.status.backend == backend
+                    && (self.process.is_some() || self.watch.is_some()));
+            {
+                let state = self.usage.for_backend_mut(backend);
+                state.available = available;
+                state.error = None;
+                state.waiting = 0;
+            }
+            if live_here {
+                let mut sent = 0_usize;
+                if backend != Backend::Opencode
+                    && self.request(ControlRequest::GetUsage, Request::Usage(backend))
+                {
+                    sent += 1;
+                }
+                if self.request(
+                    ControlRequest::GetContextUsage,
+                    Request::ContextUsage(backend),
+                ) {
+                    sent += 1;
+                }
+                let state = self.usage.for_backend_mut(backend);
+                state.waiting = sent;
+                if backend == Backend::Opencode {
+                    state.error = Some("opencode doesn't report usage or plan limits.".into());
+                } else if sent == 0 {
+                    state.error = Some(format!("{} isn't running to ask.", backend.program()));
+                }
+            } else if !available {
+                self.usage.for_backend_mut(backend).error =
+                    Some(format!("{} isn't installed on PATH.", backend.program()));
+            } else if backend == Backend::Opencode {
+                self.usage.for_backend_mut(backend).error =
+                    Some("opencode doesn't report usage or plan limits.".into());
+            } else {
+                self.usage.for_backend_mut(backend).waiting = 1;
+                self.read(
+                    Read::ProviderUsage {
+                        backend,
+                        cwd: cwd.clone(),
+                    },
+                    Reading::ProviderUsage { backend },
+                );
+            }
         }
     }
 
-    pub(super) fn usage_answered(&mut self, outcome: Result<Value, String>) {
-        let report = self.usage_answer::<UsageReport>(outcome);
+    pub(super) fn usage_answered(&mut self, backend: Backend, outcome: Result<Value, String>) {
+        let report = self.usage_answer::<UsageReport>(backend, outcome);
         if let Some(report) = &report {
-            self.take_plan_limits(report);
+            self.take_plan_limits_for(backend, report);
         }
-        self.limits_reported(report.as_ref());
+        if backend == self.status.backend {
+            self.limits_reported(report.as_ref());
+        }
         if let Some(report) = report {
-            self.usage.report = Some(report);
+            self.usage.for_backend_mut(backend).report = Some(report);
         }
     }
 
-    pub(super) fn context_answered(&mut self, outcome: Result<Value, String>) {
-        if let Some(report) = self.usage_answer::<ContextReport>(outcome) {
-            self.usage.context = Some(report);
+    pub(super) fn context_answered(&mut self, backend: Backend, outcome: Result<Value, String>) {
+        if let Some(report) = self.usage_answer::<ContextReport>(backend, outcome) {
+            self.usage.for_backend_mut(backend).context = Some(report);
         }
+    }
+
+    pub(super) fn provider_usage_read(&mut self, backend: Backend, usage: ProviderUsage) {
+        let state = self.usage.for_backend_mut(backend);
+        state.waiting = state.waiting.saturating_sub(1);
+        match usage {
+            ProviderUsage::Unavailable => {
+                state.available = false;
+                state.error = Some(format!("{} isn't installed on PATH.", backend.program()));
+            }
+            ProviderUsage::Available { report, note } => {
+                state.available = true;
+                state.error = note;
+                if let Some(report) = report.into_iter().next() {
+                    self.take_plan_limits_for(backend, &report);
+                    if backend == self.status.backend {
+                        self.limits_reported(Some(&report));
+                    }
+                    self.usage.for_backend_mut(backend).report = Some(report);
+                }
+            }
+        }
+        self.redraw.usage = true;
     }
 
     /// One of the panel's answers, or why there is none.
-    fn usage_answer<T: DeserializeOwned>(&mut self, outcome: Result<Value, String>) -> Option<T> {
-        self.usage.waiting = self.usage.waiting.saturating_sub(1);
+    fn usage_answer<T: DeserializeOwned>(
+        &mut self,
+        backend: Backend,
+        outcome: Result<Value, String>,
+    ) -> Option<T> {
+        let state = self.usage.for_backend_mut(backend);
+        state.waiting = state.waiting.saturating_sub(1);
         self.redraw.usage = true;
         match super::answer_as(outcome) {
             Ok(answer) => Some(answer),
             Err(error) => {
-                tracing::warn!(%error, "no usage numbers");
-                self.usage.error = Some(error.to_string());
+                tracing::warn!(%error, backend = backend.program(), "no usage numbers");
+                self.usage.for_backend_mut(backend).error = Some(error.to_string());
                 None
             }
         }
     }
 
     /// The sidebar's bars from the fuller answer: the session's five hours and the week.
-    fn take_plan_limits(&mut self, report: &UsageReport) {
-        let Some(kept) = self.status.limits_mut() else {
+    fn take_plan_limits_for(&mut self, backend: Backend, report: &UsageReport) {
+        let Some(kept) = self.status.limits.mut_for_backend(backend) else {
             return;
         };
         for limit in &report.rate_limits.limits {
@@ -84,49 +163,5 @@ impl<F: Frontend> App<F> {
                 LimitKind::WeeklyScoped | LimitKind::Other => {}
             }
         }
-    }
-
-    /// Stops the watched session in its window (in the background: it may take a moment).
-    pub(super) fn bring_here(&mut self) {
-        let Some(watch) = &self.watch else {
-            return;
-        };
-        let stop = Act::StopSession(Running::from(&watch.session));
-        let id = watch.session.id.clone();
-        self.ask_desktop(stop, Acting::Bringing(id));
-    }
-
-    /// Session `id` stopped in its window: it continues here, from its whole transcript (it
-    /// may have written more since the view last read it), unless another was opened
-    /// meanwhile.
-    pub(super) fn brought(&mut self, id: &SessionId, result: Result<(), ActFailure>) {
-        let Some(session) = self
-            .watch
-            .as_ref()
-            .map(|watch| watch.session.clone())
-            .filter(|session| &session.id == id)
-        else {
-            if let Err(error) = result {
-                self.chat
-                    .error(format!("Couldn't bring the session here: {error}"));
-            }
-            return;
-        };
-        if let Err(error) = result {
-            self.chat
-                .error(format!("Couldn't bring {} here: {error}", session.name));
-            return;
-        }
-        self.watch = None;
-        self.live.retain(|running| running.pid != session.pid);
-        self.location = super::Location::Session(session.cwd.clone());
-        self.status.session_id = Some(session.id.clone());
-        self.status.title = Some(session.name.clone());
-        self.status.worktree.clone_from(&session.worktree);
-        self.load_session(session.id.clone(), session.cwd.clone());
-        self.start(Some(Resume::Continue(session.id)));
-        self.redraw.sessions = true;
-        self.redraw.menus = true;
-        self.view.focus_composer();
     }
 }

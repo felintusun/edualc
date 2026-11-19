@@ -1047,7 +1047,7 @@ pub struct Account {
 }
 
 /// The answer to `get_usage` (the CLI's `/usage`), as far as the window shows it.
-#[derive(Debug, Default, Deserialize, Serialize)]
+#[derive(Debug, Default, Clone, PartialEq, Deserialize, Serialize)]
 pub struct UsageReport {
     /// None where the program doesn't count the session's cost and time: edualc's ACP adapter
     /// sends none.
@@ -1062,13 +1062,13 @@ pub struct UsageReport {
     pub behaviors: Behaviors,
 }
 
-#[derive(Debug, Default, Deserialize, Serialize)]
+#[derive(Debug, Default, Clone, PartialEq, Deserialize, Serialize)]
 pub struct RateLimitReport {
     #[serde(default)]
     pub limits: Vec<PlanLimit>,
 }
 
-#[derive(Debug, Default, Deserialize, Serialize)]
+#[derive(Debug, Default, Clone, PartialEq, Deserialize, Serialize)]
 pub struct SessionUsage {
     #[serde(default)]
     pub total_cost_usd: f64,
@@ -1085,7 +1085,7 @@ pub struct SessionUsage {
 }
 
 /// A model's share of the session, as `modelUsage` names it (camelCase) or snake_case.
-#[derive(Debug, Default, Deserialize, Serialize)]
+#[derive(Debug, Default, Clone, PartialEq, Deserialize, Serialize)]
 pub struct ModelTokens {
     #[serde(default, alias = "inputTokens")]
     pub input_tokens: u64,
@@ -1100,7 +1100,7 @@ pub struct ModelTokens {
 }
 
 /// A limit of the plan: the session's five hours, the week's, the week's for one model.
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 pub struct PlanLimit {
     pub kind: LimitKind,
     #[serde(default)]
@@ -1125,24 +1125,24 @@ pub enum LimitKind {
     Other,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 pub struct LimitScope {
     pub model: Option<ScopeModel>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 pub struct ScopeModel {
     pub display_name: Option<String>,
 }
 
 /// How the account was used over the last day and week, with what the CLI recommends.
-#[derive(Debug, Default, Deserialize, Serialize)]
+#[derive(Debug, Default, Clone, PartialEq, Deserialize, Serialize)]
 pub struct Behaviors {
     pub day: Option<Period>,
     pub week: Option<Period>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 pub struct Period {
     #[serde(default)]
     pub request_count: u64,
@@ -1156,7 +1156,7 @@ pub struct Period {
     pub skills: Vec<Share>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 pub struct Recommendation {
     pub title: String,
     #[serde(default)]
@@ -1166,7 +1166,7 @@ pub struct Recommendation {
     pub pct: f32,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 pub struct Share {
     pub name: String,
     #[serde(default)]

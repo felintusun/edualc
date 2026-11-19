@@ -58,11 +58,11 @@ export component KeyPress inherits FocusScope {
     }
     // A gap between the ring and the control, so it shows around one in the accent too.
     if root.has-focus: Rectangle {
-        x: -4px;
-        y: -4px;
-        width: parent.width + 8px;
-        height: parent.height + 8px;
-        border-radius: root.ring-radius + 4px;
+        x: -3px;
+        y: -3px;
+        width: parent.width + 6px;
+        height: parent.height + 6px;
+        border-radius: root.ring-radius + 2px;
         border-width: 2px;
         border-color: Theme.accent;
     }
@@ -107,9 +107,10 @@ export component Pressable inherits Rectangle {
         clicked => { root.clicked(); }
     }
     if root.selected: Rectangle {
-        x: 0;
+        x: 2px;
+        y: (parent.height - self.height) / 2;
         width: 3px;
-        height: parent.height - 2 * Theme.space-s;
+        height: max(6px, parent.height - 2 * Theme.space-s);
         border-radius: 1.5px;
         background: Theme.accent;
     }
@@ -368,6 +369,7 @@ export component Field inherits Rectangle {
     // Shown as dots, and not copied out: a key, a password.
     in property <bool> secret;
     in-out property <string> text <=> input.text;
+    out property <string> preedit-text: input.preedit-text;
     out property <bool> has-focus: input.has-focus;
     callback accepted(string);
     callback edited(string);
@@ -409,7 +411,11 @@ export component Field inherits Rectangle {
         selection-foreground-color: Theme.selection-text;
         accessible-label: root.placeholder;
         accessible-placeholder-text: root.placeholder;
-        accepted => { root.accepted(self.text); }
+        accepted => {
+            if self.preedit-text == "" {
+                root.accepted(self.text);
+            }
+        }
         edited => { root.edited(self.text); }
         cursor-position-changed(at) => {
             if at.x + root.scrolled < 0 {
@@ -434,6 +440,9 @@ export component MenuButton inherits Rectangle {
     in property <bool> compact;
     // Open downward from a top toolbar instead of upward from the bottom.
     in property <bool> below;
+    // Align the popup's right edge with the button's right edge.
+    in property <bool> align-right;
+    in property <bool> enabled: true;
     callback selected(int);
     property <string> current: root.current-index >= 0 && root.current-index < root.model.length
         ? root.model[root.current-index].title : "";
@@ -442,14 +451,16 @@ export component MenuButton inherits Rectangle {
     accessible-role: combobox;
     accessible-label: root.heading;
     accessible-value: root.current;
+    accessible-enabled: root.enabled;
     accessible-expandable: true;
-    accessible-action-default => { root.open(); }
-    accessible-action-expand => { root.open(); }
+    accessible-action-default => { if root.enabled { root.open(); } }
+    accessible-action-expand => { if root.enabled { root.open(); } }
     height: Theme.chip;
     // Its name gives way to the room left; its icons don't.
     min-width: root.compact ? content.preferred-width : 0px;
     border-radius: Theme.radius-m;
-    background: touch.pressed ? Theme.pressed : touch.has-hover ? Theme.hover : transparent;
+    opacity: root.enabled ? 1 : 0.5;
+    background: root.enabled ? (touch.pressed ? Theme.pressed : touch.has-hover ? Theme.hover : transparent) : transparent;
     animate background { duration: Motion.fast; easing: ease-out; }
     content := HorizontalLayout {
         padding-left: Theme.space-s;
@@ -478,29 +489,39 @@ export component MenuButton inherits Rectangle {
         }
     }
     function open() {
+        if !root.enabled {
+            return;
+        }
         root.highlighted = max(0, root.current-index);
         menu.show();
     }
     touch := TouchArea {
-        mouse-cursor: pointer;
-        clicked => { root.open(); }
+        enabled: root.enabled;
+        mouse-cursor: root.enabled ? pointer : default;
+        clicked => { if root.enabled { root.open(); } }
         if self.has-hover && root.compact: Tooltip {
             text: @markdown("\{root.heading}: \{root.current}");
         }
     }
     KeyPress {
+        enabled: root.enabled;
         ring-radius: root.border-radius;
         pressed => { root.open(); }
     }
     menu := PopupWindow {
-        x: root.below ? min(0px, root.width - self.width) : 0;
+        x: max(-root.absolute-position.x + Theme.space-s, (root.below || root.align-right) ? min(0px, root.width - self.width) : 0px);
         y: root.below ? root.height + Theme.space-xs : -self.height - Theme.space-xs;
         width: max(root.width, 320px);
         height: items.preferred-height;
+        close-policy: close-on-click-outside;
         // Up and Down move through the choices, Enter or Space takes one; Esc closes the menu.
         menu-keys := FocusScope {
             init => { self.focus(); }
             key-pressed(event) => {
+                if event.text == Key.Escape {
+                    menu.close();
+                    return accept;
+                }
                 if event.text == Key.UpArrow {
                     root.highlighted = max(0, root.highlighted - 1);
                     return accept;
@@ -528,9 +549,15 @@ export component MenuButton inherits Rectangle {
             items := VerticalLayout {
                 padding: Theme.space-xs;
                 spacing: 2px;
-                if root.heading != "": Caption {
-                    text: root.heading;
-                    horizontal-alignment: left;
+                if root.heading != "": HorizontalLayout {
+                    padding-left: Theme.space-s + Theme.space-xs;
+                    padding-right: Theme.space-s;
+                    padding-top: Theme.space-xs;
+                    padding-bottom: Theme.space-xs;
+                    Caption {
+                        text: root.heading;
+                        horizontal-alignment: left;
+                    }
                 }
                 for item[index] in root.model: Pressable {
                     selected: index == root.current-index;
@@ -539,6 +566,7 @@ export component MenuButton inherits Rectangle {
                     clicked => {
                         root.current-index = index;
                         root.selected(index);
+                        menu.close();
                     }
                     HorizontalLayout {
                         padding: Theme.space-s;

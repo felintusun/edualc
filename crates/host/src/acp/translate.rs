@@ -112,7 +112,10 @@ enum Asked {
     Initialize,
     Open,
     /// The model; for the window's request, if it asked.
-    Model(Option<RequestId>),
+    Model {
+        request: Option<RequestId>,
+        model: String,
+    },
     /// One of the agent's modes, for the window's request.
     Mode {
         request: RequestId,
@@ -580,9 +583,12 @@ impl Translator {
                     Ok(opened) => opened,
                     Err(error) => match &self.start {
                         Start::New => {
-                            return self.failed(&format!(
-                                "its answer to opening the session can't be read: {error}"
-                            ));
+                            return self.failed(
+                                &format!(
+                                    "its answer to opening the session can't be read: {error}"
+                                ),
+                                false,
+                            );
                         }
                         // The session asked for is open whatever else the answer says.
                         Start::Resume(_) => {
@@ -596,7 +602,7 @@ impl Translator {
                     (Start::Resume(session), _) => session.clone(),
                     (Start::New, Some(session)) => session,
                     (Start::New, None) => {
-                        return self.failed(&format!("{} opened no session", self.agent));
+                        return self.failed(&format!("{} opened no session", self.agent), false);
                     }
                 };
                 let mut effects = Vec::new();
@@ -620,9 +626,12 @@ impl Translator {
                     effects.push(self.request(
                         acp::ClientCall::SetModel(acp::SetModelParams {
                             session_id: session,
-                            model_id: model,
+                            model_id: model.clone(),
                         }),
-                        Asked::Model(None),
+                        Asked::Model {
+                            request: None,
+                            model,
+                        },
                     ));
                 }
                 if let Some(request) = self.initialize.take() {
@@ -634,8 +643,9 @@ impl Translator {
                 effects.extend(self.subagents());
                 effects
             }
-            Asked::Model(window) => {
-                window.map_or_default(|request| vec![success(request, Value::Object(Map::new()))])
+            Asked::Model { request, model } => {
+                self.model = Some(model);
+                request.map_or_default(|request| vec![success(request, Value::Object(Map::new()))])
             }
             Asked::Mode { request, mode } => {
                 self.mode = Some(mode);
@@ -655,11 +665,18 @@ impl Translator {
     fn refused(&mut self, asked: &Asked, error: &RpcError) -> Vec<Effect> {
         let message = error.message.as_str();
         match asked {
-            Asked::Initialize | Asked::Open => self.failed(message),
-            Asked::Model(Some(request)) | Asked::Mode { request, .. } => {
+            Asked::Initialize | Asked::Open => {
+                let sign_in = self.agent.sign_in_refused(error);
+                self.failed(message, sign_in)
+            }
+            Asked::Model {
+                request: Some(request),
+                ..
+            }
+            | Asked::Mode { request, .. } => {
                 vec![failure(request.clone(), message)]
             }
-            Asked::Model(None) => {
+            Asked::Model { request: None, .. } => {
                 tracing::warn!(message, agent = %self.agent, "the agent didn't take the model");
                 Vec::new()
             }
@@ -670,7 +687,7 @@ impl Translator {
         }
     }
 
-    fn failed(&mut self, message: &str) -> Vec<Effect> {
+    fn failed(&mut self, message: &str, sign_in: bool) -> Vec<Effect> {
         self.phase = Phase::Failed;
         let agent = self.agent;
         let mut effects = vec![Effect::ToWindow(Message::Assistant {
@@ -682,7 +699,7 @@ impl Translator {
                 usage: Usage::default(),
             },
             parent_tool_use_id: None,
-            error: None,
+            error: sign_in.then_some(AssistantError::AuthenticationFailed),
         })];
         if let Some(request) = self.initialize.take() {
             effects.push(failure(request, message));
@@ -824,13 +841,15 @@ impl Translator {
                 effects
             }
             wire::ControlRequest::SetModel { model } => {
-                self.model = Some(model.clone());
                 vec![self.request(
                     acp::ClientCall::SetModel(acp::SetModelParams {
                         session_id: session,
-                        model_id: model,
+                        model_id: model.clone(),
                     }),
-                    Asked::Model(Some(request_id)),
+                    Asked::Model {
+                        request: Some(request_id),
+                        model,
+                    },
                 )]
             }
             wire::ControlRequest::SetProgramMode { mode } => {
@@ -1713,7 +1732,7 @@ fn quota_used(quota: &agy::Quota) -> f32 {
 
 /// agy's quotas as the plan's limits, each named by its group: those of the group that model
 /// `model` draws on as the session's five hours and week, which the sidebar shows.
-fn plan_limits(quotas: &agy::Quotas, model: Option<&str>) -> Vec<wire::PlanLimit> {
+pub(crate) fn plan_limits(quotas: &agy::Quotas, model: Option<&str>) -> Vec<wire::PlanLimit> {
     quotas
         .groups
         .iter()
@@ -3517,5 +3536,62 @@ mod tests {
                 .map(|line| (line.get("subtype"), line.get("mode"))),
             Some((Some(&json!("program_mode")), Some(&json!("plan"))))
         );
+    }
+
+    /// Authentication failures while opening a session emit `authentication_failed`, and a failed
+    /// model switch leaves the previous model intact.
+    #[test]
+    fn open_auth_failure_and_failed_set_model_preserve_state() {
+        let mut first = translator(Start::New);
+        first.start();
+        first.window_said(&asks(
+            "r1",
+            ControlRequest::Initialize {
+                per_task_stop_affordance: true,
+            },
+        ));
+        first.agent_said(r#"{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":1}}"#);
+        let auth_failed = first.agent_said(
+            r#"{"jsonrpc":"2.0","id":2,"error":{"code":-32000,"message":"Authentication required"}}"#,
+        );
+        let err_msg = window_lines(&auth_failed)
+            .into_iter()
+            .find(|line| line.get("type") == Some(&json!("assistant")))
+            .expect("assistant error emitted");
+        assert_eq!(err_msg.get("error"), Some(&json!("authentication_failed")));
+
+        let mut second = translator(Start::New);
+        second.start();
+        second.window_said(&asks(
+            "r1",
+            ControlRequest::Initialize {
+                per_task_stop_affordance: true,
+            },
+        ));
+        second.agent_said(r#"{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":1}}"#);
+        second.agent_said(
+            r#"{"jsonrpc":"2.0","id":2,"result":{"sessionId":"s","models":{"availableModels":[{"modelId":"m1","name":"Model 1"},{"modelId":"m2","name":"Model 2"}],"currentModelId":"m1"}}}"#,
+        );
+        let ask_model = second.window_said(&asks(
+            "r2",
+            ControlRequest::SetModel {
+                model: "m2".to_owned(),
+            },
+        ));
+        let rpc = agent_lines(&ask_model)
+            .into_iter()
+            .find(|line| line.get("method") == Some(&json!("session/set_model")))
+            .and_then(|line| line.get("id").and_then(Value::as_u64))
+            .expect("set_model rpc id");
+        let failed_set = second.agent_said(&format!(
+            r#"{{"jsonrpc":"2.0","id":{rpc},"error":{{"code":-32603,"message":"denied"}}}}"#
+        ));
+        assert_eq!(
+            window_lines(&failed_set)
+                .first()
+                .and_then(|line| line.pointer("/response/subtype")),
+            Some(&json!("error"))
+        );
+        assert_eq!(second.model.as_deref(), Some("gemini-3.8-flash-high"));
     }
 }

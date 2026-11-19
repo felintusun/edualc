@@ -1,10 +1,11 @@
-// The usage panel, over the conversation: the plan and its limits and when they start over,
-// this session's cost and time, what fills the context, and the last day and week as the CLI's
-// `/usage` sees them, with its advice; a tab for each. Esc or the cross closes it.
+// The usage popover: one tab per coding agent provider (Claude Code, agy, opencode), showing
+// plan limits, session usage, context breakdown, and recent activity. Esc or the cross closes it.
 
+import { ScrollView } from "std-widgets.slint";
 import { Theme } from "theme.slint";
-import { Usage } from "state.slint";
-import { Caption, Icon, IconButton, Meter, Pressable, Small, Title } from "widgets.slint";
+import { FocusArea, StatSection } from "types.slint";
+import { Focus, Usage } from "state.slint";
+import { AreaFence, Caption, Icon, IconButton, Meter, Pressable, Small, Title } from "widgets.slint";
 
 component StatLine inherits VerticalLayout {
     in property <string> label;
@@ -17,15 +18,18 @@ component StatLine inherits VerticalLayout {
         Text {
             text: root.label;
             color: Theme.text;
+            font-size: 1rem * Theme.small;
             overflow: elide;
+            vertical-alignment: center;
             horizontal-stretch: 1;
             min-width: 0px;
         }
-        Text {
+        if root.value != "": Text {
             text: root.value;
             color: Theme.fill-text(root.fraction);
             font-family: Theme.mono;
             font-size: 1rem * Theme.code-size;
+            vertical-alignment: center;
         }
     }
     if root.fraction >= 0: Meter {
@@ -34,118 +38,231 @@ component StatLine inherits VerticalLayout {
     if root.detail != "": Small {
         text: root.detail;
         wrap: word-wrap;
+        min-width: 0px;
     }
 }
 
 export component UsagePanel inherits Rectangle {
-    // The section shown: the one picked, or the last there is.
-    property <int> tab: 0;
-    property <int> shown: max(0, min(root.tab, Usage.sections.length - 1));
+    property <bool> has-tabs: Usage.tabs.length > 0;
+    property <int> shown-tab: root.has-tabs ? clamp(Usage.active-tab, 0, Usage.tabs.length - 1) : 0;
+    property <string> active-label: root.has-tabs ? Usage.tabs[root.shown-tab].label : Usage.program;
+    property <bool> active-loading: root.has-tabs ? Usage.tabs[root.shown-tab].loading : Usage.loading;
+    property <string> active-note: root.has-tabs ? Usage.tabs[root.shown-tab].note : Usage.note;
+    property <[StatSection]> active-sections: root.has-tabs ? Usage.tabs[root.shown-tab].sections : Usage.sections;
+
+    changed shown-tab => { scroll.content-y = 0px; }
+
+    preferred-width: 440px;
+    preferred-height: panel-layout.preferred-height;
     background: Theme.surface;
-    VerticalLayout {
-        HorizontalLayout {
-            height: Theme.header;
-            padding-left: Theme.space-xl;
-            padding-right: Theme.space-m;
-            spacing: Theme.space-m;
-            Icon {
-                source: @image-url("@lucide/gauge.svg");
-                tint: Theme.claude;
-                width: 22px;
-                y: (parent.height - self.height) / 2;
+    clip: true;
+
+    init => {
+        first-fence.focus();
+        Focus.step(true);
+    }
+
+    first-fence := AreaFence {
+        area: FocusArea.conversation;
+        crossed => {
+            if !Focus.going-round {
+                Focus.going-round = true;
+                last-fence.focus();
+                Focus.step(false);
             }
-            VerticalLayout {
-                alignment: center;
-                horizontal-stretch: 1;
-                Title {
-                    text: "Usage";
+        }
+    }
+
+    FocusScope {
+        width: 100%;
+        height: 100%;
+        focus-on-click: false;
+        focus-on-tab-navigation: false;
+        capture-key-pressed(event) => {
+            if event.text == Key.Escape {
+                Usage.close();
+                return accept;
+            }
+            return reject;
+        }
+
+        panel-layout := VerticalLayout {
+            HorizontalLayout {
+                min-height: Theme.header;
+                padding-left: Theme.space-m;
+                padding-right: Theme.space-s;
+                padding-top: Theme.space-xs;
+                padding-bottom: Theme.space-xs;
+                spacing: Theme.space-s;
+                Icon {
+                    source: @image-url("@lucide/gauge.svg");
+                    tint: Theme.claude;
+                    width: Theme.icon;
+                    y: (parent.height - self.height) / 2;
                 }
-                Caption {
-                    text: Usage.loading ? "Asking \{Usage.program}" : "As \{Usage.program} reports it";
-                }
-            }
-            IconButton {
-                icon: @image-url("@lucide/refresh-cw.svg");
-                label: "Ask again";
-                enabled: !Usage.loading;
-                y: (parent.height - self.height) / 2;
-                clicked => { Usage.refresh(); }
-            }
-            IconButton {
-                icon: @image-url("@lucide/x.svg");
-                label: "Back to the conversation (Esc)";
-                y: (parent.height - self.height) / 2;
-                clicked => { Usage.close(); }
-            }
-        }
-        Rectangle {
-            height: 1px;
-            background: Theme.divider;
-        }
-        if Usage.note != "": HorizontalLayout {
-            padding: Theme.space-m;
-            padding-left: Theme.space-xl;
-            Small {
-                text: Usage.note;
-                color: Theme.warning-text;
-                wrap: word-wrap;
-            }
-        }
-        // A tab for each section, one shown at a time, instead of one long list.
-        HorizontalLayout {
-            // The section below takes the height, however little it shows.
-            vertical-stretch: 0;
-            padding-left: Theme.space-xl;
-            padding-right: Theme.space-xl;
-            padding-top: Theme.space-m;
-            spacing: Theme.space-xs;
-            alignment: start;
-            for section[index] in Usage.sections: Pressable {
-                selected: index == root.shown;
-                accessible-label: section.title;
-                clicked => { root.tab = index; }
-                HorizontalLayout {
-                    padding-left: Theme.space-m;
-                    padding-right: Theme.space-m;
-                    padding-top: Theme.space-s;
-                    padding-bottom: Theme.space-s;
-                    Text {
-                        text: section.title;
-                        color: index == root.shown ? Theme.text : Theme.text-secondary;
-                        vertical-alignment: center;
-                    }
-                }
-            }
-        }
-        if Usage.sections.length == 0: VerticalLayout {
-            vertical-stretch: 1;
-            padding: Theme.space-xl;
-            alignment: start;
-            Small {
-                text: Usage.loading ? "" : "\{Usage.program} has no numbers to report yet.";
-                wrap: word-wrap;
-            }
-        }
-        if Usage.sections.length > 0: Flickable {
-            vertical-stretch: 1;
-            content-height: shown-section.preferred-height;
-            shown-section := HorizontalLayout {
-                alignment: center;
-                padding-top: Theme.space-l;
-                padding-bottom: Theme.space-xl;
                 VerticalLayout {
-                    width: min(root.width - 2 * Theme.space-xl, 720px);
-                    spacing: Theme.space-m;
-                    if Usage.sections[root.shown].note != "": Small {
-                        text: Usage.sections[root.shown].note;
+                    alignment: center;
+                    horizontal-stretch: 1;
+                    min-width: 0px;
+                    Title {
+                        text: "Usage";
+                        min-width: 0px;
+                        overflow: elide;
                     }
-                    for row in Usage.sections[root.shown].rows: StatLine {
-                        label: row.label;
-                        value: row.value;
-                        detail: row.detail;
-                        fraction: row.fraction;
+                    Caption {
+                        text: root.active-loading ? "Asking " + root.active-label + "…"
+                            : root.active-label != "" ? "As " + root.active-label + " reports it"
+                            : "Provider usage";
+                        min-width: 0px;
+                        overflow: elide;
                     }
                 }
+                IconButton {
+                    icon: @image-url("@lucide/refresh-cw.svg");
+                    label: "Refresh usage";
+                    enabled: !root.active-loading;
+                    y: (parent.height - self.height) / 2;
+                    clicked => { Usage.refresh(); }
+                }
+                IconButton {
+                    icon: @image-url("@lucide/x.svg");
+                    label: "Close usage (Esc)";
+                    y: (parent.height - self.height) / 2;
+                    clicked => { Usage.close(); }
+                }
+            }
+            Rectangle {
+                height: 1px;
+                background: Theme.divider;
+            }
+            if Usage.tabs.length > 0: VerticalLayout {
+                padding-left: Theme.space-m;
+                padding-right: Theme.space-m;
+                padding-top: Theme.space-s;
+                padding-bottom: Theme.space-s;
+                FlexboxLayout {
+                    flex-direction: FlexboxLayoutDirection.row;
+                    flex-wrap: FlexboxLayoutWrap.wrap;
+                    alignment: LayoutAlignment.start;
+                    spacing: Theme.space-xs;
+                    for tab[index] in Usage.tabs: Pressable {
+                        height: Theme.chip;
+                        selected: index == root.shown-tab;
+                        border-width: 1px;
+                        border-color: index == root.shown-tab ? Theme.accent.with-alpha(0.5) : Theme.divider;
+                        accessible-role: AccessibleRole.tab;
+                        accessible-item-selectable: true;
+                        accessible-item-selected: index == root.shown-tab;
+                        accessible-item-index: index;
+                        accessible-item-count: Usage.tabs.length;
+                        accessible-label: tab.label + (!tab.available ? " (not installed)" : tab.loading ? " (loading)" : "");
+                        clicked => { Usage.select-tab(index); }
+                        HorizontalLayout {
+                            padding-left: Theme.space-m;
+                            padding-right: Theme.space-s;
+                            spacing: Theme.space-xs;
+                            if tab.available: Rectangle {
+                                width: 6px;
+                                height: 6px;
+                                y: (parent.height - self.height) / 2;
+                                border-radius: 3px;
+                                background: tab.loading ? Theme.claude
+                                    : tab.sections.length > 0 ? Theme.success : Theme.text-tertiary;
+                            }
+                            Text {
+                                text: tab.label;
+                                font-size: 1rem * Theme.small;
+                                font-weight: index == root.shown-tab ? 600 : 400;
+                                color: index == root.shown-tab ? Theme.text
+                                    : tab.available ? Theme.text-secondary : Theme.text-tertiary;
+                                vertical-alignment: center;
+                                accessible-role: none;
+                            }
+                        }
+                    }
+                }
+            }
+            if Usage.tabs.length > 0: Rectangle {
+                height: 1px;
+                background: Theme.divider;
+            }
+            scroll := ScrollView {
+                vertical-stretch: 1;
+                min-height: 0px;
+                preferred-height: clamp(body.preferred-height, 84px, 420px);
+                horizontal-scrollbar-policy: always-off;
+                content-width: self.visible-width;
+                content-height: body.preferred-height;
+                body := VerticalLayout {
+                    width: scroll.visible-width;
+                    padding-left: Theme.space-m;
+                    // Extra right padding clears Fluent's overlay scrollbar so right-aligned
+                    // percentages stay readable.
+                    padding-right: Theme.space-l;
+                    padding-top: Theme.space-m;
+                    padding-bottom: Theme.space-m;
+                    spacing: Theme.space-m;
+                    alignment: start;
+
+                    if root.active-loading: Caption {
+                        text: "Asking " + root.active-label + " for usage…";
+                        wrap: word-wrap;
+                        min-width: 0px;
+                    }
+                    if root.active-note != "": Small {
+                        text: root.active-note;
+                        color: Theme.warning-text;
+                        wrap: word-wrap;
+                        min-width: 0px;
+                    }
+                    if !root.active-loading && root.active-sections.length == 0 && root.active-note == "": Small {
+                        text: root.active-label != ""
+                            ? root.active-label + " has no numbers to report yet."
+                            : "No usage numbers to report yet.";
+                        wrap: word-wrap;
+                        min-width: 0px;
+                    }
+                    for section[sec-idx] in root.active-sections: VerticalLayout {
+                        spacing: Theme.space-s;
+                        if sec-idx > 0: Rectangle {
+                            height: 1px;
+                            background: Theme.divider;
+                        }
+                        HorizontalLayout {
+                            spacing: Theme.space-s;
+                            Text {
+                                text: section.title;
+                                color: Theme.text;
+                                font-size: 1rem * Theme.small;
+                                font-weight: 600;
+                                horizontal-stretch: 1;
+                                min-width: 0px;
+                                overflow: elide;
+                            }
+                            if section.note != "": Caption {
+                                text: section.note;
+                                vertical-alignment: center;
+                            }
+                        }
+                        for row in section.rows: StatLine {
+                            label: row.label;
+                            value: row.value;
+                            detail: row.detail;
+                            fraction: row.fraction;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    last-fence := AreaFence {
+        area: FocusArea.conversation;
+        crossed => {
+            if !Focus.going-round {
+                Focus.going-round = true;
+                first-fence.focus();
+                Focus.step(true);
             }
         }
     }

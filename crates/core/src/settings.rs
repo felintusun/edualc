@@ -42,6 +42,42 @@ pub struct Settings {
     /// sender in. Messages edualc doesn't carry follow the receiving program's own rules.
     #[serde(default)]
     pub peer_messages: PeerMessages,
+    /// Project folders pinned to the top of the start page.
+    #[serde(default)]
+    pub pinned_projects: Vec<PathBuf>,
+    /// Project folders hidden from the default start page list.
+    #[serde(default)]
+    pub hidden_projects: Vec<PathBuf>,
+    /// How project cards on the start page are sorted.
+    #[serde(default)]
+    pub project_sort: ProjectSort,
+    /// Whether hidden projects are shown on the start page.
+    #[serde(default)]
+    pub show_hidden_projects: bool,
+    /// Whether all recent projects are shown instead of the compact start-page list.
+    #[serde(default)]
+    pub show_all_projects: bool,
+    /// Recently created or explicitly opened project folders, so they stay on the start page
+    /// even before a first turn writes a transcript.
+    #[serde(default)]
+    pub recent_projects: Vec<RecentProject>,
+}
+
+/// How projects on the start page are ordered.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ProjectSort {
+    #[default]
+    PinnedFirst,
+    Recent,
+}
+
+/// A project folder explicitly opened or created, with when it was last opened.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RecentProject {
+    pub path: PathBuf,
+    pub opened_secs: u64,
 }
 
 /// How messages from other sessions come into a session edualc runs.
@@ -97,6 +133,12 @@ impl Default for Settings {
             send_with: SendKey::default(),
             han_text: None,
             peer_messages: PeerMessages::default(),
+            pinned_projects: Vec::new(),
+            hidden_projects: Vec::new(),
+            project_sort: ProjectSort::default(),
+            show_hidden_projects: false,
+            show_all_projects: false,
+            recent_projects: Vec::new(),
         }
     }
 }
@@ -222,6 +264,7 @@ pub fn load() -> Result<Settings, Error> {
 /// One thing the user changed. A window sends the change, not its whole copy of the settings,
 /// so what another window changed meanwhile is kept.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub enum Change {
     ZoomPercent(u16),
     Look(Look),
@@ -235,7 +278,19 @@ pub enum Change {
     /// A folder trusted here that isn't to be trusted for Claude Code too, nor asked about.
     NotForClaudeCode(PathBuf),
     PeerMessages(PeerMessages),
+    TogglePinProject(PathBuf),
+    ToggleHideProject(PathBuf),
+    ProjectSort(ProjectSort),
+    ShowHiddenProjects(bool),
+    ShowAllProjects(bool),
+    TouchProject {
+        path: PathBuf,
+        opened_secs: u64,
+    },
 }
+
+/// Most recent opened/created projects kept in settings when they have no transcript yet.
+const MAX_RECENT_PROJECTS: usize = 50;
 
 impl Settings {
     pub fn apply(&mut self, change: Change) {
@@ -259,6 +314,31 @@ impl Settings {
                 }
             }
             Change::PeerMessages(peer_messages) => self.peer_messages = peer_messages,
+            Change::TogglePinProject(folder) => {
+                if let Some(at) = self.pinned_projects.iter().position(|p| p == &folder) {
+                    self.pinned_projects.remove(at);
+                } else {
+                    self.pinned_projects.push(folder.clone());
+                    self.hidden_projects.retain(|p| p != &folder);
+                }
+            }
+            Change::ToggleHideProject(folder) => {
+                if let Some(at) = self.hidden_projects.iter().position(|p| p == &folder) {
+                    self.hidden_projects.remove(at);
+                } else {
+                    self.hidden_projects.push(folder.clone());
+                    self.pinned_projects.retain(|p| p != &folder);
+                }
+            }
+            Change::ProjectSort(sort) => self.project_sort = sort,
+            Change::ShowHiddenProjects(show) => self.show_hidden_projects = show,
+            Change::ShowAllProjects(show) => self.show_all_projects = show,
+            Change::TouchProject { path, opened_secs } => {
+                self.recent_projects.retain(|recent| recent.path != path);
+                self.recent_projects
+                    .insert(0, RecentProject { path, opened_secs });
+                self.recent_projects.truncate(MAX_RECENT_PROJECTS);
+            }
         }
     }
 }
@@ -436,5 +516,62 @@ mod tests {
     fn a_misspelled_key_is_refused() {
         assert!(parse(r#"{"trusted_foldres": ["/tmp"]}"#).is_err());
         assert!(parse(r#"{"trusted_folders": ["/tmp"]}"#).is_ok());
+    }
+
+    #[test]
+    fn start_project_management_settings_roundtrip_and_apply() {
+        let mut settings = parse("{}").expect("empty object uses defaults");
+        assert_eq!(settings.project_sort, ProjectSort::PinnedFirst);
+        assert!(!settings.show_hidden_projects);
+        assert!(!settings.show_all_projects);
+        assert!(settings.pinned_projects.is_empty());
+        assert!(settings.hidden_projects.is_empty());
+        assert!(settings.recent_projects.is_empty());
+
+        let alpha = PathBuf::from("/work/alpha");
+        let beta = PathBuf::from("/work/beta");
+        settings.apply(Change::TogglePinProject(alpha.clone()));
+        assert_eq!(settings.pinned_projects, vec![alpha.clone()]);
+        settings.apply(Change::TogglePinProject(alpha.clone()));
+        assert!(settings.pinned_projects.is_empty());
+
+        settings.apply(Change::ToggleHideProject(beta.clone()));
+        assert_eq!(settings.hidden_projects, vec![beta.clone()]);
+        settings.apply(Change::TogglePinProject(beta.clone()));
+        assert_eq!(settings.pinned_projects, vec![beta.clone()]);
+        assert!(settings.hidden_projects.is_empty());
+
+        settings.apply(Change::ProjectSort(ProjectSort::Recent));
+        settings.apply(Change::ShowHiddenProjects(true));
+        settings.apply(Change::ShowAllProjects(true));
+        settings.apply(Change::TouchProject {
+            path: alpha.clone(),
+            opened_secs: 10,
+        });
+        settings.apply(Change::TouchProject {
+            path: beta.clone(),
+            opened_secs: 20,
+        });
+        settings.apply(Change::TouchProject {
+            path: alpha.clone(),
+            opened_secs: 30,
+        });
+        assert_eq!(
+            settings.recent_projects,
+            [
+                RecentProject {
+                    path: alpha,
+                    opened_secs: 30,
+                },
+                RecentProject {
+                    path: beta,
+                    opened_secs: 20,
+                },
+            ]
+        );
+
+        let saved = serde_json::to_string(&settings).expect("serializes");
+        let reloaded = parse(&saved).expect("reloads");
+        assert_eq!(reloaded, settings);
     }
 }

@@ -2,6 +2,7 @@
 // them. Each takes effect at once and is kept in `settings.json`, but the API key, which the
 // keyring keeps.
 
+import { ScrollView } from "std-widgets.slint";
 import { Theme } from "theme.slint";
 import { FocusArea, HanLanguage, PeerMessages, SendKey, SignInState } from "types.slint";
 import { Focus, Preferences, Session } from "state.slint";
@@ -31,14 +32,18 @@ export component Choice inherits Pressable {
         }
         VerticalLayout {
             horizontal-stretch: 1;
+            min-width: 0px;
             title := Text {
                 text: root.title;
                 color: Theme.text;
+                wrap: word-wrap;
+                min-width: 0px;
                 accessible-role: none;
             }
             Small {
                 text: root.detail;
                 wrap: word-wrap;
+                min-width: 0px;
             }
         }
     }
@@ -48,6 +53,7 @@ export component SettingsPanel inherits Rectangle {
     callback close;
     // Shut down was pressed once: the second press, on the button that says what ends, does it.
     property <bool> confirming-shutdown;
+    preferred-height: panel-layout.preferred-height;
     background: Theme.surface;
     // The focus comes in as it opens, and Tab goes round within it: what is typed must not go
     // to the composer it covers.
@@ -65,11 +71,13 @@ export component SettingsPanel inherits Rectangle {
             }
         }
     }
-    VerticalLayout {
+    panel-layout := VerticalLayout {
         HorizontalLayout {
-            height: Theme.header;
-            padding-left: Theme.space-xl;
+            min-height: Theme.header;
+            padding-left: root.width < 34rem ? Theme.space-l : Theme.space-xl;
             padding-right: Theme.space-m;
+            padding-top: Theme.space-s;
+            padding-bottom: Theme.space-s;
             spacing: Theme.space-m;
             Icon {
                 source: @image-url("@lucide/settings.svg");
@@ -80,11 +88,16 @@ export component SettingsPanel inherits Rectangle {
             VerticalLayout {
                 alignment: center;
                 horizontal-stretch: 1;
+                min-width: 0px;
                 Title {
                     text: "Settings";
+                    min-width: 0px;
+                    overflow: elide;
                 }
                 Caption {
                     text: "Kept in edualc's settings.json; each takes effect at once";
+                    min-width: 0px;
+                    wrap: word-wrap;
                 }
             }
             IconButton {
@@ -98,12 +111,18 @@ export component SettingsPanel inherits Rectangle {
             height: 1px;
             background: Theme.divider;
         }
-        Flickable {
+        scroll := ScrollView {
             vertical-stretch: 1;
+            min-height: 0px;
+            preferred-height: page.preferred-height;
+            horizontal-scrollbar-policy: always-off;
+            content-width: self.visible-width;
             content-height: page.preferred-height;
             page := VerticalLayout {
-                x: (parent.width - self.width) / 2;
-                width: min(root.width - 2 * Theme.space-xl, 640px);
+                // At least `space-l` on each side so Fluent's overlay scrollbar never covers controls.
+                property <length> gutter: root.width < 34rem ? Theme.space-l : Theme.space-xl;
+                x: max(self.gutter, (scroll.visible-width - self.width) / 2);
+                width: min(max(0px, scroll.visible-width - 2 * self.gutter), 640px);
                 padding-top: Theme.space-l;
                 padding-bottom: Theme.space-xl;
                 spacing: Theme.space-xs;
@@ -136,6 +155,7 @@ export component SettingsPanel inherits Rectangle {
                 Small {
                     text: "For messages to agy and opencode sessions. Messages to Claude Code follow its crossSessionInbound setting.";
                     wrap: word-wrap;
+                    min-width: 0px;
                 }
                 Choice {
                     title: "Ask before letting a new sender in";
@@ -161,6 +181,7 @@ export component SettingsPanel inherits Rectangle {
                 Small {
                     text: "Chinese, Japanese and Korean draw many Han characters differently. A message with kana is set as Japanese and one with Hangul as Korean; one in Han characters alone as chosen here.";
                     wrap: word-wrap;
+                    min-width: 0px;
                 }
                 Choice {
                     title: "Japanese";
@@ -197,6 +218,7 @@ export component SettingsPanel inherits Rectangle {
                 Small {
                     text: "The folder New project makes new projects in, unless you choose another.";
                     wrap: word-wrap;
+                    min-width: 0px;
                 }
                 HorizontalLayout {
                     spacing: Theme.space-s;
@@ -205,6 +227,7 @@ export component SettingsPanel inherits Rectangle {
                         changed saved => { self.text = self.saved; }
                         init => { self.text = Preferences.new-projects-in; }
                         horizontal-stretch: 1;
+                        min-width: 80px;
                         placeholder: "Folder for new projects";
                         accepted(text) => { Preferences.set-new-projects-in(text); }
                         changed has-focus => {
@@ -215,6 +238,8 @@ export component SettingsPanel inherits Rectangle {
                     }
                     TextButton {
                         text: "Browse…";
+                        horizontal-stretch: 0;
+                        may-shorten: true;
                         clicked => { Preferences.browse-new-projects-in(); }
                     }
                 }
@@ -231,21 +256,28 @@ export component SettingsPanel inherits Rectangle {
                         ? "Kept in your desktop's keyring. New session offers Claude Code with it, billed by the token, and continuing a Claude Code session asks which sign-in to use."
                         : "Paste a key from the Anthropic Console to start Claude Code sessions with it, billed by the token. It is kept in your desktop's keyring, not in a file.";
                     wrap: word-wrap;
+                    min-width: 0px;
                 }
                 HorizontalLayout {
                     spacing: Theme.space-s;
                     api-key := Field {
                         secret: true;
                         horizontal-stretch: 1;
+                        min-width: 80px;
                         placeholder: Preferences.api-key-kept ? "Paste a new key to replace it" : "sk-ant-api…";
                         accepted(text) => {
-                            Preferences.store-api-key(text);
-                            self.text = "";
+                            if text != "" {
+                                Preferences.store-api-key(text);
+                                self.text = "";
+                            }
                         }
                     }
                     TextButton {
                         text: "Keep";
                         enabled: api-key.text != "";
+                        opacity: api-key.text != "" ? 1 : 0.72;
+                        horizontal-stretch: 0;
+                        may-shorten: true;
                         clicked => {
                             Preferences.store-api-key(api-key.text);
                             api-key.text = "";
@@ -254,6 +286,8 @@ export component SettingsPanel inherits Rectangle {
                     if Preferences.api-key-kept: TextButton {
                         text: "Remove";
                         danger: true;
+                        horizontal-stretch: 0;
+                        may-shorten: true;
                         clicked => { Preferences.remove-api-key(); }
                     }
                 }
@@ -261,6 +295,7 @@ export component SettingsPanel inherits Rectangle {
                     text: Preferences.api-key-note;
                     color: Theme.danger-text;
                     wrap: word-wrap;
+                    min-width: 0px;
                 }
                 if Session.email != "" || Session.organization != "" || Session.provider != "" || Session.version != "" || Session.cost != "": Rectangle {
                     height: Theme.space-m;
@@ -285,13 +320,16 @@ export component SettingsPanel inherits Rectangle {
                         height: line.value != "" ? self.preferred-height : 0;
                         Small {
                             text: line.label;
-                            width: 110px;
+                            width: min(8.5rem, page.width * 38%);
+                            overflow: elide;
+                            vertical-alignment: center;
                         }
                         Text {
                             text: line.value;
                             color: Theme.text;
                             font-size: 1rem * Theme.small;
                             overflow: elide;
+                            vertical-alignment: center;
                             horizontal-stretch: 1;
                             min-width: 0px;
                         }
@@ -308,15 +346,20 @@ export component SettingsPanel inherits Rectangle {
                 Small {
                     text: "It runs the sessions of every window, and goes on while one runs, so a newly installed edualc takes over only once it is shut down. Shutting down ends every session, in every window; the start page lets you continue them in the next window you open.";
                     wrap: word-wrap;
+                    min-width: 0px;
                 }
-                HorizontalLayout {
-                    alignment: start;
+                FlexboxLayout {
+                    flex-direction: FlexboxLayoutDirection.row;
+                    flex-wrap: FlexboxLayoutWrap.wrap;
+                    alignment: LayoutAlignment.start;
                     spacing: Theme.space-s;
                     TextButton {
                         text: !root.confirming-shutdown ? "Shut down edualc…"
                             : Preferences.running-sessions == 1 ? "End 1 session and shut down"
                             : "End " + Preferences.running-sessions + " sessions and shut down";
                         danger: true;
+                        horizontal-stretch: 0;
+                        may-shorten: true;
                         clicked => {
                             if root.confirming-shutdown {
                                 root.confirming-shutdown = false;
@@ -328,6 +371,7 @@ export component SettingsPanel inherits Rectangle {
                     }
                     if root.confirming-shutdown: TextButton {
                         text: "Cancel";
+                        horizontal-stretch: 0;
                         clicked => { root.confirming-shutdown = false; }
                     }
                 }

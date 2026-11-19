@@ -367,6 +367,16 @@ impl ToSlint for present::PlaceView {
     }
 }
 
+impl ToSlint for present::ProjectSort {
+    type Slint = slint_ui::ProjectSort;
+    fn to_slint(&self, _: &Drawing) -> Self::Slint {
+        match self {
+            Self::PinnedFirst => slint_ui::ProjectSort::PinnedFirst,
+            Self::Recent => slint_ui::ProjectSort::Recent,
+        }
+    }
+}
+
 impl ToSlint for present::CjkChars {
     type Slint = slint_ui::CjkChars;
     fn to_slint(&self, images: &Drawing) -> Self::Slint {
@@ -745,12 +755,34 @@ impl ToSlint for present::ProjectCard {
             last_said: self.last_said.to_slint(images),
             has_sessions: self.has_sessions.to_slint(images),
             sessions: self.sessions.to_slint(images),
+            pinned: self.pinned.to_slint(images),
+            hidden: self.hidden.to_slint(images),
         }
     }
     fn sync(&self, old: &Self, shown: Self::Slint, images: &Drawing) -> Self::Slint {
         let mut row = self.to_slint(images);
         row.sessions = resync(&shown.sessions, &old.sessions, &self.sessions, images)
             .unwrap_or(shown.sessions);
+        row
+    }
+}
+
+impl ToSlint for present::UsageTab {
+    type Slint = slint_ui::UsageTab;
+    fn to_slint(&self, images: &Drawing) -> Self::Slint {
+        slint_ui::UsageTab {
+            id: self.id.to_slint(images),
+            label: self.label.to_slint(images),
+            available: self.available.to_slint(images),
+            loading: self.loading.to_slint(images),
+            note: self.note.to_slint(images),
+            sections: self.sections.to_slint(images),
+        }
+    }
+    fn sync(&self, old: &Self, shown: Self::Slint, images: &Drawing) -> Self::Slint {
+        let mut row = self.to_slint(images);
+        row.sections = resync(&shown.sections, &old.sections, &self.sections, images)
+            .unwrap_or(shown.sections);
         row
     }
 }
@@ -783,11 +815,23 @@ pub(super) fn apply_session(
     if old.is_none_or(|old| old.agent != new.agent) {
         global.set_agent(new.agent.to_slint(images));
     }
+    if old.is_none_or(|old| old.agent_name != new.agent_name) {
+        global.set_agent_name(new.agent_name.to_slint(images));
+    }
     if old.is_none_or(|old| old.program != new.program) {
         global.set_program(new.program.to_slint(images));
     }
     if old.is_none_or(|old| old.shell_commands != new.shell_commands) {
         global.set_shell_commands(new.shell_commands.to_slint(images));
+    }
+    if old.is_none_or(|old| old.can_shell != new.can_shell) {
+        global.set_can_shell(new.can_shell.to_slint(images));
+    }
+    if old.is_none_or(|old| old.can_btw != new.can_btw) {
+        global.set_can_btw(new.can_btw.to_slint(images));
+    }
+    if old.is_none_or(|old| old.can_fork != new.can_fork) {
+        global.set_can_fork(new.can_fork.to_slint(images));
     }
     if old.is_none_or(|old| old.cwd != new.cwd) {
         global.set_cwd(new.cwd.to_slint(images));
@@ -1208,6 +1252,9 @@ pub(super) fn apply_changes(
     if old.is_none_or(|old| old.comments != new.comments) {
         global.set_comments(new.comments.to_slint(images));
     }
+    if old.is_none_or(|old| old.can_send != new.can_send) {
+        global.set_can_send(new.can_send.to_slint(images));
+    }
     if old.is_none_or(|old| old.editing_comment != new.editing_comment) {
         global.set_editing_comment(new.editing_comment.to_slint(images));
     }
@@ -1324,6 +1371,24 @@ pub(super) fn apply_nav(
     if old.is_none_or(|old| old.new_project_error != new.new_project_error) {
         global.set_new_project_error(new.new_project_error.to_slint(images));
     }
+    if old.is_none_or(|old| old.project_sort != new.project_sort) {
+        global.set_project_sort(new.project_sort.to_slint(images));
+    }
+    if old.is_none_or(|old| old.show_hidden_projects != new.show_hidden_projects) {
+        global.set_show_hidden_projects(new.show_hidden_projects.to_slint(images));
+    }
+    if old.is_none_or(|old| old.show_all_projects != new.show_all_projects) {
+        global.set_show_all_projects(new.show_all_projects.to_slint(images));
+    }
+    if old.is_none_or(|old| old.total_projects != new.total_projects) {
+        global.set_total_projects(new.total_projects.to_slint(images));
+    }
+    if old.is_none_or(|old| old.hidden_projects_count != new.hidden_projects_count) {
+        global.set_hidden_projects_count(new.hidden_projects_count.to_slint(images));
+    }
+    if old.is_none_or(|old| old.has_more_projects != new.has_more_projects) {
+        global.set_has_more_projects(new.has_more_projects.to_slint(images));
+    }
 }
 
 /// Brings the `Preferences` global in line with `new`, setting what differs from `old` (all,
@@ -1389,5 +1454,17 @@ pub(super) fn apply_usage(
         }
         Some(_) => {}
         None => global.set_sections(new.sections.to_slint(images)),
+    }
+    match old {
+        Some(old) if old.tabs != new.tabs => {
+            if let Some(model) = resync(&global.get_tabs(), &old.tabs, &new.tabs, images) {
+                global.set_tabs(model);
+            }
+        }
+        Some(_) => {}
+        None => global.set_tabs(new.tabs.to_slint(images)),
+    }
+    if old.is_none_or(|old| old.active_tab != new.active_tab) {
+        global.set_active_tab(new.active_tab.to_slint(images));
     }
 }

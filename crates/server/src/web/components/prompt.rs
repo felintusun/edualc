@@ -396,8 +396,7 @@ fn QuestionEntry(
     let preview = question
         .options
         .get(preview_at)
-        .map(|option| option.preview.clone())
-        .unwrap_or_default();
+        .map_or_default(|option| option.preview.clone());
     rsx! {
         div {
             id: "prompt-question-{q}",

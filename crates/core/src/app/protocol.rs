@@ -97,12 +97,28 @@ impl<F: Frontend> App<F> {
                     self.stream_activity(&event);
                 }
             }
-            // "Please run /login", which Claude Code offers no way to do behind a pipe: the turn's
-            // result brings up what does work (see `result`).
+            // "Please run /login", which Claude Code offers no way to do behind a pipe (or an ACP
+            // session whose open/initialize failed auth).
             Message::Assistant {
+                message,
+                parent_tool_use_id,
                 error: Some(AssistantError::AuthenticationFailed),
-                ..
-            } => self.turn_refusal = Some(Refusal::SignIn),
+            } => {
+                if self.status.turns > 0 {
+                    self.turn_refusal = Some(Refusal::SignIn);
+                } else {
+                    self.status.sign_in = SignIn::Refused {
+                        failed: self.last_prompt.take(),
+                    };
+                    if !message.content.is_empty() {
+                        self.chat.assistant_message(
+                            &message,
+                            parent_tool_use_id.as_ref(),
+                            Origin::Live,
+                        );
+                    }
+                }
+            }
             Message::Assistant {
                 message,
                 parent_tool_use_id,
@@ -448,10 +464,10 @@ impl<F: Frontend> App<F> {
             (Request::Interrupt | Request::StopTask(_), Ok(_)) => {}
             (Request::TaskOutput(task), outcome) => self.output_told(&task, outcome),
             (Request::Side(index), outcome) => self.side_answered(index, outcome),
-            (Request::Usage, outcome) => self.usage_answered(outcome),
-            (Request::ContextUsage, outcome) => self.context_answered(outcome),
+            (Request::Usage(backend), outcome) => self.usage_answered(backend, outcome),
+            (Request::ContextUsage(backend), outcome) => self.context_answered(backend, outcome),
             (Request::Initialize, Err(error)) => {
-                tracing::warn!(%error, "claude refused to initialize")
+                tracing::warn!(%error, backend = %self.status.backend.program(), "session refused to initialize")
             }
             (Request::Model(value), Err(error)) => {
                 self.chat
@@ -492,34 +508,44 @@ impl<F: Frontend> App<F> {
             };
         }
         let mut commands = initialized.commands;
-        // The terminal's own; this window answers it in the side panel.
-        commands.push(CommandInfo {
-            name: "btw".into(),
-            description: "Ask a quick side question without interrupting the main conversation"
-                .into(),
-            argument_hint: "[question]".into(),
-        });
-        commands.push(CommandInfo {
-            name: "login".into(),
-            description: "Sign in to Claude Code".into(),
-            argument_hint: String::new(),
-        });
+        if self.status.backend == crate::claude::Backend::Claude {
+            // The terminal's own; this window answers it in the side panel.
+            commands.push(CommandInfo {
+                name: "btw".into(),
+                description: "Ask a quick side question without interrupting the main conversation"
+                    .into(),
+                argument_hint: "[question]".into(),
+            });
+            commands.push(CommandInfo {
+                name: "login".into(),
+                description: "Sign in to Claude Code".into(),
+                argument_hint: String::new(),
+            });
+        }
         commands.sort_by(|left, right| left.name.cmp(&right.name));
         self.status.commands = commands;
         if !initialized.account.email.is_empty() && self.status.sign_in == SignIn::Unknown {
             self.status.sign_in = SignIn::SignedIn;
         }
+        if self.status.backend == crate::claude::Backend::Claude
+            && !initialized.account.subscription_type.is_empty()
+        {
+            self.status
+                .claude_subscription
+                .clone_from(&initialized.account.subscription_type);
+        }
         self.status.account = initialized.account;
         self.status.version = initialized.claude_code_version;
         // The plan's limits at once, not only after the first turn reports them; it asks the
         // plan, not the model.
+        let backend = self.status.backend;
         if self
             .status
             .plan_limits()
             .is_some_and(|limits| limits.five_hour.is_none())
-            && self.request(ControlRequest::GetUsage, Request::Usage)
+            && self.request(ControlRequest::GetUsage, Request::Usage(backend))
         {
-            self.usage.waiting += 1;
+            self.usage.for_backend_mut(backend).waiting += 1;
         }
     }
 }

@@ -549,6 +549,11 @@ impl Frontend for SlintFrontend {
                 side.set_focus_wanted(true);
                 side.set_focus_serial(side.get_focus_serial().wrapping_add(1));
             }
+            Command::ClearSelection => {
+                window
+                    .global::<slint_ui::TextSelection>()
+                    .set_owner(SharedString::default());
+            }
             Command::ScrollToEnd => {
                 let transcript = window.global::<slint_ui::Transcript>();
                 transcript.set_scroll_to_end_serial(

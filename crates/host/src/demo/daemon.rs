@@ -78,6 +78,7 @@ fn greet(outbox: &Sender<FromDaemon>) {
             finds_windows: false,
             local: false,
             home: demo::Folder::Trailhead.path().to_path_buf(),
+            backends: vec![crate::claude::Backend::Claude],
         },
     );
     tell(outbox, FromDaemon::Hosted(Vec::new()));
@@ -133,6 +134,14 @@ fn read_for(outbox: &Sender<FromDaemon>, request: ActId, read: Read) {
         Read::Diff { .. } => Answer::Diff(Ok(crate::changes::Diff::default())),
         // The demo keeps nothing between its runs: a session shown before isn't there.
         Read::Saved(_) => Answer::Saved(crate::sessions::Saved::Nowhere),
+        Read::ProviderUsage { backend, .. } => Answer::ProviderUsage(match backend {
+            crate::claude::Backend::Claude => {
+                crate::ipc::ProviderUsage::noted("The browser demo shows no live usage.")
+            }
+            crate::claude::Backend::Agy | crate::claude::Backend::Opencode => {
+                crate::ipc::ProviderUsage::Unavailable
+            }
+        }),
     };
     tell(outbox, FromDaemon::Answer { request, answer });
 }
@@ -189,14 +198,12 @@ fn acted(outbox: &Sender<FromDaemon>, request: ActId, act: Act) {
                 .unwrap_or_default(),
             last: true,
         },
-        Act::OpenIn { .. }
-        | Act::OpenUrl(_)
-        | Act::Notify { .. }
-        | Act::FocusWindowOf { .. }
-        | Act::StopSession(_) => FromDaemon::Done {
-            request,
-            result: Err(ActFailure::NotHere),
-        },
+        Act::OpenIn { .. } | Act::OpenUrl(_) | Act::Notify { .. } | Act::FocusWindowOf { .. } => {
+            FromDaemon::Done {
+                request,
+                result: Err(ActFailure::NotHere),
+            }
+        }
         // The demo has no keyring to keep a key in.
         Act::CheckApiKey => FromDaemon::ApiKeyStored {
             request,

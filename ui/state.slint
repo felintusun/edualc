@@ -1,15 +1,20 @@
 // What the window shows and does, by area: Rust sets these (`window.global::<…>()`) and takes
 // the callbacks; the components read them where they're shown.
 
-import { Activity, CardSessionItem, ChangedFile, ChangeReview, ChangeScope, CommandItem, ComposerSize, DiffRow, Entry, FocusArea, HanLanguage, ImageChip, LineBreak, MenuItem, PeekStep, PeerMessages, PermissionKind, PlaceView, PlanSection, Program, ProjectCard, ProjectItem, PromptKind, Question, SendKey, SessionRow, SideExchange, SideView, SignInState, SignInWith, StatSection, SwitcherItem, TaskItem, TaskKind, WaitingItem } from "types.slint";
+import { Activity, CardSessionItem, ChangedFile, ChangeReview, ChangeScope, CommandItem, ComposerSize, DiffRow, Entry, FocusArea, HanLanguage, ImageChip, LineBreak, MenuItem, PeekStep, PeerMessages, PermissionKind, PlaceView, PlanSection, Program, ProjectCard, ProjectItem, ProjectSort, PromptKind, Question, SendKey, SessionRow, SideExchange, SideView, SignInState, SignInWith, StatSection, SwitcherItem, TaskItem, TaskKind, UsageTab, WaitingItem } from "types.slint";
 
 // The CLI process and the conversation it holds.
 export global Session {
     // Who answers in this session ("Claude", "agy"), and the program it runs as.
     in property <string> agent: "Claude";
+    in property <string> agent-name: "Claude";
     in property <string> program: "Claude Code";
     // `!` commands run beside the conversation; agy has no shell for them.
     in property <bool> shell-commands: true;
+    in property <bool> can-shell: true;
+    // `/btw` side questions and `continue-here` session forking are supported on Claude Code only.
+    in property <bool> can-btw: true;
+    in property <bool> can-fork: true;
     // The working directory, its last part, and the session's title.
     in property <string> cwd;
     in property <string> project;
@@ -88,8 +93,6 @@ export global Session {
     in property <bool> can-go-to-window;
     callback continue-here;
     callback go-to-window;
-    // Stops the watched session in its window and continues it here.
-    callback bring-here;
     // The git worktree the session works in (empty if none), and what it can be opened in:
     // the first entry is this window.
     in property <string> worktree-name;
@@ -163,6 +166,9 @@ export global Sessions {
     // The New session menu offers Claude Code with the API key while the keyring keeps one.
     in property <bool> api-key-kept;
     callback new-session(Program);
+    // Starts a fresh session in the current project (using `program`), opening the API key dialog
+    // only when `Program.claude-api-key` is explicitly chosen.
+    callback new-session-in-project(Program);
     // The dialog that starts a Claude Code session with the API key: what it costs, and the
     // model, an alias Claude Code takes ("opus"), or empty for the model menu's.
     in-out property <bool> api-key-dialog;
@@ -282,6 +288,8 @@ export global Changes {
     in property <string> diff-note;
     // Your comments, on any file, not sent yet.
     in property <int> comments;
+    // False when watching a session in another window: comments stay kept, not sent or dropped.
+    in property <bool> can-send: true;
     // A comment is being written: Esc is for it, not for closing the view.
     in property <bool> editing-comment;
     // The top bar's button: what the last turn changed in short, or "" before it changed
@@ -345,6 +353,13 @@ export global Nav {
     in property <int> switcher-serial;
     // Bumped to open the New project dialog (Ctrl+N on the start page).
     in property <int> new-project-serial;
+    // Start-page project management: pinning, hiding, sorting, and compact view toggle.
+    in property <ProjectSort> project-sort: ProjectSort.pinned-first;
+    in property <bool> show-hidden-projects: false;
+    in property <bool> show-all-projects: false;
+    in property <int> total-projects: 0;
+    in property <int> hidden-projects-count: 0;
+    in property <bool> has-more-projects: false;
 
     callback open-start;
     callback open-project-page(string);
@@ -355,6 +370,12 @@ export global Nav {
     // In the parent folder, by the name, starting a git repository or not.
     callback create-project(string, string, bool);
     callback clear-new-project-error;
+    callback toggle-pin-project(string);
+    callback toggle-hide-project(string);
+    callback set-project-sort(ProjectSort);
+    callback toggle-show-hidden-projects;
+    callback toggle-show-all-projects;
+    callback start-filter-edited(string);
     pure callback filter-cards([ProjectCard], string) -> [ProjectCard];
     pure callback filter-switcher([SwitcherItem], string) -> [SwitcherItem];
 }
@@ -405,7 +426,7 @@ export global Focus {
     in-out property <bool> pending;
 }
 
-// The usage panel: the CLI's `/usage` and `/context`, shown over the conversation.
+// The usage panel: the CLI's `/usage` and `/context`, shown over the conversation or any page.
 export global Usage {
     in property <bool> open;
     // The program the numbers come from, as the window names it: "Claude Code", "agy".
@@ -415,6 +436,10 @@ export global Usage {
     // Why something is missing, if it is.
     in property <string> note;
     in property <[StatSection]> sections;
+    // Multi-provider tabs: one per coding agent ("claude", "agy", "opencode").
+    in property <[UsageTab]> tabs;
+    in property <int> active-tab;
+    callback select-tab(int);
     callback close;
     callback refresh;
 }

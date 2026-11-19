@@ -1,15 +1,15 @@
-// The top bar: breadcrumbs, a jump to any waiting session, the current session's status and
-// controls, utilities, and the window's frame controls on desktop.
+// The top bar: breadcrumbs, a jump to any waiting session, utilities, and the window's frame
+// controls on desktop. Also exports `TasksChip` and `ContextMeter` for the in-chat controls.
 
 import { Look, Theme } from "theme.slint";
-import { FocusArea, PermissionKind, PlaceView, SideView, TaskKind } from "types.slint";
-import { Changes, Focus, Nav, Peek, Preferences, Session, Side, Usage } from "state.slint";
-import { AreaFence, Caption, Icon, IconButton, MenuButton, Meter, Pressable, Small, TextButton } from "widgets.slint";
+import { FocusArea, PlaceView, TaskKind } from "types.slint";
+import { Focus, Nav, Peek, Preferences, Session, Usage } from "state.slint";
+import { AreaFence, Caption, Icon, IconButton, Meter, Pressable, Small, TextButton } from "widgets.slint";
 import { HeronMark } from "heron.slint";
 
 // What runs besides the turn's own steps, and how much ("2 agents, 1 command"); a click lists
-// it. The list opens downward below the top bar.
-component TasksChip inherits Pressable {
+// it. The list opens downward below the bar.
+export component TasksChip inherits Pressable {
     in property <length> window-height;
     height: Theme.chip;
     min-width: 0px;
@@ -37,7 +37,7 @@ component TasksChip inherits Pressable {
         }
     }
     tasks-menu := PopupWindow {
-        x: min(0px, root.width - self.width);
+        x: max(-root.absolute-position.x + Theme.space-s, min(0px, root.width - self.width));
         y: root.height + Theme.space-xs;
         width: 380px;
         height: max(0px, root.window-height - root.absolute-position.y - root.height - Theme.space-m);
@@ -140,7 +140,7 @@ component TasksChip inherits Pressable {
 }
 
 // How full the context is: a short bar that warms as it fills, and the count.
-component ContextMeter inherits HorizontalLayout {
+export component ContextMeter inherits HorizontalLayout {
     height: Theme.chip;
     spacing: Theme.space-xs;
     Meter {
@@ -157,21 +157,24 @@ component ContextMeter inherits HorizontalLayout {
 export component TopBar inherits Rectangle {
     in property <length> window-height;
     in property <bool> maximized;
-    // Too narrow for the menus' names: set as the width changes, not bound to it, so the
-    // menus' min-width doesn't feed back into the window's own width.
+    // Too narrow for full labels/parents: set as width or zoom changes, not bound to width,
+    // so children's min-width doesn't feed back into the window's own width.
     property <bool> narrow;
-    // Narrower still, as in a third of a screen: the breadcrumb keeps the session's title, the
-    // chips their icons, and the window only its Close.
+    // Narrower still, as in a third of a screen: the breadcrumb keeps the active leaf title,
+    // utility chips show icons, and the window keeps only Close.
     property <bool> tight;
-    changed width => {
-        self.narrow = self.width < 920px;
-        self.tight = self.width < 640px;
+    property <length> rem-unit: 1rem;
+    function update-breakpoints() {
+        self.narrow = self.width < 58rem;
+        self.tight = self.width < 40rem;
     }
+    init => { self.update-breakpoints(); }
+    changed width => { self.update-breakpoints(); }
+    changed rem-unit => { self.update-breakpoints(); }
     callback minimize;
     callback toggle-maximize;
     callback close;
 
-    property <PermissionKind> mode: Session.mode;
     property <int> wanted: Focus.wanted-serial;
     changed wanted => { self.take-wanted(); }
 
@@ -209,7 +212,7 @@ export component TopBar inherits Rectangle {
                 y: (parent.height - self.height) / 2;
                 clicked => { Nav.back(); }
             }
-            if !root.tight: HeronMark {
+            HeronMark {
                 width: 20px;
                 y: (parent.height - self.height) / 2;
             }
@@ -247,8 +250,8 @@ export component TopBar inherits Rectangle {
                 color: Theme.text;
                 vertical-alignment: center;
                 overflow: elide;
-                min-width: 0px;
-                max-width: 260px;
+                min-width: min(self.preferred-width, 6rem);
+                max-width: 18rem;
             }
             if Nav.view == PlaceView.session && !root.tight: Pressable {
                 height: Theme.chip;
@@ -264,7 +267,8 @@ export component TopBar inherits Rectangle {
                         font-size: 1rem * Theme.small;
                         vertical-alignment: center;
                         overflow: elide;
-                        max-width: 180px;
+                        min-width: 0px;
+                        max-width: 12rem;
                         accessible-role: none;
                     }
                 }
@@ -280,8 +284,8 @@ export component TopBar inherits Rectangle {
                 color: Theme.text;
                 vertical-alignment: center;
                 overflow: elide;
-                min-width: 0px;
-                max-width: 260px;
+                min-width: min(self.preferred-width, 6rem);
+                max-width: 18rem;
             }
             if Nav.needs-you > 0: Pressable {
                 height: Theme.chip;
@@ -311,214 +315,47 @@ export component TopBar inherits Rectangle {
                     }
                 }
             }
-            // Fills the empty bar space so dragging moves the window and double-click maximises it,
-            // without bounding the layout under tiling window managers.
+            // Fills the empty bar space so dragging moves the window and double-click maximises it
+            // (when window controls are shown), without bounding the layout under tiling window managers.
             Rectangle {
                 horizontal-stretch: 1;
-                min-width: 16px;
+                min-width: 8px;
                 WindowMoveArea {
                     width: 100%;
                     height: 100%;
-                    TouchArea {
+                    if Nav.show-window-controls: TouchArea {
                         double-clicked => { root.toggle-maximize(); }
                     }
                 }
             }
-            if Nav.view == PlaceView.session && Session.worktree-name != "": worktree := Pressable {
+            Pressable {
+                selected: Usage.open;
                 height: Theme.chip;
                 y: (parent.height - self.height) / 2;
                 border-radius: Theme.radius-m;
-                border-width: 1px;
-                border-color: Theme.divider;
-                accessible-label: "Worktree " + Session.worktree-name;
-                clicked => { openers.show(); }
-                HorizontalLayout {
-                    padding-left: Theme.space-s;
-                    padding-right: Theme.space-s;
-                    spacing: Theme.space-xs;
-                    Icon {
-                        source: @image-url("@lucide/git-branch.svg");
-                        tint: Theme.claude;
-                        width: Theme.icon-small;
-                        y: (parent.height - self.height) / 2;
-                    }
-                    Text {
-                        text: Session.worktree-name;
-                        color: Theme.text;
-                        font-size: 1rem * Theme.small;
-                        vertical-alignment: center;
-                        overflow: elide;
-                        max-width: 140px;
-                    }
-                    if Session.worktree-branch != "" && Session.worktree-branch != Session.worktree-name: Caption {
-                        text: Session.worktree-branch;
-                        vertical-alignment: center;
-                        overflow: elide;
-                        max-width: 120px;
-                    }
-                    Icon {
-                        source: @image-url("@lucide/chevron-down.svg");
-                        width: Theme.icon-small;
-                        y: (parent.height - self.height) / 2;
-                    }
-                }
-                openers := PopupWindow {
-                    x: parent.width - self.width;
-                    y: parent.height + Theme.space-xs;
-                    width: 220px;
-                    height: menu.preferred-height;
-                    close-policy: close-on-click-outside;
-                    Rectangle {
-                        background: Theme.surface;
-                        border-radius: Theme.radius-m;
-                        border-width: 1px;
-                        border-color: Theme.divider;
-                        drop-shadow-blur: 12px;
-                        drop-shadow-color: #0004;
-                        menu := VerticalLayout {
-                            padding: Theme.space-xs;
-                            Caption {
-                                text: "Open the worktree in";
-                            }
-                            for opener[index] in Session.openers: Pressable {
-                                height: Theme.control;
-                                clicked => {
-                                    Session.open-worktree(index);
-                                    openers.close();
-                                }
-                                Text {
-                                    x: Theme.space-s;
-                                    text: opener;
-                                    color: Theme.text;
-                                    vertical-alignment: center;
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            if Nav.view == PlaceView.session: MenuButton {
-                below: true;
-                heading: "Permission mode";
-                model: Session.modes;
-                current-index <=> Session.mode-index;
-                max-width: 200px;
-                compact: root.narrow;
-                y: (parent.height - self.height) / 2;
-                icon: root.mode == PermissionKind.accept-edits ? @image-url("@lucide/file-pen-line.svg")
-                    : root.mode == PermissionKind.plan ? @image-url("@lucide/map.svg")
-                    : root.mode == PermissionKind.auto ? @image-url("@lucide/zap.svg")
-                    : root.mode == PermissionKind.bypass ? @image-url("@lucide/shield-exclamation-point.svg")
-                    : root.mode == PermissionKind.unknown ? @image-url("@lucide/shield-question-mark.svg")
-                    : @image-url("@lucide/shield-check.svg");
-                tint: root.mode == PermissionKind.accept-edits ? Theme.warning-text
-                    : root.mode == PermissionKind.plan ? Theme.link
-                    : root.mode == PermissionKind.auto ? Theme.info
-                    : root.mode == PermissionKind.bypass ? Theme.danger-text
-                    : Theme.text-secondary;
-                selected(index) => { Session.choose-mode(index); }
-            }
-            if Nav.view == PlaceView.session: MenuButton {
-                below: true;
-                heading: "Model";
-                model: Session.models;
-                current-index <=> Session.model-index;
-                max-width: 220px;
-                compact: root.narrow;
-                y: (parent.height - self.height) / 2;
-                icon: @image-url("@lucide/sparkle.svg");
-                selected(index) => { Session.choose-model(index); }
-            }
-            if Nav.view == PlaceView.session && Session.tasks.length > 0: TasksChip {
-                window-height: root.window-height;
-                y: (parent.height - self.height) / 2;
-            }
-            if Nav.view == PlaceView.session && Session.context != "": ContextMeter {
-                y: (parent.height - self.height) / 2;
-            }
-            if Nav.view == PlaceView.session: Pressable {
-                selected: Changes.open;
-                height: Theme.chip;
-                y: (parent.height - self.height) / 2;
-                accessible-label: Changes.open ? "Back to the conversation"
-                    : Changes.last-turn != "" ? "Changes: the last turn changed " + Changes.last-turn
-                    : "Changes";
+                accessible-label: Session.limit-five-hour >= 0
+                    ? "Usage: 5h \{round(clamp(Session.limit-five-hour, 0, 1) * 100)}%"
+                    : "Usage details";
                 clicked => {
-                    if Changes.open {
-                        Changes.close();
+                    if Usage.open {
+                        Usage.close();
                     } else {
-                        Changes.show();
+                        Session.show-usage();
                     }
                 }
-                HorizontalLayout {
-                    padding-left: Theme.space-s;
-                    padding-right: Theme.space-s;
-                    spacing: Theme.space-xs;
-                    Icon {
-                        source: @image-url("@lucide/git-compare.svg");
-                        tint: Changes.last-turn != "" ? Theme.claude : Theme.text-secondary;
-                        width: Theme.icon-small;
-                        y: (parent.height - self.height) / 2;
-                    }
-                    if !root.tight: Text {
-                        text: Changes.last-turn != "" ? Changes.last-turn : "Changes";
-                        color: Changes.open ? Theme.text : Theme.text-secondary;
-                        font-size: 1rem * Theme.small;
-                        vertical-alignment: center;
-                        accessible-role: none;
-                    }
-                }
-            }
-            if Nav.view == PlaceView.session: Pressable {
-                selected: Side.view == SideView.shown;
-                height: Theme.chip;
-                y: (parent.height - self.height) / 2;
-                accessible-label: Side.view == SideView.shown ? "Fold the side questions away" : "Side questions (/btw)";
-                clicked => { Side.toggle(); }
-                HorizontalLayout {
-                    padding-left: Theme.space-s;
-                    padding-right: Theme.space-s;
-                    spacing: Theme.space-xs;
-                    Icon {
-                        source: @image-url("@lucide/message-circle-dashed.svg");
-                        tint: Side.view != SideView.hidden ? Theme.claude : Theme.text-secondary;
-                        width: Theme.icon-small;
-                        y: (parent.height - self.height) / 2;
-                    }
-                    if !root.tight: Text {
-                        text: "btw";
-                        color: Side.view != SideView.hidden ? Theme.text : Theme.text-secondary;
-                        font-size: 1rem * Theme.small;
-                        vertical-alignment: center;
-                    }
-                    if Side.unseen: Rectangle {
-                        width: 8px;
-                        height: 8px;
-                        y: (parent.height - self.height) / 2;
-                        border-radius: 4px;
-                        background: Theme.claude;
-                    }
-                }
-            }
-            if Nav.view == PlaceView.session || Session.limit-five-hour >= 0: Pressable {
-                height: Theme.chip;
-                y: (parent.height - self.height) / 2;
-                border-radius: Theme.radius-m;
-                accessible-label: "Usage details";
-                clicked => { Session.show-usage(); }
                 HorizontalLayout {
                     padding-left: Theme.space-s;
                     padding-right: Theme.space-s;
                     spacing: Theme.space-xs;
                     Icon {
                         source: @image-url("@lucide/gauge.svg");
-                        tint: Theme.text-secondary;
+                        tint: Usage.open ? Theme.accent : Theme.text-secondary;
                         width: Theme.icon-small;
                         y: (parent.height - self.height) / 2;
                     }
                     if !root.tight: Small {
                         text: Session.limit-five-hour >= 0 ? "5h \{round(clamp(Session.limit-five-hour, 0, 1) * 100)}%" : "Usage";
-                        color: Theme.text-secondary;
+                        color: Usage.open ? Theme.text : Theme.text-secondary;
                         vertical-alignment: center;
                         accessible-role: none;
                     }

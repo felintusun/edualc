@@ -23,6 +23,8 @@ pub struct ChangesView {
     pub editing: Option<usize>,
     /// The session runs elsewhere, so edualc took no snapshots of its turns.
     pub elsewhere: bool,
+    /// The user tried to send comments while watching a session in another window.
+    pub send_blocked: bool,
 }
 
 /// What the daemon was asked to read.
@@ -110,6 +112,7 @@ impl<F: Frontend> App<F> {
             picked: None,
             editing: None,
             elsewhere: followed.is_some(),
+            send_blocked: false,
         });
         self.read_changes();
     }
@@ -326,9 +329,22 @@ impl<F: Frontend> App<F> {
         self.redraw.changes = true;
     }
 
-    /// Sends the comments to Claude as one message, and goes back to the conversation.
+    /// Sends the comments to the agent as one message, and goes back to the conversation.
+    /// In a watched session (running in another window), comments are preserved instead of dropped.
     pub(super) fn send_line_comments(&mut self) {
         if self.line_comments.is_empty() {
+            return;
+        }
+        if self.watch.is_some() {
+            if let Some(view) = self.changes.as_mut() {
+                view.send_blocked = true;
+                self.redraw.changes = true;
+            }
+            return;
+        }
+        if !self.asks.is_empty() {
+            self.chat
+                .info("Answer what is asked above before sending your comments.");
             return;
         }
         let text = message(&self.line_comments, self.location.cwd());

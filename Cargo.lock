@@ -2861,7 +2861,6 @@ dependencies = [
  "tokio-rustls",
  "tokio-tungstenite 0.28.0",
  "tracing",
- "tracing-subscriber",
  "uuid",
  "wayland-backend",
  "zeroize",

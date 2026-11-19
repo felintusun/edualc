@@ -182,7 +182,7 @@ pub fn rows(listing: &Listing<'_>) -> Vec<Row> {
                 agents: 0,
                 shown: listing.shown == Some(id),
                 program: Program::of(
-                    saved.map_or(Backend::Claude, |saved| saved.backend),
+                    saved.map_or(hosted.backend, |saved| saved.backend),
                     hosted.sign_in,
                 ),
             }
@@ -418,6 +418,7 @@ mod tests {
             id: crate::ipc::HostedId::default(),
             session: id(number),
             cwd: PathBuf::from(cwd),
+            backend: Backend::Claude,
             sign_in: SignInWith::Account,
             attached,
             state,
@@ -503,6 +504,7 @@ mod tests {
             id: crate::ipc::HostedId::default(),
             session: id(2),
             cwd: PathBuf::from("/code/beep"),
+            backend: Backend::Claude,
             sign_in: SignInWith::ApiKey,
             attached: false,
             state: crate::ipc::HostedState::Idle,

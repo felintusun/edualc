@@ -3,8 +3,8 @@
 
 import { ListView } from "std-widgets.slint";
 import { Motion, Theme } from "theme.slint";
-import { PlanSection } from "types.slint";
-import { Prompt } from "state.slint";
+import { Cjk, CjkChars, HanLanguage, PlanSection } from "types.slint";
+import { Preferences, Prompt, Session } from "state.slint";
 import { Caption, Icon, IconButton, TextButton, Title } from "widgets.slint";
 import { BlockView } from "transcript.slint";
 
@@ -16,6 +16,13 @@ export component CommentEditor inherits Rectangle {
     in property <string> about;
     callback save(string);
     callback cancel;
+    property <CjkChars> han-cjk: {
+        language: Preferences.han-language == HanLanguage.japanese ? Cjk.japanese
+            : Preferences.han-language == HanLanguage.simplified-chinese ? Cjk.simplified-chinese
+            : Preferences.han-language == HanLanguage.traditional-chinese ? Cjk.traditional-chinese
+            : Cjk.korean,
+        main: false,
+    };
     property <length> line: one-line.preferred-height;
     border-radius: Theme.radius-m;
     border-width: 1px;
@@ -24,11 +31,17 @@ export component CommentEditor inherits Rectangle {
     one-line := Text {
         visible: false;
         text: " ";
+        font-family: input.font-family;
+        language: Theme.language-tag(root.han-cjk);
+        line-height-factor: Theme.line-factor(root.han-cjk);
     }
     measure := Text {
         visible: false;
         width: input.width;
-        text: input.text + " ";
+        text: input.text + input.preedit-text + " ";
+        font-family: input.font-family;
+        language: input.language;
+        line-height-factor: input.line-height-factor;
         wrap: word-wrap;
     }
     init => {
@@ -44,11 +57,17 @@ export component CommentEditor inherits Rectangle {
             single-line: false;
             wrap: word-wrap;
             color: Theme.text;
+            font-family: Theme.sans;
+            language: Theme.language-tag(root.han-cjk);
+            line-height-factor: Theme.line-factor(root.han-cjk);
             selection-background-color: Theme.selection;
             selection-foreground-color: Theme.selection-text;
             accessible-label: "Comment on: " + root.about;
             accessible-placeholder-text: "Your comment on this part";
             key-pressed(event) => {
+                if self.preedit-text != "" {
+                    return reject;
+                }
                 if event.text == Key.Return && event.modifiers.control {
                     root.save(self.text);
                     return accept;
@@ -66,6 +85,10 @@ export component CommentEditor inherits Rectangle {
             Caption {
                 text: "Ctrl+Enter to keep, Esc to drop";
                 vertical-alignment: center;
+                overflow: elide;
+                min-width: 0px;
+                horizontal-stretch: 1;
+                horizontal-alignment: right;
             }
             TextButton {
                 text: "Cancel";
@@ -86,6 +109,7 @@ component SectionRow inherits HorizontalLayout {
     spacing: Theme.space-s;
     VerticalLayout {
         horizontal-stretch: 1;
+        min-width: 0px;
         spacing: Theme.space-xs;
         BlockView {
             block: root.section.block;
@@ -168,12 +192,16 @@ export component PlanReview inherits Rectangle {
             VerticalLayout {
                 alignment: center;
                 horizontal-stretch: 1;
+                min-width: 0px;
                 Title {
-                    text: "Claude's plan";
+                    text: Session.agent-name + "'s plan";
+                    overflow: elide;
+                    min-width: 0px;
                 }
                 Caption {
                     text: "Comment on any part with the button beside it. Your comments go back with what you choose below.";
                     overflow: elide;
+                    min-width: 0px;
                 }
             }
             IconButton {

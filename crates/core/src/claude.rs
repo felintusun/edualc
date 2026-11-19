@@ -130,6 +130,9 @@ pub enum Backend {
 }
 
 impl Backend {
+    /// Every coding agent backend edualc supports, in tab order.
+    pub const ALL: [Self; 3] = [Self::Claude, Self::Agy, Self::Opencode];
+
     /// Who answers and asks, as the window names it.
     pub fn agent(self) -> &'static str {
         match self {

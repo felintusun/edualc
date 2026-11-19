@@ -28,7 +28,7 @@ use crate::link::{self, Link};
 use crate::overview;
 use crate::plan;
 use crate::present::model::PlaceView;
-use crate::present::{Command, Frontend, Presenter, Seat};
+use crate::present::{Command, Frontend, OverviewView, Presenter, Seat};
 use crate::repeat::Repeat;
 use crate::sessions::{
     self, LiveSession, LiveStatus, MessagingName, ProjectInfo, SessionInfo, Worktree,
@@ -317,6 +317,11 @@ pub enum Event {
     },
     /// A change to the settings wasn't kept, and why.
     SettingsNotKept(String),
+    /// On-demand usage result for a coding agent provider.
+    ProviderUsageRead {
+        backend: claude::Backend,
+        usage: ipc::ProviderUsage,
+    },
     /// The line to edualcd over the network is lost, and is being reached again: what was asked
     /// on it isn't answered, and the sessions it ran for this window are no longer shown here
     /// (they run on there).
@@ -552,7 +557,6 @@ enum Acting {
     /// would have an error there for each).
     Notifying,
     /// Stopping a session elsewhere, to continue it here.
-    Bringing(SessionId),
     /// Reading the clipboard's image, for the next message.
     Pasting,
     /// The folder picker, for opening a folder or choosing a projects directory.
@@ -586,6 +590,8 @@ pub enum Action {
     Interrupt,
     /// A new session, running this program, signed in so if it is Claude Code.
     NewSession(claude::Backend, claude::SignInWith),
+    /// A new session started from the project page for this program.
+    NewSessionInProject(claude::Backend, claude::SignInWith),
     /// A new Claude Code session with the API key, with this model (an alias Claude Code
     /// takes), or the model menu's.
     NewApiKeySession(Option<String>),
@@ -715,9 +721,15 @@ pub enum Action {
     /// Opens or folds the run of tool calls whose first call is at this place.
     ToggleRun(usize),
     ShowUsage,
+    RefreshUsage,
+    SelectUsageTab(usize),
     HideUsage,
-    /// Stops the watched session in its window and continues it here.
-    BringHere,
+    TogglePinProject(PathBuf),
+    ToggleHideProject(PathBuf),
+    SetProjectSort(settings::ProjectSort),
+    ToggleShowHiddenProjects,
+    ToggleShowAllProjects,
+    FilterStartProjects(String),
     /// Signed in elsewhere: starts Claude Code again, and sends what failed for want of it.
     TrySignInAgain,
     /// Puts away how to sign in.
@@ -764,6 +776,8 @@ pub struct Status {
     pub mode_choice: Option<ChosenMode>,
     pub commands: Vec<wire::CommandInfo>,
     pub account: wire::Account,
+    /// Last known Claude subscription plan name ("max", "pro", etc.), kept across pages.
+    pub claude_subscription: String,
     pub sign_in: SignIn,
     /// Claude Code's version, as it told at `initialize`.
     pub version: String,
@@ -923,6 +937,24 @@ pub struct PlanLimits {
     agy: Limits,
 }
 
+impl PlanLimits {
+    pub(crate) fn for_backend(&self, backend: claude::Backend) -> Option<Limits> {
+        match backend {
+            claude::Backend::Claude => Some(self.claude),
+            claude::Backend::Agy => Some(self.agy),
+            claude::Backend::Opencode => None,
+        }
+    }
+
+    pub(crate) fn mut_for_backend(&mut self, backend: claude::Backend) -> Option<&mut Limits> {
+        match backend {
+            claude::Backend::Claude => Some(&mut self.claude),
+            claude::Backend::Agy => Some(&mut self.agy),
+            claude::Backend::Opencode => None,
+        }
+    }
+}
+
 /// How much of the plan's usage limits is used, as far as the CLI said.
 #[derive(Debug, Default, Clone, Copy)]
 pub struct Limits {
@@ -946,15 +978,49 @@ impl From<&wire::PlanLimit> for LimitUse {
     }
 }
 
-/// The usage panel: what the CLI's `/usage` and `/context` answered, once asked.
+/// Per-provider usage state for one tab of the Usage popover.
 #[derive(Debug, Default)]
-pub struct UsagePanel {
-    pub open: bool,
+pub struct ProviderUsageState {
     pub report: Option<wire::UsageReport>,
     pub context: Option<wire::ContextReport>,
     /// Answers still owed.
     pub waiting: usize,
     pub error: Option<String>,
+    pub available: bool,
+}
+
+/// The usage panel: each coding agent's `/usage` (and `/context` for the active session).
+#[derive(Debug, Default)]
+pub struct UsagePanel {
+    pub open: bool,
+    pub active_backend: claude::Backend,
+    pub claude: ProviderUsageState,
+    pub agy: ProviderUsageState,
+    pub opencode: ProviderUsageState,
+}
+
+impl UsagePanel {
+    pub fn for_backend(&self, backend: claude::Backend) -> &ProviderUsageState {
+        match backend {
+            claude::Backend::Claude => &self.claude,
+            claude::Backend::Agy => &self.agy,
+            claude::Backend::Opencode => &self.opencode,
+        }
+    }
+
+    pub fn for_backend_mut(&mut self, backend: claude::Backend) -> &mut ProviderUsageState {
+        match backend {
+            claude::Backend::Claude => &mut self.claude,
+            claude::Backend::Agy => &mut self.agy,
+            claude::Backend::Opencode => &mut self.opencode,
+        }
+    }
+
+    pub fn clear_waiting(&mut self) {
+        self.claude.waiting = 0;
+        self.agy.waiting = 0;
+        self.opencode.waiting = 0;
+    }
 }
 
 /// A request from the CLI waiting for the user.
@@ -1004,8 +1070,8 @@ pub enum Request {
     TaskOutput(wire::TaskId),
     /// A side question, by its place in the side chat.
     Side(usize),
-    Usage,
-    ContextUsage,
+    Usage(claude::Backend),
+    ContextUsage(claude::Backend),
 }
 
 /// A session running elsewhere, shown as it goes but not driven from here.
@@ -1149,6 +1215,8 @@ enum Reading {
         root: PathBuf,
         path: PathBuf,
     },
+    /// On-demand usage for a coding agent provider.
+    ProviderUsage { backend: claude::Backend },
 }
 
 impl Reading {
@@ -1247,6 +1315,12 @@ impl Reading {
                     result: result.map_err(|unkept| unkept.to_string()),
                 })
             }
+            Self::ProviderUsage { backend } => {
+                let ipc::Answer::ProviderUsage(usage) = answer else {
+                    return None;
+                };
+                Some(Event::ProviderUsageRead { backend, usage })
+            }
         }
     }
 }
@@ -1306,6 +1380,13 @@ pub struct App<F: Frontend> {
     settings: Settings,
     /// The desktop's text size, in logical pixels, which the zoom scales.
     desktop_text_size: f32,
+    /// The backend passed on the command line (default `Backend::Claude`), restored when
+    /// returning to a project page or start page.
+    default_backend: claude::Backend,
+    /// Coding agent backends available on PATH when the window connected.
+    available_backends: Vec<claude::Backend>,
+    /// What the start-page project filter holds.
+    start_filter: String,
     /// What the list of sessions is narrowed to.
     session_filter: String,
     /// How the own session was last listed in the sidebar; none while no process runs it here.
@@ -1376,6 +1457,7 @@ impl<F: Frontend> App<F> {
             finds_windows,
             local,
             text_size: desktop_text_size,
+            backends: available_backends,
         } = desktop_found;
         let mut view = Presenter::new(frontend, &openers, finds_windows);
         let (settings, settings_problem) = match settings {
@@ -1400,6 +1482,13 @@ impl<F: Frontend> App<F> {
             Some(cwd) => Location::Session(cwd),
             None => Location::Start,
         };
+        let mut usage = UsagePanel {
+            active_backend: backend,
+            ..UsagePanel::default()
+        };
+        for candidate in claude::Backend::ALL {
+            usage.for_backend_mut(candidate).available = available_backends.contains(&candidate);
+        }
         Self {
             view,
             images: images::Images::start(events.clone()),
@@ -1444,10 +1533,13 @@ impl<F: Frontend> App<F> {
             local,
             settings,
             desktop_text_size,
+            default_backend: backend,
+            available_backends,
+            start_filter: String::new(),
             session_filter: String::new(),
             own_listed: None,
             open_runs: HashSet::new(),
-            usage: UsagePanel::default(),
+            usage,
             trust_gate: TrustGate::Open,
             claude_trust_ask: ClaudeTrustAsk::Not,
             accepted_in_terminal: HashSet::new(),
@@ -1697,6 +1789,9 @@ impl<F: Frontend> App<F> {
                 self.chat
                     .error(format!("A change to your settings wasn't kept: {why}"));
             }
+            Event::ProviderUsageRead { backend, usage } => {
+                self.provider_usage_read(backend, usage);
+            }
         }
         ControlFlow::Continue(())
     }
@@ -1705,7 +1800,10 @@ impl<F: Frontend> App<F> {
         match action {
             Action::Send(text) => self.send(&text),
             Action::Interrupt => self.interrupt(),
-            Action::NewSession(backend, sign_in) => self.new_session(backend, sign_in),
+            Action::NewSession(backend, sign_in)
+            | Action::NewSessionInProject(backend, sign_in) => {
+                self.new_session(backend, sign_in);
+            }
             Action::NewApiKeySession(model) => {
                 if let Some(model) = model {
                     self.status.model_choice = Some(ModelChoice {
@@ -1791,11 +1889,38 @@ impl<F: Frontend> App<F> {
             Action::StopAllTasks => self.stop_all_tasks(),
             Action::OpenWorktree(index) => self.open_worktree(index),
             Action::ShowUsage => self.show_usage(),
+            Action::RefreshUsage => self.refresh_usage(),
+            Action::SelectUsageTab(index) => self.select_usage_tab(index),
             Action::HideUsage => {
                 self.usage.open = false;
                 self.redraw.usage = true;
             }
-            Action::BringHere => self.bring_here(),
+            Action::TogglePinProject(path) => {
+                self.change_settings(settings::Change::TogglePinProject(path));
+                self.refresh_overview();
+            }
+            Action::ToggleHideProject(path) => {
+                self.change_settings(settings::Change::ToggleHideProject(path));
+                self.refresh_overview();
+            }
+            Action::SetProjectSort(sort) => {
+                self.change_settings(settings::Change::ProjectSort(sort));
+                self.refresh_overview();
+            }
+            Action::ToggleShowHiddenProjects => {
+                let show = !self.settings.show_hidden_projects;
+                self.change_settings(settings::Change::ShowHiddenProjects(show));
+                self.redraw.overview = true;
+            }
+            Action::ToggleShowAllProjects => {
+                let show = !self.settings.show_all_projects;
+                self.change_settings(settings::Change::ShowAllProjects(show));
+                self.redraw.overview = true;
+            }
+            Action::FilterStartProjects(filter) => {
+                self.start_filter = filter;
+                self.redraw.overview = true;
+            }
             Action::TrySignInAgain => self.try_sign_in_again(),
             Action::DismissSignIn => {
                 if self.status.sign_in.waits_for_user() {
@@ -1989,8 +2114,9 @@ impl<F: Frontend> App<F> {
             );
         }
         if redraw.side {
-            let can_ask = self.watch.is_none();
-            let can_branch = self.status.turns == 0
+            let can_ask = self.watch.is_none() && self.status.backend == claude::Backend::Claude;
+            let can_branch = can_ask
+                && self.status.turns == 0
                 && self.status.session_id.is_some()
                 && self.side.has_answers()
                 && !self.side.pending();
@@ -2002,7 +2128,16 @@ impl<F: Frontend> App<F> {
                 .as_ref()
                 .map(|watch| &watch.session.id)
                 .or(self.status.session_id.as_ref());
-            self.view.render_overview(&self.built_overview, shown);
+            self.view.render_overview(
+                &self.built_overview,
+                shown,
+                OverviewView {
+                    sort: self.settings.project_sort,
+                    show_hidden: self.settings.show_hidden_projects,
+                    show_all: self.settings.show_all_projects,
+                    filter: &self.start_filter,
+                },
+            );
         }
         // The own session's row changes with its turns, questions and agents, which no list
         // update says.
@@ -2248,7 +2383,6 @@ impl<F: Frontend> App<F> {
                 | Act::CheckTrust { .. }
                 | Act::CheckClaudeTrust { .. }
                 | Act::TrustForClaudeCode { .. }
-                | Act::StopSession(_)
                 | Act::StoreApiKey(_)
                 | Act::RemoveApiKey
                 | Act::CheckApiKey
@@ -2272,7 +2406,6 @@ impl<F: Frontend> App<F> {
 
     fn acted(&mut self, request: ActId, result: Result<(), ActFailure>) {
         match (self.acting.remove(&request), result) {
-            (Some(Acting::Bringing(id)), result) => self.brought(&id, result),
             (Some(Acting::ApiKey), result) => self.api_key_changed(result),
             (Some(Acting::Desktop), Err(failure)) => {
                 tracing::warn!(%failure, "the desktop didn't do it");
@@ -2466,7 +2599,7 @@ impl<F: Frontend> App<F> {
         self.status.tasks_left_running = false;
         self.redraw.tasks = true;
         self.chat.stop_shells();
-        self.usage.waiting = 0;
+        self.usage.clear_waiting();
         self.side_lost();
         self.redraw.prompt = true;
         self.redraw.usage = true;
@@ -2505,15 +2638,31 @@ impl<F: Frontend> App<F> {
     /// opened to read ends, as its transcript resumes it as it was.
     fn let_go(&mut self) {
         let under_way = self.under_way();
-        if let Some(process) = self.process.take()
-            && (under_way || process.used())
-        {
-            process.detach();
+        if let Some(process) = self.process.take() {
+            if under_way || process.used() {
+                if let Some(id) = &self.status.session_id {
+                    for item in &mut self.hosted {
+                        if &item.session == id {
+                            item.attached = false;
+                        }
+                    }
+                }
+                process.detach();
+            } else {
+                let pid = process.pid();
+                if let Some(id) = &self.status.session_id {
+                    self.hosted.retain(|item| &item.session != id);
+                }
+                if let Some(pid) = pid {
+                    self.live.retain(|running| running.pid != pid);
+                }
+            }
         }
     }
 
     /// Leaves the session shown for another, letting go of its process.
     fn leave(&mut self) {
+        self.view.clear_selection();
         self.close_peek();
         self.let_go();
         self.stop();
@@ -2535,8 +2684,9 @@ impl<F: Frontend> App<F> {
             return;
         };
         if let Err(error) = action(process) {
-            tracing::warn!(%error, "lost claude");
-            self.chat.error(format!("Lost Claude Code: {error}"));
+            tracing::warn!(%error, backend = %self.status.backend.program(), "lost session process");
+            self.chat
+                .error(format!("Lost {}: {error}", self.status.backend.program()));
         }
     }
 
@@ -2642,9 +2792,25 @@ impl<F: Frontend> App<F> {
             return;
         }
         let backend = self.backend_of(&id);
-        // With a key kept, the user picks what a Claude Code session continues with.
+        // With a key kept, the user picks what a Claude Code session continues with; switch to
+        // the session view right away so `SignInChoiceBar` is shown immediately instead of staying
+        // hidden on the project page.
         if backend == claude::Backend::Claude && self.api_key == ApiKeyKept::Kept {
-            self.choosing_sign_in = Some(id);
+            let Some(cwd) = self.location.cwd().map(Path::to_path_buf) else {
+                return;
+            };
+            self.leave();
+            self.watch = None;
+            self.chat.clear();
+            self.location = Location::Session(cwd.clone());
+            let known = self.sessions.iter().find(|session| session.id == id);
+            let title = known.map(|session| session.title.clone());
+            let worktree = known.and_then(|session| session.worktree.clone());
+            self.reset_session(Some(id.clone()), title, backend);
+            self.status.worktree = worktree;
+            self.choosing_sign_in = Some(id.clone());
+            self.load_session(id, cwd);
+            self.redraw = Redraw::everything();
             return;
         }
         self.continue_session(id, backend, claude::SignInWith::Account);
@@ -2706,6 +2872,11 @@ impl<F: Frontend> App<F> {
     /// has one yet, then what it asked meanwhile and what it says.
     fn attach(&mut self, hosted: &Hosted) {
         let id = &hosted.session;
+        for item in &mut self.hosted {
+            if item.id == hosted.id {
+                item.attached = true;
+            }
+        }
         self.leave();
         self.watch = None;
         self.chat.clear();
@@ -2721,7 +2892,7 @@ impl<F: Frontend> App<F> {
             .iter()
             .find(|session| &session.id == id)
             .map(|session| session.title.clone());
-        let backend = sessions::backend_of(&sessions::locate(&hosted.cwd, id));
+        let backend = hosted.backend;
         self.reset_session(Some(id.clone()), title, backend);
         self.status.sign_in_with = hosted.sign_in;
         self.load_session(id.clone(), hosted.cwd.clone());
@@ -2845,13 +3016,8 @@ impl<F: Frontend> App<F> {
             .title
             .clone()
             .unwrap_or_else(|| session.name.clone());
-        // Another Claude Code process, signed in as the user is: the footer names it so at
-        // once, not at the next prompt.
-        self.reset_session(
-            Some(session.id.clone()),
-            Some(title),
-            claude::Backend::Claude,
-        );
+        // Preserve the watched session's own backend (`Claude`, `Agy`, `Opencode`).
+        self.reset_session(Some(session.id.clone()), Some(title), session.backend);
         self.status.sign_in_with = claude::SignInWith::Account;
         self.load_session(session.id.clone(), session.cwd.clone());
         self.forget_watch();
@@ -2873,6 +3039,13 @@ impl<F: Frontend> App<F> {
         let Some(watch) = self.watch.take() else {
             return;
         };
+        if watch.session.backend.is_acp() {
+            let agent = watch.session.backend.agent();
+            self.watch = Some(watch);
+            self.chat
+                .info(format!("{agent} sessions can't be copied yet."));
+            return;
+        }
         self.status.session_id = None;
         self.status.title = Some(format!("{} (copy)", watch.session.name));
         self.start(Some(Resume::Fork(watch.session.id)));
@@ -3009,9 +3182,40 @@ impl<F: Frontend> App<F> {
 
     fn refresh_overview(&mut self) {
         let home = dirs::home_dir();
-        self.built_overview =
-            overview::build(&self.overview, &self.live, &self.hosted, home.as_deref());
+        let options = overview::Options {
+            pinned: &self.settings.pinned_projects,
+            hidden: &self.settings.hidden_projects,
+            recent: &self.settings.recent_projects,
+            sort: self.settings.project_sort,
+        };
+        self.built_overview = overview::build_with(
+            &self.overview,
+            &self.live,
+            &self.hosted,
+            home.as_deref(),
+            &options,
+        );
         self.redraw.overview = true;
+    }
+
+    fn touch_recent_project(&mut self, path: &Path) {
+        if dirs::home_dir().as_deref() == Some(path) {
+            return;
+        }
+        let now_secs = web_time::SystemTime::now()
+            .duration_since(web_time::SystemTime::UNIX_EPOCH)
+            .map_or(0, |duration| duration.as_secs());
+        let recently_recorded = self.settings.recent_projects.first().is_some_and(|recent| {
+            recent.path == path && now_secs.saturating_sub(recent.opened_secs) < 60
+        });
+        if recently_recorded {
+            return;
+        }
+        self.change_settings(settings::Change::TouchProject {
+            path: path.to_path_buf(),
+            opened_secs: now_secs,
+        });
+        self.refresh_overview();
     }
 
     fn load_overview(&mut self) {
@@ -3025,8 +3229,9 @@ impl<F: Frontend> App<F> {
             self.leave();
             self.watch = None;
             self.chat.clear();
-            self.reset_session(None, None, self.status.backend);
+            self.reset_session(None, None, self.default_backend);
         }
+        self.view.clear_selection();
         self.location = Location::Start;
         self.session_filter.clear();
         self.sessions.clear();
@@ -3041,8 +3246,12 @@ impl<F: Frontend> App<F> {
             self.leave();
             self.watch = None;
             self.chat.clear();
-            self.reset_session(None, None, self.status.backend);
         }
+        self.view.clear_selection();
+        // Reset backend/sign-in back to the default so "New session here" doesn't inherit
+        // `claude-api-key` or another backend from an earlier session.
+        self.reset_session(None, None, self.default_backend);
+        self.touch_recent_project(&path);
         self.location = Location::Project(path);
         self.session_filter.clear();
         self.sessions.clear();
@@ -3152,11 +3361,12 @@ impl<F: Frontend> App<F> {
                     self.change_settings(settings::Change::Trust(path.clone()));
                 }
                 self.view.new_project_created();
+                self.touch_recent_project(&path);
                 self.location = Location::Session(path);
                 self.sessions.clear();
                 self.load_sessions();
                 self.load_overview();
-                self.new_session(self.status.backend, self.status.sign_in_with);
+                self.new_session(self.default_backend, claude::SignInWith::Account);
             }
             Err(error) => self.view.set_new_project_error(&error.to_string()),
         }
@@ -3211,14 +3421,15 @@ impl<F: Frontend> App<F> {
             self.wait_for_trust(text);
             return;
         }
-        self.put_draft("");
         // In the terminal these start over; the CLI behind a pipe doesn't.
         if matches!(text, "/clear" | "/new") {
+            self.put_draft("");
             self.new_session(self.status.backend, self.status.sign_in_with);
             return;
         }
         // Claude Code asks for this, but only its terminal has it.
         if text == "/login" {
+            self.put_draft("");
             self.status.sign_in = SignIn::Asked;
             return;
         }
@@ -3226,16 +3437,34 @@ impl<F: Frontend> App<F> {
         if let Some(question) = text.strip_prefix("/btw")
             && (question.is_empty() || question.starts_with(char::is_whitespace))
         {
+            self.put_draft("");
             self.ask_side(question);
             return;
         }
         if self.watch.is_some() {
             return;
         }
+        if !self.asks.is_empty() {
+            self.chat
+                .info("Answer what is asked above before sending a new message.");
+            self.view.scroll_to_end();
+            return;
+        }
         if let Some(command) = shell_command(text) {
+            if self.status.backend != claude::Backend::Claude {
+                self.chat.info(format!(
+                    "{} sessions don't run ! commands. Ask {} to run it, or run it in a terminal.",
+                    self.status.backend.agent(),
+                    self.status.backend.agent()
+                ));
+                self.view.scroll_to_end();
+                return;
+            }
+            self.put_draft("");
             self.run_shell(text, command.trim());
             return;
         }
+        self.put_draft("");
         // Sent past the card on how to sign in: the process running can't take up a new sign-in.
         if self.status.sign_in.waits_for_user() && !self.under_way() {
             self.status.sign_in = SignIn::Unknown;
@@ -3318,12 +3547,17 @@ impl<F: Frontend> App<F> {
     }
 
     fn choose_model(&mut self, index: usize) {
+        if self.watch.is_some() {
+            self.redraw.menus = true;
+            return;
+        }
         let Some(value) = self
             .status
             .models
             .get(index)
             .map(|model| model.value.clone())
         else {
+            self.redraw.menus = true;
             return;
         };
         // Without a process the choice waits for the next: it is started with it.
@@ -3335,24 +3569,31 @@ impl<F: Frontend> App<F> {
             self.redraw.menus = true;
             return;
         }
-        self.request(
+        if !self.request(
             ControlRequest::SetModel {
                 model: value.clone(),
             },
             Request::Model(value),
-        );
+        ) {
+            self.redraw.menus = true;
+        }
     }
 
     fn choose_mode(&mut self, index: usize) {
         use strum::IntoEnumIterator;
+        if self.watch.is_some() {
+            self.redraw.menus = true;
+            return;
+        }
         let chosen = match &self.status.modes {
             Modes::Claude(_) => PermissionMode::iter().nth(index).map(ChosenMode::Claude),
             Modes::Program { offered, .. } => offered
                 .get(index)
                 .map(|mode| ChosenMode::Program(mode.id.clone())),
         };
-        if let Some(mode) = chosen {
-            self.set_mode(mode);
+        match chosen {
+            Some(mode) => self.set_mode(mode),
+            None => self.redraw.menus = true,
         }
     }
 
@@ -3364,7 +3605,10 @@ impl<F: Frontend> App<F> {
             self.redraw.menus = true;
             return;
         }
-        self.request(mode.request(), Request::Mode(mode.clone()));
+        if !self.request(mode.request(), Request::Mode(mode.clone())) {
+            self.redraw.menus = true;
+            return;
+        }
         // An ACP agent takes a mode as a turn starts: the turn under way keeps the one it began
         // with.
         if self.status.backend.is_acp() && self.status.turns > 0 {
@@ -3822,7 +4066,7 @@ impl<F: Frontend> App<F> {
                 Some(code) => format!(" (exit code {code})"),
                 None => " (killed)".to_owned(),
             };
-            let mut lines = vec![format!("Claude Code stopped{how}.")];
+            let mut lines = vec![format!("{} stopped{how}.", self.status.backend.program())];
             lines.extend(self.log.iter().cloned());
             lines.push("Sending a message starts it again.".to_owned());
             self.chat.error(lines.join("\n"));
@@ -3988,6 +4232,8 @@ pub struct Desktop {
     local: bool,
     /// In logical pixels.
     text_size: f32,
+    /// Coding agent backends available on PATH when the window connected.
+    backends: Vec<claude::Backend>,
 }
 
 impl Desktop {
@@ -3999,6 +4245,7 @@ impl Desktop {
             finds_windows: greeting.finds_windows,
             local: greeting.local,
             text_size,
+            backends: greeting.backends.clone(),
         }
     }
 
@@ -4010,6 +4257,7 @@ impl Desktop {
             finds_windows: false,
             local: true,
             text_size,
+            backends: vec![claude::Backend::Claude],
         }
     }
 }
@@ -4137,6 +4385,7 @@ mod tests {
                     openers: Vec::new(),
                     finds_windows: false,
                     text_size: 14.0,
+                    backends: vec![claude::Backend::Claude],
                     local: true,
                 },
                 Ok(Settings::default()),
@@ -4988,6 +5237,7 @@ mod tests {
                     openers: Vec::new(),
                     finds_windows: false,
                     text_size: 14.0,
+                    backends: vec![claude::Backend::Claude],
                     local: true,
                 },
                 Ok(settings),
@@ -5333,6 +5583,7 @@ mod tests {
             id: ipc::HostedId::default().next(),
             session: id.clone(),
             cwd: PathBuf::from("/code/beep"),
+            backend: claude::Backend::Claude,
             sign_in: claude::SignInWith::Account,
             attached: false,
             state: ipc::HostedState::Idle,
@@ -5442,5 +5693,285 @@ mod tests {
             msg,
             ToDaemon::Act { act: Act::ChangesLooked { session: looked }, .. } if *looked == session
         )));
+    }
+
+    /// Opening a session when an API key choice is required switches into the session view so the
+    /// sign-in bar is shown immediately rather than staying silently on the project page.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn open_session_with_api_key_choice_enters_session_view() {
+        let mut test = TestApp::start(None, Settings::default());
+        test.app.begin(Vec::new(), Vec::new(), None, None, None);
+        test.send(Event::ApiKeyStored(Ok(true)));
+        let proj = PathBuf::from("/tmp/proj-signin");
+        let id = SessionId::new_random();
+        test.send(Event::Action(Action::EnterProject(proj.clone())));
+        test.send(Event::SessionsListed {
+            cwd: proj.clone(),
+            sessions: vec![sessions::SessionInfo {
+                backend: claude::Backend::Claude,
+                id: id.clone(),
+                title: "Chat".to_owned(),
+                modified: std::time::SystemTime::UNIX_EPOCH,
+                worktree: None,
+                last_said: None,
+            }],
+        });
+        drop(test.drain_daemon());
+
+        test.send(Event::Action(Action::OpenSession(id.clone())));
+        assert_eq!(test.app.choosing_sign_in.as_ref(), Some(&id));
+        assert!(matches!(&test.app.location, Location::Session(path) if path == &proj));
+        assert_eq!(test.latest_nav().view, PlaceView::Session);
+    }
+
+    /// Leaving a hosted session optimistically marks `attached = false` so reopening it right away
+    /// re-attaches instead of falling into a stale watch.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn let_go_clears_attached_so_reopening_hosted_session_attaches() {
+        let mut test = TestApp::start(None, Settings::default());
+        let proj = PathBuf::from("/tmp/proj-reattach");
+        test.app.begin(Vec::new(), Vec::new(), None, None, None);
+        let id = SessionId::new_random();
+        let hosted = Hosted {
+            id: ipc::HostedId::default().next(),
+            session: id.clone(),
+            cwd: proj.clone(),
+            backend: claude::Backend::Claude,
+            sign_in: claude::SignInWith::Account,
+            attached: false,
+            state: ipc::HostedState::Idle,
+        };
+        test.send(Event::Hosted(vec![hosted.clone()]));
+        drop(test.drain_daemon());
+
+        test.send(Event::Action(Action::OpenSession(id.clone())));
+        let attach_key = test
+            .drain_daemon()
+            .into_iter()
+            .find_map(|msg| {
+                if let ToDaemon::Attach { key, .. } = msg {
+                    Some(key)
+                } else {
+                    None
+                }
+            })
+            .expect("attach sent");
+        test.send(Event::Hosted(vec![Hosted {
+            attached: true,
+            ..hosted.clone()
+        }]));
+        test.send(Event::Claude {
+            generation: attach_key,
+            output: claude::Output::Started { pid: 123, turns: 0 },
+        });
+        drop(test.drain_daemon());
+
+        test.send(Event::Action(Action::EnterProject(proj)));
+        assert!(
+            test.app
+                .hosted
+                .iter()
+                .all(|item| item.id != hosted.id || !item.attached)
+        );
+        drop(test.drain_daemon());
+
+        test.send(Event::Action(Action::OpenSession(id)));
+        assert!(test.app.watch.is_none());
+        assert!(test.drain_daemon().iter().any(|msg| matches!(
+            msg,
+            ToDaemon::Attach { hosted: attached, .. } if *attached == hosted.id
+        )));
+    }
+
+    /// Entering a project resets explicit API-key / alternate backend choices back to the default,
+    /// and `NewSessionInProject` opens a fresh session in that project cleanly.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn entering_project_resets_backend_and_new_session_in_project_starts_cleanly() {
+        let mut test = TestApp::start(None, Settings::default());
+        test.app.begin(Vec::new(), Vec::new(), None, None, None);
+        test.app.status.backend = claude::Backend::Agy;
+        test.app.status.sign_in_with = claude::SignInWith::ApiKey;
+        test.app.choosing_sign_in = Some(SessionId::new_random());
+
+        let proj = PathBuf::from("/tmp/proj-reset");
+        test.send(Event::Action(Action::EnterProject(proj.clone())));
+        assert_eq!(test.app.status.backend, claude::Backend::Claude);
+        assert_eq!(test.app.status.sign_in_with, claude::SignInWith::Account);
+        assert!(test.app.choosing_sign_in.is_none());
+        drop(test.drain_daemon());
+
+        test.send(Event::Action(Action::NewSessionInProject(
+            claude::Backend::Claude,
+            claude::SignInWith::Account,
+        )));
+        assert!(matches!(&test.app.location, Location::Session(path) if path == &proj));
+        assert!(test.app.choosing_sign_in.is_none());
+        assert!(test.drain_daemon().iter().any(|msg| matches!(
+            msg,
+            ToDaemon::Act { act: Act::CheckTrust { folder }, .. } if folder == &proj
+        )));
+    }
+
+    /// Watching a live session keeps its actual backend and preserves Changes line comments if send
+    /// is triggered while read-only watching.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn watch_live_preserves_backend_and_changes_keeps_comments_when_watching() {
+        use crate::changes::{
+            ChangeSet, Diff, DiffLine, FileChange, Hunk, Kind, LineKind, Review, Scope, Who,
+        };
+        let mut test = TestApp::start(None, Settings::default());
+        test.app.begin(Vec::new(), Vec::new(), None, None, None);
+        let proj = PathBuf::from("/tmp/proj-watch-agy");
+        let id = SessionId::new_random();
+        let live = LiveSession {
+            pid: 9001,
+            started: "100".to_owned(),
+            id: id.clone(),
+            cwd: proj.clone(),
+            name: "agy-live".to_owned(),
+            title: Some("Agy chat".to_owned()),
+            kind: sessions::LiveKind::Interactive,
+            status: LiveStatus::Waiting,
+            worktree: None,
+            agents: 0,
+            backend: claude::Backend::Agy,
+        };
+        test.send(Event::LiveListed(vec![live]));
+        test.send(Event::Action(Action::EnterProject(proj.clone())));
+        test.send(Event::Action(Action::OpenSession(id.clone())));
+        assert_eq!(test.app.status.backend, claude::Backend::Agy);
+        assert!(test.app.watch.is_some());
+
+        test.send(Event::Action(Action::ShowChanges));
+        test.send(Event::ChangesRead {
+            session: id.clone(),
+            scope: Scope::Turn,
+            result: Ok(ChangeSet {
+                files: vec![FileChange {
+                    root: proj.clone(),
+                    path: PathBuf::from("lib.rs"),
+                    kind: Kind::Changed,
+                    who: Who::Claude,
+                    added: 1,
+                    removed: 0,
+                    review: Review::NotReviewed,
+                    now: None,
+                }],
+                left_out: crate::changes::LeftOut::default(),
+            }),
+        });
+        test.send(Event::DiffRead {
+            session: id,
+            root: proj,
+            path: PathBuf::from("lib.rs"),
+            result: Ok(Diff {
+                hunks: vec![Hunk {
+                    lines: vec![DiffLine {
+                        kind: LineKind::Added,
+                        old: None,
+                        new: Some(1),
+                        text: "fn f() {}".to_owned(),
+                    }],
+                }],
+                cut: false,
+            }),
+        });
+        test.send(Event::Action(Action::SetLineComment(
+            0,
+            "Keep this note.".to_owned(),
+        )));
+        assert_eq!(test.app.line_comments.len(), 1);
+        test.send(Event::Action(Action::SendLineComments));
+        assert_eq!(test.app.line_comments.len(), 1);
+    }
+
+    /// Sending a prompt while a permission or question prompt is waiting doesn't dispatch or clear
+    /// the composer draft.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn send_keeps_draft_while_ask_is_pending() {
+        let mut test = TestApp::start(None, Settings::default());
+        let proj = PathBuf::from("/tmp/proj-ask-guard");
+        test.app.begin(Vec::new(), Vec::new(), None, None, None);
+        test.app.location = Location::Session(proj);
+        test.app.asks.push_back(Ask {
+            request: RequestId::from("req-1".to_owned()),
+            tool_use: None,
+            tool: wire::ToolName::from("Bash"),
+            input: serde_json::json!({}),
+            kind: AskKind::Tool {
+                suggestions: Vec::new(),
+                description: "Run ls".to_owned(),
+            },
+        });
+        drop(test.drain_daemon());
+        drop(test.drain_commands());
+
+        test.send(Event::Action(Action::Send("queued thought".to_owned())));
+        assert!(test.drain_daemon().is_empty());
+        assert!(
+            !test
+                .drain_commands()
+                .iter()
+                .any(|cmd| matches!(cmd, Command::SetDraft(text) if text.is_empty()))
+        );
+        assert!(!test.app.chat.entries.is_empty());
+    }
+
+    /// Opening Usage from the start page queries every available provider and updates its tab on
+    /// answer.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn provider_usage_read_populates_tabs_from_any_page() {
+        let mut test = TestApp::start(None, Settings::default());
+        test.app.available_backends = vec![claude::Backend::Claude, claude::Backend::Agy];
+        test.app.begin(Vec::new(), Vec::new(), None, None, None);
+        drop(test.drain_daemon());
+
+        test.send(Event::Action(Action::ShowUsage));
+        let daemon_msgs = test.drain_daemon();
+        assert!(daemon_msgs.iter().any(|msg| matches!(
+            msg,
+            ToDaemon::Read {
+                read: Read::ProviderUsage {
+                    backend: claude::Backend::Claude,
+                    ..
+                },
+                ..
+            }
+        )));
+        assert!(daemon_msgs.iter().any(|msg| matches!(
+            msg,
+            ToDaemon::Read {
+                read: Read::ProviderUsage {
+                    backend: claude::Backend::Agy,
+                    ..
+                },
+                ..
+            }
+        )));
+
+        let report = wire::UsageReport {
+            rate_limits: wire::RateLimitReport {
+                limits: vec![wire::PlanLimit {
+                    kind: wire::LimitKind::Session,
+                    percent: 25.0,
+                    resets_at: None,
+                    scope: None,
+                    label: Some("5h".to_owned()),
+                }],
+            },
+            ..wire::UsageReport::default()
+        };
+        test.send(Event::ProviderUsageRead {
+            backend: claude::Backend::Agy,
+            usage: ipc::ProviderUsage::reported(report.clone()),
+        });
+        assert_eq!(test.app.usage.agy.report, Some(report));
+        assert!(test.app.usage.agy.error.is_none());
     }
 }

@@ -6,9 +6,14 @@ import { Theme } from "theme.slint";
 
 enum Flight { standing, leaving, away, arriving }
 
+// What the heron does now and then while standing still.
+enum Act { looking-back, preening, flapping }
+
 export component Heron inherits Rectangle {
     // Whether it belongs here: the conversation is empty.
     in property <bool> wanted;
+    // Whether the empty-session view is currently visible; toggling it on triggers an arrival.
+    in property <bool> active: true;
     // How far it flies from where it stands before it is out of sight.
     in property <length> reach-x;
     in property <length> reach-y;
@@ -17,13 +22,28 @@ export component Heron inherits Rectangle {
     // The wing beat's frame: up, level, down, level.
     property <int> beat;
     property <duration> flight-time: 1100ms;
+    // Idle act while standing: -1 while still.
+    property <Act> idle-act: Act.looking-back;
+    property <int> idle-frame: -1;
+    property <int> idle-frames: root.idle-act == Act.looking-back ? 1 : root.idle-act == Act.preening ? 6 : 7;
+    property <duration> idle-wait: 11s;
+    property <int> idle-seed: 7;
+
+    function pick-next-idle() {
+        root.idle-seed = Math.mod(root.idle-seed * 13 + round(animation-tick() / 1ms), 997);
+        let act-pick = Math.mod(root.idle-seed, 3);
+        root.idle-act = act-pick == 0 ? Act.looking-back : act-pick == 1 ? Act.preening : Act.flapping;
+        root.idle-wait = 9s + Math.mod(root.idle-seed, 19) * 1s;
+    }
 
     init => {
         if !root.wanted {
             root.flight = Flight.away;
         }
+        root.pick-next-idle();
     }
     changed wanted => {
+        root.idle-frame = -1;
         root.beat = 0;
         if root.wanted {
             // Out of sight first, unanimated, so that it flies in from there.
@@ -34,6 +54,19 @@ export component Heron inherits Rectangle {
             landing.running = false;
             root.flight = Flight.leaving;
             departure.running = true;
+        }
+    }
+    changed active => {
+        root.idle-frame = -1;
+        if root.active && root.wanted {
+            root.beat = 0;
+            departure.running = false;
+            landing.running = false;
+            root.flight = Flight.away;
+            approach.running = true;
+        } else if !root.active {
+            approach.running = false;
+            landing.running = false;
         }
     }
 
@@ -52,6 +85,8 @@ export component Heron inherits Rectangle {
         triggered => {
             self.running = false;
             root.flight = Flight.standing;
+            root.idle-frame = -1;
+            root.pick-next-idle();
         }
     }
     departure := Timer {
@@ -71,18 +106,55 @@ export component Heron inherits Rectangle {
             root.beat = Math.mod(root.beat + 1, 4);
         }
     }
+    // Wait between idle motions while standing in an active empty session.
+    Timer {
+        interval: root.idle-wait;
+        running: root.active && root.wanted && root.flight == Flight.standing && root.idle-frame < 0;
+        triggered => {
+            root.idle-frame = 0;
+        }
+    }
+    // Step through the current idle motion's frames.
+    Timer {
+        interval: root.idle-act == Act.looking-back ? 1500ms : root.idle-act == Act.preening ? 240ms : 110ms;
+        running: root.active && root.wanted && root.flight == Flight.standing && root.idle-frame >= 0;
+        triggered => {
+            if root.idle-frame + 1 < root.idle-frames {
+                root.idle-frame += 1;
+            } else {
+                root.idle-frame = -1;
+                root.pick-next-idle();
+            }
+        }
+    }
 
-    bird := Image {
+    Rectangle {
         width: root.width;
         height: root.height;
-        image-fit: contain;
-        colorize: Theme.claude;
-        accessible-role: none;
-        visible: root.flight != Flight.away;
-        source: root.flight == Flight.standing ? @image-url("../assets/heron.svg")
-            : root.beat == 0 ? @image-url("../assets/heron-wings-up.svg")
-            : root.beat == 2 ? @image-url("../assets/heron-wings-down.svg")
-            : @image-url("../assets/heron-wings-level.svg");
+        y: root.flight == Flight.standing && root.idle-frame >= 0 && root.idle-act == Act.flapping && Math.mod(root.idle-frame, 2) == 1 ? -2px
+            : root.flight == Flight.standing && root.idle-frame >= 0 && root.idle-act == Act.preening && Math.mod(root.idle-frame, 2) == 0 ? -1px
+            : 0px;
+        animate y { duration: 140ms; easing: ease-in-out; }
+
+        bird := Image {
+            width: root.width;
+            height: root.height;
+            image-fit: contain;
+            colorize: Theme.claude;
+            accessible-role: none;
+            visible: root.flight != Flight.away;
+            source: root.flight == Flight.standing ? (
+                    root.idle-frame < 0 ? @image-url("../assets/heron.svg")
+                    : root.idle-act == Act.looking-back ? @image-url("../assets/heron-looking-back.svg")
+                    : root.idle-act == Act.preening ? (Math.mod(root.idle-frame, 2) == 0 ? @image-url("../assets/heron-preening-1.svg") : @image-url("../assets/heron-preening-2.svg"))
+                    : Math.mod(root.idle-frame, 2) == 0 ? @image-url("../assets/heron-flapping-half.svg")
+                    : Math.mod(root.idle-frame, 4) == 1 ? @image-url("../assets/heron-flapping-up.svg")
+                    : @image-url("../assets/heron.svg")
+                )
+                : root.beat == 0 ? @image-url("../assets/heron-wings-up.svg")
+                : root.beat == 2 ? @image-url("../assets/heron-wings-down.svg")
+                : @image-url("../assets/heron-wings-level.svg");
+        }
     }
 
     states [
@@ -116,11 +188,8 @@ export component Heron inherits Rectangle {
     ]
 }
 
-// What the sidebar's heron does now and then, in this order.
-enum Act { looking-back, preening, flapping }
-
-// The heron at the top of the sidebar. It stands still, and about once a minute, for a second
-// or so, it looks over its shoulder, preens or flaps its wings, in turn. In between only a timer
+// The heron in the top bar. It stands still, and every 9–29 seconds, for a second
+// or so, it looks over its shoulder, preens or flaps its wings. In between only a timer
 // waits, so nothing is redrawn for it.
 // Beside the name it draws: only drawn, its Image held rather than inherited (see `Icon`).
 export component HeronMark inherits Rectangle {
@@ -129,6 +198,19 @@ export component HeronMark inherits Rectangle {
     // The act's frame; -1 while it stands.
     property <int> frame: -1;
     property <int> frames: root.act == Act.looking-back ? 1 : root.act == Act.preening ? 6 : 7;
+    property <duration> idle-wait: 13s;
+    property <int> seed: 19;
+
+    function pick-next-idle() {
+        root.seed = Math.mod(root.seed * 17 + round(animation-tick() / 1ms), 991);
+        let act-pick = Math.mod(root.seed, 3);
+        root.act = act-pick == 0 ? Act.looking-back : act-pick == 1 ? Act.preening : Act.flapping;
+        root.idle-wait = 9s + Math.mod(root.seed, 21) * 1s;
+    }
+
+    init => {
+        root.pick-next-idle();
+    }
 
     height: self.width;
     Image {
@@ -147,9 +229,9 @@ export component HeronMark inherits Rectangle {
             : @image-url("../assets/heron.svg");
     }
 
-    // The wait before each act differs, so that it doesn't tick like a clock.
+    // Staggered wait before each act so it feels organic rather than ticking like a clock.
     Timer {
-        interval: root.act == Act.looking-back ? 61s : root.act == Act.preening ? 83s : 47s;
+        interval: root.idle-wait;
         running: root.frame < 0;
         triggered => {
             root.frame = 0;
@@ -164,9 +246,7 @@ export component HeronMark inherits Rectangle {
                 root.frame += 1;
             } else {
                 root.frame = -1;
-                root.act = root.act == Act.looking-back ? Act.preening
-                    : root.act == Act.preening ? Act.flapping
-                    : Act.looking-back;
+                root.pick-next-idle();
             }
         }
     }

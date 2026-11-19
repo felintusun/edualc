@@ -10,65 +10,25 @@ use crate::web::widgets::{Button, Icon, IconButton, Lucide, take_focus};
 /// What signs in to Claude Code, run in a terminal.
 const SIGN_IN_COMMAND: &str = "claude auth login";
 
-/// In place of the composer while a session another process runs is shown. Bringing it here
-/// stops it in its window, so it asks first.
+/// In place of the composer while a session another process runs is shown: keep watching it or
+/// continue here as a copy.
 #[component]
 pub fn WatchBar() -> Element {
     let view = use_context::<View>();
-    let mut confirming = use_signal(|| false);
-    // Asked and called off: the focus goes back to what asked.
-    let mut called_off = use_signal(|| false);
     let session = view.session.read();
     rsx! {
-        div { class: if confirming() { "dock-bar warned" } else { "dock-bar" },
+        div { class: "dock-bar",
             div { class: "dock-bar-heading",
                 Icon { icon: Lucide::Eye }
-                if confirming() {
-                    div { class: "dock-bar-text",
-                        "Stop it in its window and continue it here? If it is working, its current step is interrupted."
-                    }
-                } else {
-                    div { class: "dock-bar-text secondary", "{session.watch_text}" }
-                }
+                div { class: "dock-bar-text secondary", "{session.watch_text}" }
             }
-            if confirming() {
-                div { class: "dock-bar-actions",
-                    button {
-                        class: "button",
-                        onmounted: take_focus,
-                        onclick: move |_| {
-                            called_off.set(true);
-                            confirming.set(false);
-                        },
-                        "Cancel"
-                    }
+            div { class: "dock-bar-actions",
+                if session.can_fork {
                     Button {
                         primary: true,
-                        onclick: move |_| {
-                            confirming.set(false);
-                            view.act(Action::BringHere);
-                        },
-                        "Stop it there, continue here"
-                    }
-                }
-            } else {
-                div { class: "dock-bar-actions",
-                    Button {
                         icon: Lucide::Copy,
                         onclick: move |_| view.act(Action::ContinueHere),
                         "Continue here as a copy"
-                    }
-                    button {
-                        class: "button primary",
-                        onmounted: move |mounted| async move {
-                            if called_off() {
-                                called_off.set(false);
-                                take_focus(mounted).await;
-                            }
-                        },
-                        onclick: move |_| confirming.set(true),
-                        Icon { icon: Lucide::ArrowDownToLine }
-                        "Bring it here"
                     }
                 }
             }

@@ -378,6 +378,21 @@ export struct ProjectCard {
     last-said: string,
     has-sessions: bool,
     sessions: [CardSessionItem],
+    pinned: bool,
+    hidden: bool,
+}
+
+// How projects on the start page are ordered.
+export enum ProjectSort { pinned-first, recent }
+
+// One coding agent provider's tab in the Usage popover.
+export struct UsageTab {
+    id: string,
+    label: string,
+    available: bool,
+    loading: bool,
+    note: string,
+    sections: [StatSection],
 }
 
 // A session shown in the quick session switcher (Ctrl+K inside a session).

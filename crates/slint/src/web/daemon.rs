@@ -92,6 +92,14 @@ fn read_for(events: &Sender<Event>, request: ActId, read: Read) {
         // The demo's sessions change no folder.
         Read::Changes { .. } => Answer::Changes(Ok(crate::changes::ChangeSet::default())),
         Read::Diff { .. } => Answer::Diff(Ok(crate::changes::Diff::default())),
+        Read::ProviderUsage { backend, .. } => Answer::ProviderUsage(match backend {
+            crate::claude::Backend::Claude => {
+                crate::ipc::ProviderUsage::noted("The browser demo shows no live usage.")
+            }
+            crate::claude::Backend::Agy | crate::claude::Backend::Opencode => {
+                crate::ipc::ProviderUsage::Unavailable
+            }
+        }),
         // The demo keeps nothing between its runs: a session shown before isn't there.
         Read::Saved(_) => Answer::Saved(crate::sessions::Saved::Nowhere),
     };
@@ -157,7 +165,6 @@ fn acted(events: &Sender<Event>, request: ActId, act: Act) {
         | Act::OpenUrl(_)
         | Act::Notify { .. }
         | Act::FocusWindowOf { .. }
-        | Act::StopSession(_)
         | Act::TrustForClaudeCode { .. } => Event::Acted {
             request,
             result: Ok(()),

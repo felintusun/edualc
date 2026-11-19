@@ -11,8 +11,8 @@ use crate::cjk::CjkLanguage;
 use crate::external::wire::{RequestId, SessionId};
 use crate::generated::{
     AppWindow, ChangeScope, Changes, Clipboard, Composer, Focus, HanLanguage, LineBreak, Nav, Peek,
-    PeerMessages, Preferences, Program, Prompt, SendKey, Session, Sessions, Side, SignInWith,
-    Transcript, Usage,
+    PeerMessages, Preferences, Program, ProjectSort, Prompt, SendKey, Session, Sessions, Side,
+    SignInWith, Transcript, Usage,
 };
 use crate::ipc::HostedId;
 use crate::overview::SessionRef;
@@ -128,7 +128,6 @@ pub(crate) fn wire(window: &AppWindow, events: &Sender<Event>) {
     session.on_open_url(actions.on_text(Action::OpenUrl));
     session.on_continue_here(actions.on(|| Action::ContinueHere));
     session.on_go_to_window(actions.on(|| Action::GoToWindow));
-    session.on_bring_here(actions.on(|| Action::BringHere));
     session.on_try_sign_in_again(actions.on(|| Action::TrySignInAgain));
     session.on_dismiss_sign_in(actions.on(|| Action::DismissSignIn));
     session.on_trust_folder(actions.on(|| Action::TrustFolder));
@@ -139,7 +138,8 @@ pub(crate) fn wire(window: &AppWindow, events: &Sender<Event>) {
 
     let usage = window.global::<Usage>();
     usage.on_close(actions.on(|| Action::HideUsage));
-    usage.on_refresh(actions.on(|| Action::ShowUsage));
+    usage.on_refresh(actions.on(|| Action::RefreshUsage));
+    usage.on_select_tab(actions.on_index(Action::SelectUsageTab));
     session.on_open_worktree(actions.on_index(Action::OpenWorktree));
     session.on_switch_look(actions.on(|| Action::SwitchLook));
     session.on_syntax_colours_changed(actions.on(|| Action::RecolourCode));
@@ -220,7 +220,21 @@ pub(crate) fn wire(window: &AppWindow, events: &Sender<Event>) {
     changes.on_send_comments(actions.on(|| Action::SendLineComments));
 
     let sessions = window.global::<Sessions>();
+    let new_session_action = |program| {
+        use crate::claude::{Backend, SignInWith};
+        let (backend, sign_in) = match program {
+            Program::Claude => (Backend::Claude, SignInWith::Account),
+            Program::ClaudeApiKey => (Backend::Claude, SignInWith::ApiKey),
+            Program::Agy => (Backend::Agy, SignInWith::Account),
+            Program::Opencode => (Backend::Opencode, SignInWith::Account),
+        };
+        Action::NewSession(backend, sign_in)
+    };
     sessions.on_new_session({
+        let actions = actions.clone();
+        move |program| actions.send(new_session_action(program))
+    });
+    sessions.on_new_session_in_project({
         let actions = actions.clone();
         move |program| {
             use crate::claude::{Backend, SignInWith};
@@ -230,7 +244,7 @@ pub(crate) fn wire(window: &AppWindow, events: &Sender<Event>) {
                 Program::Agy => (Backend::Agy, SignInWith::Account),
                 Program::Opencode => (Backend::Opencode, SignInWith::Account),
             };
-            actions.send(Action::NewSession(backend, sign_in));
+            actions.send(Action::NewSessionInProject(backend, sign_in));
         }
     });
     sessions.on_open(actions.on_session(Action::OpenSession));
@@ -332,6 +346,25 @@ pub(crate) fn wire(window: &AppWindow, events: &Sender<Event>) {
     sessions.on_browse_project(actions.on(|| Action::BrowseProject));
     sessions.on_refresh_projects(actions.on(|| Action::ListProjects));
     sessions.on_filter_edited(actions.on_text(Action::FilterSessions));
+
+    nav.on_toggle_pin_project(
+        actions.on_text(|path| Action::TogglePinProject(PathBuf::from(path))),
+    );
+    nav.on_toggle_hide_project(
+        actions.on_text(|path| Action::ToggleHideProject(PathBuf::from(path))),
+    );
+    nav.on_set_project_sort({
+        let actions = actions.clone();
+        move |sort| {
+            actions.send(Action::SetProjectSort(match sort {
+                ProjectSort::PinnedFirst => settings::ProjectSort::PinnedFirst,
+                ProjectSort::Recent => settings::ProjectSort::Recent,
+            }));
+        }
+    });
+    nav.on_toggle_show_hidden_projects(actions.on(|| Action::ToggleShowHiddenProjects));
+    nav.on_toggle_show_all_projects(actions.on(|| Action::ToggleShowAllProjects));
+    nav.on_start_filter_edited(actions.on_text(Action::FilterStartProjects));
 
     let transcript = window.global::<Transcript>();
     transcript.on_toggle(actions.on_index(Action::Toggle));

@@ -38,7 +38,7 @@ pub use token::{Auth, Token};
 
 use crate::claude::Launch;
 use crate::decode::{Picture, Refusal};
-use crate::desktop::{Opener, Program, Running};
+use crate::desktop::{Opener, Program};
 use crate::external::wire::{SessionId, TaskId};
 use crate::sessions::{LiveSession, ProjectInfo, Saved, SessionInfo, Worktree};
 use crate::settings::Settings;
@@ -353,6 +353,11 @@ pub enum Read {
         root: PathBuf,
         path: PathBuf,
     },
+    /// Usage and plan limits for a coding agent provider on demand: `Answer::ProviderUsage`.
+    ProviderUsage {
+        backend: crate::claude::Backend,
+        cwd: Option<PathBuf>,
+    },
     /// Where a session's transcript is kept, and the folder it was started in: `Answer::Saved`.
     /// For a window that opens it again before it knows where to work (the Android app).
     Saved(SessionId),
@@ -372,8 +377,36 @@ pub struct ProjectOverview {
     pub sessions: Vec<SessionInfo>,
 }
 
+/// On-demand usage result for a coding agent provider. `report` holds at most one report in a
+/// `Vec` so `Answer` and `FromDaemon` stay small without heap-boxing a large enum variant.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub enum ProviderUsage {
+    Available {
+        report: Vec<crate::external::wire::UsageReport>,
+        note: Option<String>,
+    },
+    Unavailable,
+}
+
+impl ProviderUsage {
+    pub fn reported(report: crate::external::wire::UsageReport) -> Self {
+        Self::Available {
+            report: vec![report],
+            note: None,
+        }
+    }
+
+    pub fn noted(note: impl Into<String>) -> Self {
+        Self::Available {
+            report: Vec::new(),
+            note: Some(note.into()),
+        }
+    }
+}
+
 /// What the daemon read for a window.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub enum Answer {
     Live(Vec<LiveSession>),
@@ -390,11 +423,12 @@ pub enum Answer {
     Folder(Result<PathBuf, String>),
     Changes(Result<crate::changes::ChangeSet, Unkept>),
     Diff(Result<crate::changes::Diff, Unkept>),
+    ProviderUsage(ProviderUsage),
     Saved(Saved),
 }
 
 /// What the daemon tells the window.
-#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub enum FromDaemon {
     /// With the settings (or why they can't be read), what folders open in here, and the
@@ -406,6 +440,8 @@ pub enum FromDaemon {
         live: Vec<LiveSession>,
         /// Other programs' windows can be found (niri runs).
         finds_windows: bool,
+        /// Coding agent backends available on PATH when the window connected.
+        backends: Vec<crate::claude::Backend>,
         /// The window is on the daemon's machine, by its Unix socket: the daemon does what the
         /// desktop is asked for it (links, notifications, the clipboard, editors, the folder
         /// picker, finding windows). A line over the network is no such window's: what the
@@ -601,6 +637,8 @@ pub struct Hosted {
     /// window tells a new one Claude Code moves it to. Its transcript may not be written yet.
     pub session: SessionId,
     pub cwd: PathBuf,
+    /// The coding agent backend running this hosted session.
+    pub backend: crate::claude::Backend,
     /// What it was started signed in with.
     pub sign_in: crate::claude::SignInWith,
     /// Shown in a window now.
@@ -731,10 +769,6 @@ pub enum ActFailure {
     NoWindow(u32),
     #[error("finding a session's window needs niri (NIRI_SOCKET is unset)")]
     NoNiri,
-    #[error("process {0} was asked to stop but is still running")]
-    StillRunning(u32),
-    #[error("process {0} isn't that Claude Code session (any more)")]
-    NotThatSession(u32),
     #[error("{0} isn't a folder")]
     NotAFolder(PathBuf),
     #[error("not opened: {0}\nOnly web links open from here; copy it to open it yourself.")]
@@ -781,8 +815,6 @@ impl From<crate::desktop::Error> for ActFailure {
                     crate::desktop::RUN_LIMIT.as_secs()
                 ),
             },
-            Error::StillRunning(pid) => Self::StillRunning(pid),
-            Error::NotThatSession(pid) => Self::NotThatSession(pid),
         }
     }
 }
@@ -858,7 +890,6 @@ pub enum Act {
     FocusWindowOf {
         pid: u32,
     },
-    StopSession(Running),
     /// Keeps the key in the desktop's keyring, in place of one kept before.
     StoreApiKey(ApiKey),
     RemoveApiKey,
@@ -906,7 +937,6 @@ impl Act {
             Self::CheckTrust { .. }
             | Self::CheckClaudeTrust { .. }
             | Self::TrustForClaudeCode { .. }
-            | Self::StopSession(_)
             | Self::StoreApiKey(_)
             | Self::RemoveApiKey
             | Self::CheckApiKey

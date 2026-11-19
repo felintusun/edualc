@@ -12,7 +12,7 @@ use crate::sessions::MessagingName;
 
 /// Set by Claude Code for its own children. Launched from inside a Claude Code session, the
 /// child would take them as its own and think itself nested.
-const INHERITED_SESSION: &[&str] = &[
+pub(crate) const INHERITED_SESSION: &[&str] = &[
     "CLAUDECODE",
     "CLAUDE_CODE_CHILD_SESSION",
     "CLAUDE_CODE_SESSION_ID",

@@ -336,10 +336,12 @@ impl Frontend for PageFrontend {
             Command::SessionShown(session) => page.write().session = session,
             Command::NewProjectCreated => page.write().project_created += 1,
             Command::FocusPage => page.write().focus_page += 1,
-            // The page shows code as it is; the switcher and the dialog for a new project are
-            // opened by the page's own keys and buttons, and the app asks for neither.
+            // The page shows code as it is and lets the browser manage text selection; the
+            // switcher and the dialog for a new project are opened by the page's own keys and
+            // buttons, and the app asks for neither.
             Command::RecolourCode
             | Command::DrawColouredCode
+            | Command::ClearSelection
             | Command::ToggleSwitcher
             | Command::OpenNewProject => {}
         }

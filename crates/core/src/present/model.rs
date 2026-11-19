@@ -274,6 +274,13 @@ pub enum PlaceView {
     Session,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+pub enum ProjectSort {
+    #[default]
+    PinnedFirst,
+    Recent,
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct CjkChars {
     pub language: Cjk,
@@ -508,6 +515,18 @@ pub struct ProjectCard {
     pub last_said: String,
     pub has_sessions: bool,
     pub sessions: Vec<CardSessionItem>,
+    pub pinned: bool,
+    pub hidden: bool,
+}
+
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct UsageTab {
+    pub id: String,
+    pub label: String,
+    pub available: bool,
+    pub loading: bool,
+    pub note: String,
+    pub sections: Vec<StatSection>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -526,8 +545,12 @@ pub struct SwitcherItem {
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Session {
     pub agent: String,
+    pub agent_name: String,
     pub program: String,
     pub shell_commands: bool,
+    pub can_shell: bool,
+    pub can_btw: bool,
+    pub can_fork: bool,
     pub cwd: String,
     pub project: String,
     pub title: String,
@@ -641,6 +664,7 @@ pub struct Changes {
     pub diff: Vec<DiffRow>,
     pub diff_note: String,
     pub comments: i32,
+    pub can_send: bool,
     pub editing_comment: bool,
     pub last_turn: String,
 }
@@ -671,6 +695,12 @@ pub struct Nav {
     pub all_sessions: Vec<SwitcherItem>,
     pub new_project_parent: String,
     pub new_project_error: String,
+    pub project_sort: ProjectSort,
+    pub show_hidden_projects: bool,
+    pub show_all_projects: bool,
+    pub total_projects: i32,
+    pub hidden_projects_count: i32,
+    pub has_more_projects: bool,
 }
 
 /// The `Preferences` global's state.
@@ -693,4 +723,6 @@ pub struct Usage {
     pub loading: bool,
     pub note: String,
     pub sections: Vec<StatSection>,
+    pub tabs: Vec<UsageTab>,
+    pub active_tab: i32,
 }

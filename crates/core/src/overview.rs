@@ -1,17 +1,27 @@
 //! Start-page cards and the "Needs you" list, joined from known projects, running terminal
 //! sessions, and sessions the daemon hosts.
 
-use std::collections::{BTreeMap, BTreeSet, HashSet};
+use std::collections::{BTreeMap, HashSet};
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use web_time::SystemTime;
 
-use crate::claude::{Backend, Program, SignInWith};
+use crate::claude::{Program, SignInWith};
 use crate::external::wire::SessionId;
 use crate::ipc::{Hosted, HostedId, HostedState, ProjectOverview};
 use crate::sessions::{self, LiveSession, LiveStatus, SessionInfo};
+use crate::settings::{ProjectSort, RecentProject};
 
 const CARD_SESSIONS: usize = 5;
+
+#[derive(Debug, Default, Clone, Copy)]
+pub struct Options<'a> {
+    pub pinned: &'a [PathBuf],
+    pub hidden: &'a [PathBuf],
+    pub recent: &'a [RecentProject],
+    pub sort: ProjectSort,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Card {
@@ -22,6 +32,8 @@ pub struct Card {
     pub running: usize,
     pub last_said: Option<String>,
     pub sessions: Vec<CardSession>,
+    pub pinned: bool,
+    pub hidden: bool,
 }
 
 /// Which session an item opens.
@@ -102,7 +114,17 @@ pub fn build(
     hosted: &[Hosted],
     home: Option<&Path>,
 ) -> Built {
-    let entries = collect_projects(projects, live, hosted, home);
+    build_with(projects, live, hosted, home, &Options::default())
+}
+
+pub fn build_with(
+    projects: &[ProjectOverview],
+    live: &[LiveSession],
+    hosted: &[Hosted],
+    home: Option<&Path>,
+    options: &Options<'_>,
+) -> Built {
+    let entries = collect_projects(projects, live, hosted, home, options.recent);
     let paths: Vec<&Path> = entries.iter().map(|entry| entry.path.as_path()).collect();
     let names = distinct_names(&paths);
 
@@ -112,9 +134,13 @@ pub fn build(
     let mut matched_live: HashSet<SessionId> = HashSet::new();
 
     for (entry, name) in entries.into_iter().zip(names) {
+        let pinned = options.pinned.contains(&entry.path);
+        let hidden = options.hidden.contains(&entry.path);
         let card = build_card(
             &entry,
             &name,
+            pinned,
+            hidden,
             live,
             hosted,
             &mut matched_hosted,
@@ -138,7 +164,7 @@ pub fn build(
                 || "Running session".to_owned(),
                 |live| live.title.clone().unwrap_or_else(|| live.name.clone()),
             );
-            let backend = matching_live.map_or(Backend::Claude, |live| live.backend);
+            let backend = matching_live.map_or(item.backend, |live| live.backend);
             waiting.push(WaitingItem {
                 opens: SessionRef::of(item),
                 project_path: item.cwd.clone(),
@@ -167,8 +193,24 @@ pub fn build(
         }
     }
 
-    cards.sort_by(|left, right| {
-        (
+    cards.sort_by(|left, right| match options.sort {
+        ProjectSort::PinnedFirst => (
+            std::cmp::Reverse(left.pinned),
+            std::cmp::Reverse(left.needs_you > 0),
+            std::cmp::Reverse(left.needs_you),
+            std::cmp::Reverse(left.running > 0),
+            std::cmp::Reverse(left.modified),
+            &left.path,
+        )
+            .cmp(&(
+                std::cmp::Reverse(right.pinned),
+                std::cmp::Reverse(right.needs_you > 0),
+                std::cmp::Reverse(right.needs_you),
+                std::cmp::Reverse(right.running > 0),
+                std::cmp::Reverse(right.modified),
+                &right.path,
+            )),
+        ProjectSort::Recent => (
             std::cmp::Reverse(left.needs_you > 0),
             std::cmp::Reverse(left.needs_you),
             std::cmp::Reverse(left.running > 0),
@@ -181,7 +223,7 @@ pub fn build(
                 std::cmp::Reverse(right.running > 0),
                 std::cmp::Reverse(right.modified),
                 &right.path,
-            ))
+            )),
     });
 
     waiting.sort_by(|left, right| {
@@ -209,15 +251,35 @@ fn collect_projects(
     live: &[LiveSession],
     hosted: &[Hosted],
     home: Option<&Path>,
+    recent: &[RecentProject],
 ) -> Vec<ProjectOverview> {
-    let mut seen: BTreeSet<PathBuf> = BTreeSet::new();
-    let mut entries = Vec::new();
+    let mut seen: BTreeMap<PathBuf, usize> = BTreeMap::new();
+    let mut entries: Vec<ProjectOverview> = Vec::new();
     for project in projects {
         if home == Some(project.path.as_path()) {
             continue;
         }
-        if seen.insert(project.path.clone()) {
+        if let std::collections::btree_map::Entry::Vacant(slot) = seen.entry(project.path.clone()) {
+            slot.insert(entries.len());
             entries.push(project.clone());
+        }
+    }
+    for item in recent {
+        if home == Some(item.path.as_path()) {
+            continue;
+        }
+        let opened = SystemTime::UNIX_EPOCH + Duration::from_secs(item.opened_secs);
+        if let Some(&idx) = seen.get(&item.path) {
+            if let Some(existing) = entries.get_mut(idx) {
+                existing.modified = existing.modified.max(opened);
+            }
+        } else {
+            seen.insert(item.path.clone(), entries.len());
+            entries.push(ProjectOverview {
+                path: item.path.clone(),
+                modified: opened,
+                sessions: Vec::new(),
+            });
         }
     }
     let now = SystemTime::now();
@@ -225,7 +287,8 @@ fn collect_projects(
         if home == Some(item.cwd.as_path()) || matches_known_project(projects, item) {
             continue;
         }
-        if seen.insert(item.cwd.clone()) {
+        if let std::collections::btree_map::Entry::Vacant(slot) = seen.entry(item.cwd.clone()) {
+            slot.insert(entries.len());
             entries.push(ProjectOverview {
                 path: item.cwd.clone(),
                 modified: now,
@@ -237,7 +300,8 @@ fn collect_projects(
         if home == Some(item.cwd.as_path()) {
             continue;
         }
-        if seen.insert(item.cwd.clone()) {
+        if let std::collections::btree_map::Entry::Vacant(slot) = seen.entry(item.cwd.clone()) {
+            slot.insert(entries.len());
             entries.push(ProjectOverview {
                 path: item.cwd.clone(),
                 modified: now,
@@ -257,9 +321,15 @@ fn matches_known_project(projects: &[ProjectOverview], hosted: &Hosted) -> bool 
     })
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "card assembly takes the project, its flags, the live/hosted/waiting slices, and dedup sets"
+)]
 fn build_card(
     project: &ProjectOverview,
     project_name: &str,
+    pinned: bool,
+    hidden: bool,
     live: &[LiveSession],
     hosted: &[Hosted],
     matched_hosted: &mut HashSet<HostedId>,
@@ -306,7 +376,7 @@ fn build_card(
         let backend = matching_saved
             .map(|saved| saved.backend)
             .or_else(|| matching_live.map(|live| live.backend))
-            .unwrap_or(Backend::Claude);
+            .unwrap_or(item.backend);
         let program = Program::of(backend, item.sign_in);
         let worktree = matching_live
             .and_then(|live| live.worktree.as_ref().map(|wt| wt.name.clone()))
@@ -451,6 +521,8 @@ fn build_card(
         running,
         last_said,
         sessions,
+        pinned,
+        hidden,
     }
 }
 
@@ -558,6 +630,7 @@ mod tests {
     use std::time::Duration;
 
     use super::*;
+    use crate::claude::Backend;
     use crate::ipc::HostedId;
     use crate::sessions::LiveKind;
 
@@ -597,6 +670,7 @@ mod tests {
             id,
             session: session_id(session),
             cwd: PathBuf::from(cwd),
+            backend: Backend::Claude,
             sign_in: SignInWith::Account,
             attached: false,
             state,
@@ -757,5 +831,62 @@ mod tests {
             names,
             ["project (0a1b2c3d)", "project (9f8e7d6c)", "project"]
         );
+    }
+
+    #[test]
+    fn pinned_hidden_sort_and_recent_projects_shape_cards() {
+        let projects = [
+            project("/code/older", 100, vec![saved(1, "Older", 100, None)]),
+            project("/code/newer", 300, vec![saved(2, "Newer", 300, None)]),
+            project("/code/hidden", 250, vec![saved(3, "Hidden", 250, None)]),
+        ];
+        let pinned = [PathBuf::from("/code/older")];
+        let hidden = [PathBuf::from("/code/hidden")];
+        let recent = [RecentProject {
+            path: PathBuf::from("/code/brand-new"),
+            opened_secs: 200,
+        }];
+
+        let pinned_first = build_with(
+            &projects,
+            &[],
+            &[],
+            None,
+            &Options {
+                pinned: &pinned,
+                hidden: &hidden,
+                recent: &recent,
+                sort: ProjectSort::PinnedFirst,
+            },
+        );
+        let order: Vec<(&str, bool, bool)> = pinned_first
+            .cards
+            .iter()
+            .map(|c| (c.name.as_str(), c.pinned, c.hidden))
+            .collect();
+        assert_eq!(
+            order,
+            [
+                ("older", true, false),
+                ("newer", false, false),
+                ("hidden", false, true),
+                ("brand-new", false, false),
+            ]
+        );
+
+        let recent_only = build_with(
+            &projects,
+            &[],
+            &[],
+            None,
+            &Options {
+                pinned: &pinned,
+                hidden: &hidden,
+                recent: &recent,
+                sort: ProjectSort::Recent,
+            },
+        );
+        let recent_names: Vec<&str> = recent_only.cards.iter().map(|c| c.name.as_str()).collect();
+        assert_eq!(recent_names, ["newer", "hidden", "brand-new", "older"]);
     }
 }

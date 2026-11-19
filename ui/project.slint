@@ -3,7 +3,7 @@
 import { ListView } from "std-widgets.slint";
 import { Theme } from "theme.slint";
 import { FocusArea, LiveState, Program, SessionRow, SessionRowKind } from "types.slint";
-import { Focus, Nav, Preferences, Session, Sessions } from "state.slint";
+import { Focus, Nav, Session, Sessions } from "state.slint";
 import { AgentCount, AreaFence, Caption, Field, Icon, IconButton, LiveDot, Pressable, ProgramMark, Small, TextButton, Title } from "widgets.slint";
 
 component SessionHeading inherits Rectangle {
@@ -41,61 +41,72 @@ component SessionHeading inherits Rectangle {
     }
 }
 
-component RunningRow inherits Pressable {
+component RunningRow inherits Rectangle {
     in property <SessionRow> entry;
     property <string> program-said: root.entry.program == Program.agy ? ", agy"
         : root.entry.program == Program.opencode ? ", opencode"
         : root.entry.program == Program.claude-api-key ? ", with the API key" : "";
     height: Theme.row-tall;
-    selected: root.entry.selected;
-    accessible-label: root.entry.title + root.program-said + ", " + root.entry.detail
-        + (root.entry.agents == 1 ? ", 1 agent running" : root.entry.agents > 1 ? ", \{root.entry.agents} agents running" : "");
-    clicked => { Sessions.open(root.entry.id); }
+
+    // The agent-count button sits beside the row button rather than inside it so assistive
+    // tools and pointer targets never nest buttons.
     HorizontalLayout {
-        padding-left: Theme.space-m;
-        padding-right: Theme.space-s;
-        spacing: Theme.space-s;
-        LiveDot {
-            state: root.entry.state;
-            y: (parent.height - self.height) / 2;
-        }
-        VerticalLayout {
-            alignment: center;
+        spacing: Theme.space-xs;
+        Pressable {
             horizontal-stretch: 1;
             min-width: 0px;
-            title := Text {
-                text: root.entry.title;
-                color: Theme.text;
-                overflow: elide;
-                accessible-role: none;
+            selected: root.entry.selected;
+            accessible-label: root.entry.title + root.program-said + ", " + root.entry.detail
+                + (root.entry.agents == 1 ? ", 1 agent running" : root.entry.agents > 1 ? ", \{root.entry.agents} agents running" : "");
+            clicked => { Sessions.open(root.entry.id); }
+            HorizontalLayout {
+                padding-left: Theme.space-m;
+                padding-right: Theme.space-s;
+                spacing: Theme.space-s;
+                LiveDot {
+                    state: root.entry.state;
+                    y: (parent.height - self.height) / 2;
+                }
+                VerticalLayout {
+                    alignment: center;
+                    horizontal-stretch: 1;
+                    min-width: 0px;
+                    title := Text {
+                        text: root.entry.title;
+                        color: Theme.text;
+                        overflow: elide;
+                        accessible-role: none;
+                    }
+                    Text {
+                        text: root.entry.detail;
+                        font-size: 1rem * Theme.caption;
+                        color: root.entry.state == LiveState.waiting ? Theme.warning-text : Theme.text-tertiary;
+                        overflow: elide;
+                        accessible-role: none;
+                    }
+                }
+                ProgramMark {
+                    program: root.entry.program;
+                }
+                if root.entry.agents > 0 && !root.entry.selected: AgentCount {
+                    agents: root.entry.agents;
+                }
             }
-            Text {
-                text: root.entry.detail;
-                font-size: 1rem * Theme.caption;
-                color: root.entry.state == LiveState.waiting ? Theme.warning-text : Theme.text-tertiary;
-                overflow: elide;
-                accessible-role: none;
+            if title.preferred-width > title.width: Tooltip {
+                text: @markdown("\{root.entry.title}");
             }
-        }
-        ProgramMark {
-            program: root.entry.program;
         }
         if root.entry.agents > 0 && root.entry.selected: Pressable {
+            horizontal-stretch: 0;
             accessible-label: root.entry.agents == 1 ? "1 agent running, show it"
                 : "\{root.entry.agents} agents running, show them";
             clicked => { Session.tasks-wanted += 1; }
             AgentCount {
                 agents: root.entry.agents;
-                padding-left: Theme.space-xs;
-                padding-right: Theme.space-xs;
+                padding-left: Theme.space-s;
+                padding-right: Theme.space-s;
             }
         }
-        if root.entry.agents > 0 && !root.entry.selected: AgentCount {
-            agents: root.entry.agents;
-        }
-    }
-    if title.preferred-width > title.width: Tooltip {
-        text: @markdown("\{root.entry.title}");
     }
 }
 
@@ -152,6 +163,8 @@ export component ProjectPage inherits Rectangle {
         { program: Program.opencode, title: "opencode" },
     ];
     property <int> new-highlighted;
+    property <bool> narrow: self.width < 36rem;
+    property <length> page-padding: root.narrow ? Theme.space-m : Theme.space-xl;
     property <int> wanted: Focus.wanted-serial;
     property <int> focus-page: Nav.page-focus-serial;
     changed wanted => { self.take-wanted(); }
@@ -170,7 +183,7 @@ export component ProjectPage inherits Rectangle {
         if program == Program.claude-api-key {
             Sessions.api-key-dialog = true;
         } else {
-            Sessions.new-session(program);
+            Sessions.new-session-in-project(program);
         }
     }
 
@@ -190,42 +203,137 @@ export component ProjectPage inherits Rectangle {
         HorizontalLayout {
             vertical-stretch: 1;
             Rectangle { horizontal-stretch: 1; }
-            VerticalLayout {
-                width: min(parent.width - 2 * Theme.space-xl, 860px);
-                padding-top: Theme.space-xl;
+            column := VerticalLayout {
+                width: min(max(0px, root.width - 2 * root.page-padding), 860px);
+                padding-top: root.page-padding;
                 padding-bottom: Theme.space-l;
                 spacing: Theme.space-m;
 
-                HorizontalLayout {
-                    spacing: Theme.space-m;
+                FlexboxLayout {
+                    flex-direction: FlexboxLayoutDirection.row;
+                    flex-wrap: FlexboxLayoutWrap.wrap;
+                    alignment: LayoutAlignment.space-between;
+                    spacing: Theme.space-s;
                     VerticalLayout {
-                        horizontal-stretch: 1;
+                        width: root.narrow ? column.width : max(120px, column.width - actions.preferred-width - Theme.space-l);
                         spacing: Theme.space-xs;
                         Title {
                             text: Nav.project-name;
+                            min-width: 0px;
+                            overflow: elide;
                         }
                         Caption {
                             text: Session.cwd != "" ? Session.cwd : Nav.project-folder;
+                            min-width: 0px;
                             overflow: elide;
                         }
                     }
-                    HorizontalLayout {
+                    actions := HorizontalLayout {
                         spacing: Theme.space-xs;
-                        height: self.preferred-height;
-                        y: (parent.height - self.height) / 2;
+                        horizontal-stretch: 0;
+                        max-width: column.width;
                         TextButton {
                             text: "New session here";
                             primary: true;
                             has-icon: true;
                             icon: @image-url("@lucide/square-pen.svg");
+                            horizontal-stretch: 0;
+                            may-shorten: true;
+                            y: (parent.height - self.height) / 2;
                             clicked => { root.start(Sessions.program); }
                         }
-                        program-button := IconButton {
-                            icon: @image-url("@lucide/chevron-down.svg");
-                            label: "Choose program for a new session";
-                            clicked => {
-                                root.new-highlighted = 0;
-                                new-menu.show();
+                        // Holds the popup as a direct child so its coordinates anchor right below
+                        // the button instead of an outer layout's origin.
+                        program-anchor := Rectangle {
+                            width: Theme.button;
+                            height: Theme.button;
+                            horizontal-stretch: 0;
+                            y: (parent.height - self.height) / 2;
+                            program-button := IconButton {
+                                icon: @image-url("@lucide/chevron-down.svg");
+                                label: "Choose program for a new session";
+                                clicked => {
+                                    root.new-highlighted = 0;
+                                    new-menu.show();
+                                }
+                            }
+                            new-menu := PopupWindow {
+                                x: max(-program-anchor.absolute-position.x + Theme.space-s, program-anchor.width - self.width);
+                                y: program-anchor.height + Theme.space-xs;
+                                width: min(280px, max(200px, root.width - 2 * Theme.space-m));
+                                height: new-items.preferred-height;
+                                close-policy: close-on-click-outside;
+                                FocusScope {
+                                    init => { self.focus(); }
+                                    key-pressed(event) => {
+                                        if event.text == Key.Escape {
+                                            new-menu.close();
+                                            return accept;
+                                        }
+                                        if event.text == Key.UpArrow {
+                                            root.new-highlighted = max(0, root.new-highlighted - 1);
+                                            return accept;
+                                        }
+                                        if event.text == Key.DownArrow {
+                                            root.new-highlighted = min(root.programs.length - 1, root.new-highlighted + 1);
+                                            return accept;
+                                        }
+                                        if event.text == Key.Return || event.text == " " {
+                                            new-menu.close();
+                                            root.start(root.programs[root.new-highlighted].program);
+                                            return accept;
+                                        }
+                                        return reject;
+                                    }
+                                }
+                                Rectangle {
+                                    background: Theme.surface-raised;
+                                    border-radius: Theme.radius-m;
+                                    border-width: 1px;
+                                    border-color: Theme.control-border;
+                                    drop-shadow-blur: 12px;
+                                    drop-shadow-color: Theme.shadow;
+                                    new-items := VerticalLayout {
+                                        padding: Theme.space-xs;
+                                        spacing: 2px;
+                                        HorizontalLayout {
+                                            padding-left: Theme.space-m;
+                                            padding-right: Theme.space-s;
+                                            padding-top: Theme.space-xs;
+                                            padding-bottom: Theme.space-xs;
+                                            Caption {
+                                                text: "New session";
+                                                horizontal-alignment: left;
+                                            }
+                                        }
+                                        for item[index] in root.programs: Pressable {
+                                            highlighted: index == root.new-highlighted;
+                                            tab-stop: false;
+                                            accessible-label: "New \{item.title} session";
+                                            clicked => {
+                                                new-menu.close();
+                                                root.start(item.program);
+                                            }
+                                            HorizontalLayout {
+                                                padding: Theme.space-s;
+                                                padding-left: Theme.space-m;
+                                                spacing: Theme.space-s;
+                                                Text {
+                                                    text: item.title;
+                                                    color: Theme.text;
+                                                    vertical-alignment: center;
+                                                    horizontal-stretch: 1;
+                                                    min-width: 0px;
+                                                    overflow: elide;
+                                                }
+                                                if item.program == Sessions.program: Caption {
+                                                    text: "Ctrl+N";
+                                                    vertical-alignment: center;
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
@@ -271,72 +379,6 @@ export component ProjectPage inherits Rectangle {
                     Focus.going-round = true;
                     page-start.focus();
                     Focus.step(true);
-                }
-            }
-        }
-    }
-
-    new-menu := PopupWindow {
-        x: program-button.x + program-button.width - self.width;
-        y: program-button.y + program-button.height + Theme.space-xs;
-        width: 280px;
-        height: new-items.preferred-height;
-        FocusScope {
-            init => { self.focus(); }
-            key-pressed(event) => {
-                if event.text == Key.UpArrow {
-                    root.new-highlighted = max(0, root.new-highlighted - 1);
-                    return accept;
-                }
-                if event.text == Key.DownArrow {
-                    root.new-highlighted = min(root.programs.length - 1, root.new-highlighted + 1);
-                    return accept;
-                }
-                if event.text == Key.Return || event.text == " " {
-                    new-menu.close();
-                    root.start(root.programs[root.new-highlighted].program);
-                    return accept;
-                }
-                return reject;
-            }
-        }
-        Rectangle {
-            background: Theme.surface-raised;
-            border-radius: Theme.radius-m;
-            border-width: 1px;
-            border-color: Theme.control-border;
-            drop-shadow-blur: 12px;
-            drop-shadow-color: #0006;
-            new-items := VerticalLayout {
-                padding: Theme.space-xs;
-                spacing: 2px;
-                Caption {
-                    text: "New session";
-                    horizontal-alignment: left;
-                }
-                for item[index] in root.programs: Pressable {
-                    highlighted: index == root.new-highlighted;
-                    tab-stop: false;
-                    accessible-label: "New \{item.title} session";
-                    clicked => {
-                        new-menu.close();
-                        root.start(item.program);
-                    }
-                    HorizontalLayout {
-                        padding: Theme.space-s;
-                        padding-left: Theme.space-m;
-                        spacing: Theme.space-s;
-                        Text {
-                            text: item.title;
-                            color: Theme.text;
-                            vertical-alignment: center;
-                            horizontal-stretch: 1;
-                        }
-                        if item.program == Sessions.program: Caption {
-                            text: "Ctrl+N";
-                            vertical-alignment: center;
-                        }
-                    }
                 }
             }
         }

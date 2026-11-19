@@ -4,8 +4,8 @@
 
 import { ListView } from "std-widgets.slint";
 import { Theme } from "theme.slint";
-import { StepKind, TaskKind } from "types.slint";
-import { Peek } from "state.slint";
+import { Cjk, CjkChars, HanLanguage, StepKind, TaskKind } from "types.slint";
+import { Peek, Preferences } from "state.slint";
 import { Caption, Icon, IconButton, Small } from "widgets.slint";
 
 // What is said where nothing is shown yet.
@@ -20,6 +20,13 @@ component Empty inherits VerticalLayout {
 }
 
 component Conversation inherits VerticalLayout {
+    property <CjkChars> han-cjk: {
+        language: Preferences.han-language == HanLanguage.japanese ? Cjk.japanese
+            : Preferences.han-language == HanLanguage.simplified-chinese ? Cjk.simplified-chinese
+            : Preferences.han-language == HanLanguage.traditional-chinese ? Cjk.traditional-chinese
+            : Cjk.korean,
+        main: false,
+    };
     follow-timer := Timer {
         interval: 1ms;
         running: false;
@@ -51,6 +58,9 @@ component Conversation inherits VerticalLayout {
                         text: step.text;
                         color: Theme.text;
                         wrap: word-wrap;
+                        min-width: 0px;
+                        language: Theme.language-tag(root.han-cjk);
+                        line-height-factor: Theme.line-factor(root.han-cjk);
                     }
                 }
             }
@@ -58,6 +68,9 @@ component Conversation inherits VerticalLayout {
                 text: step.text;
                 color: Theme.text;
                 wrap: word-wrap;
+                min-width: 0px;
+                language: Theme.language-tag(root.han-cjk);
+                line-height-factor: Theme.line-factor(root.han-cjk);
             }
             if step.kind == StepKind.called: HorizontalLayout {
                 spacing: Theme.space-s;
@@ -71,6 +84,7 @@ component Conversation inherits VerticalLayout {
                     color: Theme.text-secondary;
                     font-family: Theme.mono;
                     overflow: elide;
+                    min-width: 0px;
                     horizontal-stretch: 1;
                 }
             }
@@ -111,6 +125,8 @@ component Output inherits VerticalLayout {
                 color: Theme.text;
                 font-family: Theme.mono;
                 wrap: char-wrap;
+                min-width: 0px;
+                horizontal-stretch: 1;
             }
         }
     }
@@ -118,6 +134,13 @@ component Output inherits VerticalLayout {
 
 export component PeekPanel inherits Rectangle {
     property <bool> conversation: Peek.kind == TaskKind.agent;
+    property <CjkChars> han-cjk: {
+        language: Preferences.han-language == HanLanguage.japanese ? Cjk.japanese
+            : Preferences.han-language == HanLanguage.simplified-chinese ? Cjk.simplified-chinese
+            : Preferences.han-language == HanLanguage.traditional-chinese ? Cjk.traditional-chinese
+            : Cjk.korean,
+        main: false,
+    };
     background: Theme.surface-raised;
     VerticalLayout {
         HorizontalLayout {
@@ -133,15 +156,19 @@ export component PeekPanel inherits Rectangle {
             VerticalLayout {
                 alignment: center;
                 horizontal-stretch: 1;
+                min-width: 0px;
                 Text {
                     text: Peek.title;
                     font-weight: 600;
                     color: Theme.text;
                     overflow: elide;
+                    min-width: 0px;
+                    language: Theme.language-tag(root.han-cjk);
                 }
                 Caption {
                     text: Peek.running ? Peek.detail + " · running" : Peek.detail + " · ended";
                     overflow: elide;
+                    min-width: 0px;
                 }
             }
             IconButton {

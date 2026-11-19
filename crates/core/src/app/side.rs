@@ -94,6 +94,16 @@ impl<F: Frontend> App<F> {
             self.view.focus_side();
             return;
         }
+        if self.status.backend != crate::claude::Backend::Claude {
+            self.side.exchanges.push(Exchange {
+                question: question.to_owned(),
+                answer: Answer::Failed(format!(
+                    "{} doesn't support /btw side questions.",
+                    self.status.backend.agent()
+                )),
+            });
+            return;
+        }
         if self.watch.is_some() {
             self.side.exchanges.push(Exchange {
                 question: question.to_owned(),
@@ -113,7 +123,10 @@ impl<F: Frontend> App<F> {
         let answer = if self.request(request, Request::Side(index)) {
             Answer::Pending
         } else {
-            Answer::Failed("Claude Code isn't running; send a message to start it.".into())
+            Answer::Failed(format!(
+                "{} isn't running; send a message to start it.",
+                self.status.backend.program()
+            ))
         };
         self.side.exchanges.push(Exchange {
             question: question.to_owned(),
@@ -189,7 +202,10 @@ impl<F: Frontend> App<F> {
                 .error("There is no conversation to branch yet; send a first message.");
             return;
         };
-        if self.status.turns > 0 || !self.side.has_answers() {
+        if self.status.backend != crate::claude::Backend::Claude
+            || self.status.turns > 0
+            || !self.side.has_answers()
+        {
             return;
         }
         let first = self
@@ -211,9 +227,10 @@ impl<F: Frontend> App<F> {
 
     /// The process stopped: answers it owed won't come.
     pub(super) fn side_lost(&mut self) {
+        let program = self.status.backend.program();
         for exchange in &mut self.side.exchanges {
             if matches!(exchange.answer, Answer::Pending | Answer::Retrying) {
-                exchange.answer = Answer::Failed("Claude Code stopped before answering.".into());
+                exchange.answer = Answer::Failed(format!("{program} stopped before answering."));
                 self.redraw.side = true;
             }
         }

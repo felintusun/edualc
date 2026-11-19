@@ -73,6 +73,8 @@ pub struct Greeting {
     pub local: bool,
     /// The daemon's user's home folder.
     pub home: std::path::PathBuf,
+    /// Coding agent backends available on PATH when the window connected.
+    pub backends: Vec<crate::claude::Backend>,
 }
 
 /// Why what the daemon said as a line opened isn't a greeting.
@@ -101,6 +103,7 @@ pub fn greeted(hello: FromDaemon, hosted: FromDaemon) -> Result<Greeting, NotGre
         finds_windows,
         local,
         home,
+        backends,
     } = hello
     else {
         return Err(NotGreeted::Version);
@@ -119,6 +122,7 @@ pub fn greeted(hello: FromDaemon, hosted: FromDaemon) -> Result<Greeting, NotGre
         finds_windows,
         local,
         home,
+        backends,
     };
     Ok(greeting)
 }
@@ -213,6 +217,7 @@ impl Inbox {
                     | ipc::Answer::Folder(_)
                     | ipc::Answer::Changes(_)
                     | ipc::Answer::Diff(_)
+                    | ipc::Answer::ProviderUsage(_)
                     | ipc::Answer::Saved(_)) => other,
                 };
                 Some(Event::Answered {

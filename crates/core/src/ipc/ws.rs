@@ -132,8 +132,7 @@ async fn reach(server: &Server, addresses: &[SocketAddr]) -> Result<Line, Error>
             let said = response
                 .body()
                 .as_deref()
-                .map(|body| String::from_utf8_lossy(body).into_owned())
-                .unwrap_or_default();
+                .map_or_default(|body| String::from_utf8_lossy(body).into_owned());
             // Only edualcd's own refusal of another version is that; whatever else answers may
             // answer otherwise as the line is tried again.
             return Err(match response.status() {

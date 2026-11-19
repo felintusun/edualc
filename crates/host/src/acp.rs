@@ -16,7 +16,7 @@ pub(crate) mod brain;
 mod inbox;
 mod outbox;
 mod tool;
-mod translate;
+pub(crate) mod translate;
 
 use std::collections::HashMap;
 use std::io::Write as _;
@@ -67,7 +67,7 @@ const AGY_LIST: &str = "mcp_edualc_list_sessions";
 /// The agents edualc runs through the Agent Client Protocol, and what each does its own way.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum, strum::Display)]
 #[strum(serialize_all = "snake_case")]
-enum Agent {
+pub(crate) enum Agent {
     Agy,
     Opencode,
 }
@@ -239,6 +239,7 @@ impl Agent {
                 Self::Agy => {
                     error.message.contains("UNAUTHENTICATED")
                         || error.message.contains("not logged into Antigravity")
+                        || error.message.contains("Authentication required")
                 }
                 Self::Opencode => false,
             }
@@ -445,7 +446,7 @@ fn first_location(call: &ToolCall) -> Option<PathBuf> {
 
 /// Why the plan's quotas couldn't be read.
 #[derive(Debug, thiserror::Error)]
-enum QuotaError {
+pub(crate) enum QuotaError {
     #[error("{0} has no quotas to say")]
     NoQuotas(Agent),
     #[error("{0} isn't on PATH")]
@@ -458,6 +459,11 @@ enum QuotaError {
     Failed(std::process::ExitStatus),
     #[error("its answer can't be read: {0}")]
     Read(#[source] serde_json::Error),
+}
+
+/// Asks `agy` for its plan's quotas outside of an active session.
+pub(crate) async fn agy_quotas(cwd: PathBuf) -> Result<agy::Quotas, QuotaError> {
+    quotas(Agent::Agy, cwd).await
 }
 
 /// What `agent` says of its plan's quotas, asked in `cwd` (agy reads its settings there).

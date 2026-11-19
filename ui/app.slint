@@ -3,9 +3,9 @@
 
 import { ListView } from "std-widgets.slint";
 import { Look, Motion, SyntaxColours, Theme } from "theme.slint";
-import { Activity, ComposerSize, FocusArea, LiveState, PlaceView, PromptKind, SendKey, SideView, SignInWith, SwitcherItem } from "types.slint";
+import { Activity, Cjk, CjkChars, ComposerSize, FocusArea, HanLanguage, LiveState, PermissionKind, PlaceView, Program, PromptKind, SendKey, SideView, SignInWith, SwitcherItem } from "types.slint";
 import { Changes, Clipboard, Composer, Focus, Nav, Peek, Preferences, Prompt, Session, Sessions, Side, TextSelection, Transcript, Usage } from "state.slint";
-import { AreaFence, Caption, Field, Icon, IconButton, KeyPress, LiveDot, Pressable, Small, TextButton, Title } from "widgets.slint";
+import { AreaFence, Caption, Field, Icon, IconButton, KeyPress, LiveDot, MenuButton, Pressable, Small, TextButton, Title } from "widgets.slint";
 import { ChangesPanel } from "changes.slint";
 import { EntryView } from "transcript.slint";
 import { Heron } from "heron.slint";
@@ -16,7 +16,7 @@ import { ProjectPage } from "project.slint";
 import { Choice, SettingsPanel } from "settings.slint";
 import { SidePanel } from "side.slint";
 import { OpenFolderDialog, StartPage } from "start.slint";
-import { TopBar } from "topbar.slint";
+import { ContextMeter, TasksChip, TopBar } from "topbar.slint";
 import { UsagePanel } from "usage.slint";
 
 export { Look, Motion, SyntaxColours, Theme } from "theme.slint";
@@ -26,6 +26,7 @@ export { Changes, Clipboard, Composer, Focus, Nav, Peek, Preferences, Prompt, Se
 // Quick switcher opened with Ctrl+K inside a session to jump to another session across projects.
 component SessionSwitcher inherits Rectangle {
     callback close;
+    out property <bool> has-preedit: query-field.preedit-text != "";
     property <string> query;
     property <[SwitcherItem]> shown: Nav.filter-switcher(Nav.all-sessions, root.query);
     property <int> highlighted;
@@ -65,6 +66,9 @@ component SessionSwitcher inherits Rectangle {
             FocusScope {
                 horizontal-stretch: 1;
                 capture-key-pressed(event) => {
+                    if query-field.preedit-text != "" {
+                        return reject;
+                    }
                     if event.text == Key.UpArrow && root.shown.length > 0 {
                         root.highlighted = max(0, root.highlighted - 1);
                         return accept;
@@ -320,7 +324,10 @@ component PromptBar inherits Rectangle {
                 text: Prompt.detail;
                 wrap: word-wrap;
             }
-            HorizontalLayout {
+            FlexboxLayout {
+                flex-direction: FlexboxLayoutDirection.row;
+                flex-wrap: FlexboxLayoutWrap.wrap;
+                alignment: LayoutAlignment.start;
                 spacing: Theme.space-s;
                 TextButton {
                     enabled: root.armed;
@@ -351,7 +358,7 @@ component PromptBar inherits Rectangle {
             // does: once armed like the buttons, and not with nothing written.
             feedback := Field {
                 property <int> grab: root.grab-serial;
-                placeholder: "Or tell " + Session.agent + " what to do instead";
+                placeholder: "Or tell " + Session.agent-name + " what to do instead";
                 accepted(text) => {
                     if root.armed && text != "" {
                         Prompt.deny(Prompt.request, text);
@@ -373,10 +380,15 @@ component PromptBar inherits Rectangle {
         // them.
         if Prompt.kind == PromptKind.question: VerticalLayout {
             spacing: Theme.space-s;
-            tabs := HorizontalLayout {
+            tabs := FlexboxLayout {
+                flex-direction: FlexboxLayoutDirection.row;
+                flex-wrap: FlexboxLayoutWrap.wrap;
+                alignment: LayoutAlignment.start;
                 spacing: Theme.space-xs;
-                alignment: start;
-                if Prompt.questions.length > 1: HorizontalLayout {
+                if Prompt.questions.length > 1: FlexboxLayout {
+                    flex-direction: FlexboxLayoutDirection.row;
+                    flex-wrap: FlexboxLayoutWrap.wrap;
+                    alignment: LayoutAlignment.start;
                     spacing: Theme.space-xs;
                     // Left and Right in the options go between them.
                     for question[q] in Prompt.questions: Pressable {
@@ -441,11 +453,13 @@ component PromptBar inherits Rectangle {
                         HorizontalLayout {
                             spacing: Theme.space-m;
                             // One stop for Tab: Up and Down go through the options and Space
-                            // picks one. Enter goes on to the next question, picking the option
-                            // first for a single choice, and on the last question it answers.
-                            // Left and Right go between the questions.
+                            // picks one. Enter advances or confirms only after an explicit
+                            // selection (or picks after keyboard navigation, without auto-submitting
+                            // option 0 on a single raw Enter). Left and Right go between questions.
                             options := FocusScope {
                                 property <int> at: 0;
+                                property <bool> interacted: false;
+                                property <int> prompt-serial: Prompt.serial;
                                 property <int> grab: root.grab-serial;
                                 horizontal-stretch: 1;
                                 focus-on-click: false;
@@ -466,6 +480,7 @@ component PromptBar inherits Rectangle {
                                 // Option `o` clicked, or pressed by assistive technology.
                                 function choose(o: int) {
                                     self.at = o;
+                                    self.interacted = true;
                                     self.pick();
                                 }
                                 // On to the next question, or the answer after the last; not
@@ -478,25 +493,33 @@ component PromptBar inherits Rectangle {
                                     }
                                 }
                                 init => { self.take(); }
-                                changed grab => { self.take(); }
+                                changed prompt-serial => { self.interacted = false; }
+                                changed grab => {
+                                    self.interacted = false;
+                                    self.take();
+                                }
                                 key-pressed(event) => {
                                     if event.text == Key.DownArrow {
+                                        self.interacted = true;
                                         self.at = min(self.at + 1, question.options.length - 1);
                                         return accept;
                                     }
                                     if event.text == Key.UpArrow {
+                                        self.interacted = true;
                                         self.at = max(self.at - 1, 0);
                                         return accept;
                                     }
                                     if event.text == " " {
+                                        self.interacted = true;
                                         self.pick();
                                         return accept;
                                     }
                                     if event.text == Key.Return {
-                                        if !question.multi && !question.options[self.at].selected {
+                                        if question.answered {
+                                            self.go-on();
+                                        } else if self.interacted && !question.multi {
                                             self.pick();
                                         }
-                                        self.go-on();
                                         return accept;
                                     }
                                     if event.text == Key.RightArrow {
@@ -568,16 +591,18 @@ component PromptBar inherits Rectangle {
                             edited(text) => { Prompt.set-other(q, text); }
                         }
                         Field {
-                            placeholder: "Notes for " + Session.agent + ", with the answer (optional)";
+                            placeholder: "Notes for " + Session.agent-name + ", with the answer (optional)";
                             edited(text) => { Prompt.set-notes(q, text); }
                         }
                     }
                 }
             }
             // Next until the last question, which is answered; Skip leaves them all.
-            choices := HorizontalLayout {
+            choices := FlexboxLayout {
+                flex-direction: FlexboxLayoutDirection.row;
+                flex-wrap: FlexboxLayoutWrap.wrap;
+                alignment: LayoutAlignment.start;
                 spacing: Theme.space-s;
-                alignment: start;
                 if root.current > 0: TextButton {
                     text: "Back";
                     clicked => { root.show-question(root.current - 1); }
@@ -617,9 +642,11 @@ component PromptBar inherits Rectangle {
                     }
                 }
             }
-            HorizontalLayout {
+            FlexboxLayout {
+                flex-direction: FlexboxLayoutDirection.row;
+                flex-wrap: FlexboxLayoutWrap.wrap;
+                alignment: LayoutAlignment.start;
                 spacing: Theme.space-s;
-                alignment: start;
                 TextButton {
                     enabled: root.armed;
                     text: "Approve, accept edits";
@@ -674,6 +701,9 @@ component CommandList inherits Rectangle {
                     font-family: Theme.mono;
                     font-size: 1rem * Theme.code-size;
                     vertical-alignment: center;
+                    overflow: elide;
+                    min-width: 0px;
+                    max-width: 14rem;
                 }
                 Small {
                     text: command.description;
@@ -753,6 +783,17 @@ component EditArea inherits Rectangle {
     in property <bool> stretched;
     // The most a drag makes it.
     in property <length> tallest-dragged: 600px;
+    in property <bool> narrow: false;
+    in property <bool> compact-menus: false;
+    out property <string> preedit-text: input.preedit-text;
+    property <PermissionKind> mode: Session.mode;
+    property <CjkChars> han-cjk: {
+        language: Preferences.han-language == HanLanguage.japanese ? Cjk.japanese
+            : Preferences.han-language == HanLanguage.simplified-chinese ? Cjk.simplified-chinese
+            : Preferences.han-language == HanLanguage.traditional-chinese ? Cjk.traditional-chinese
+            : Cjk.korean,
+        main: false,
+    };
     property <length> line: one-line.preferred-height;
     // How it was before it was made taller.
     function back() {
@@ -845,6 +886,9 @@ component EditArea inherits Rectangle {
     one-line := Text {
         visible: false;
         text: " ";
+        font-family: input.font-family;
+        language: Theme.language-tag(root.han-cjk);
+        line-height-factor: Theme.line-factor(root.han-cjk);
     }
     measure := Text {
         visible: false;
@@ -852,6 +896,8 @@ component EditArea inherits Rectangle {
         // With what an input method still composes, which isn't in the draft yet.
         text: Composer.draft + input.preedit-text + " ";
         font-family: input.font-family;
+        language: input.language;
+        line-height-factor: input.line-height-factor;
         wrap: word-wrap;
     }
     // The draft's width on one line, where a command's hint starts.
@@ -867,8 +913,8 @@ component EditArea inherits Rectangle {
     // scrolled in its box) would make its implicit height that of all of a long draft.
     out property <length> fit-height: body.preferred-height;
     body := VerticalLayout {
-        padding-left: Theme.space-xl;
-        padding-right: Theme.space-l;
+        padding-left: root.narrow ? Theme.space-m : Theme.space-xl;
+        padding-right: root.narrow ? Theme.space-m : Theme.space-l;
         padding-top: Theme.space-m;
         padding-bottom: Theme.space-s;
         spacing: Theme.space-s;
@@ -920,9 +966,9 @@ component EditArea inherits Rectangle {
                 y: (parent.height - self.height) / 2;
             }
             Small {
-                text: !Session.shell-commands ? "Shell command: " + Session.agent + " sessions don't run these. Ask " + Session.agent + " to run it, or use a terminal."
+                text: !Session.can-shell ? "Shell command: " + Session.agent-name + " sessions don't run these. Ask " + Session.agent-name + " to run it, or use a terminal."
                     : "Shell command: Enter runs it beside the conversation."
-                    + " Claude sees it, and what it printed, with your next message.";
+                    + " " + Session.agent-name + " sees it, and what it printed, with your next message.";
                 color: Theme.text-secondary;
                 wrap: word-wrap;
                 horizontal-stretch: 1;
@@ -945,9 +991,9 @@ component EditArea inherits Rectangle {
                 x: 0;
                 y: 0;
                 width: scroll.width;
-                text: Session.turn ? "Write the next message; it waits until " + Session.agent + " is done"
-                    : Preferences.send-key == SendKey.ctrl-enter ? "Message " + Session.agent + "  ·  / for commands  ·  ! for a shell command  ·  Ctrl+Enter to send"
-                    : "Message " + Session.agent + "  ·  / for commands  ·  ! for a shell command  ·  Shift+Enter for a new line";
+                text: Session.turn ? "Write the next message; it waits until " + Session.agent-name + " is done"
+                    : Preferences.send-key == SendKey.ctrl-enter ? "Message " + Session.agent-name + "  ·  / for commands" + (Session.can-shell ? "  ·  ! for a shell command" : "") + "  ·  Ctrl+Enter to send"
+                    : "Message " + Session.agent-name + "  ·  / for commands" + (Session.can-shell ? "  ·  ! for a shell command" : "") + "  ·  Shift+Enter for a new line";
                 overflow: elide;
                 color: Theme.text-faint;
                 // Only drawn: the entry itself tells assistive technology.
@@ -975,10 +1021,14 @@ component EditArea inherits Rectangle {
                 color: Theme.text;
                 // A shell command is set as code.
                 font-family: Composer.shell ? Theme.mono : Theme.sans;
+                language: Theme.language-tag(root.han-cjk);
+                line-height-factor: Theme.line-factor(root.han-cjk);
                 selection-background-color: Theme.selection;
                 selection-foreground-color: Theme.selection-text;
-                accessible-label: "Message to " + Session.agent;
-                accessible-placeholder-text: "Message " + Session.agent + ", or start with ! for a shell command";
+                accessible-label: "Message to " + Session.agent-name;
+                accessible-placeholder-text: Session.can-shell
+                    ? "Message " + Session.agent-name + ", or start with ! for a shell command"
+                    : "Message " + Session.agent-name;
                 edited => {
                     Composer.command-index = 0;
                     root.hint-dismissed = false;
@@ -1004,6 +1054,9 @@ component EditArea inherits Rectangle {
                 // text as ever. Otherwise Up on the first line and Down on the last step through
                 // the session's earlier prompts.
                 key-pressed(event) => {
+                    if self.preedit-text != "" {
+                        return reject;
+                    }
                     if event.text == Key.Return && event.modifiers.control {
                         if Preferences.send-key == SendKey.ctrl-enter {
                             root.send-draft();
@@ -1069,6 +1122,40 @@ component EditArea inherits Rectangle {
         }
         HorizontalLayout {
             spacing: Theme.space-xs;
+            MenuButton {
+                below: false;
+                enabled: !Session.watching;
+                heading: "Permission mode";
+                model: Session.modes;
+                current-index <=> Session.mode-index;
+                max-width: 13rem;
+                compact: root.compact-menus;
+                y: (parent.height - self.height) / 2;
+                icon: root.mode == PermissionKind.accept-edits ? @image-url("@lucide/file-pen-line.svg")
+                    : root.mode == PermissionKind.plan ? @image-url("@lucide/map.svg")
+                    : root.mode == PermissionKind.auto ? @image-url("@lucide/zap.svg")
+                    : root.mode == PermissionKind.bypass ? @image-url("@lucide/shield-exclamation-point.svg")
+                    : root.mode == PermissionKind.unknown ? @image-url("@lucide/shield-question-mark.svg")
+                    : @image-url("@lucide/shield-check.svg");
+                tint: root.mode == PermissionKind.accept-edits ? Theme.warning-text
+                    : root.mode == PermissionKind.plan ? Theme.link
+                    : root.mode == PermissionKind.auto ? Theme.info
+                    : root.mode == PermissionKind.bypass ? Theme.danger-text
+                    : Theme.text-secondary;
+                selected(index) => { Session.choose-mode(index); }
+            }
+            MenuButton {
+                below: false;
+                enabled: !Session.watching;
+                heading: "Model";
+                model: Session.models;
+                current-index <=> Session.model-index;
+                max-width: 15rem;
+                compact: root.compact-menus;
+                y: (parent.height - self.height) / 2;
+                icon: @image-url("@lucide/sparkle.svg");
+                selected(index) => { Session.choose-model(index); }
+            }
             if Session.busy: LiveDot {
                 state: Prompt.kind != PromptKind.none ? LiveState.waiting : LiveState.busy;
                 y: (parent.height - self.height) / 2;
@@ -1085,8 +1172,9 @@ component EditArea inherits Rectangle {
             // (Super+F did nothing).
             Rectangle {
                 horizontal-stretch: 1;
+                min-width: 0px;
             }
-            IconButton {
+            if Session.can-shell: IconButton {
                 icon: @image-url("@lucide/square-terminal.svg");
                 label: Composer.shell ? "Make it a message again" : "Run a shell command (start with !)";
                 tint: Composer.shell ? Theme.info : Theme.text-secondary;
@@ -1210,9 +1298,11 @@ component TrustBar inherits Rectangle {
             text: "Trusting it here trusts it for Claude Code in the terminal too (in ~/.claude.json), so its permission rules apply.";
             wrap: word-wrap;
         }
-        HorizontalLayout {
+        FlexboxLayout {
+            flex-direction: FlexboxLayoutDirection.row;
+            flex-wrap: FlexboxLayoutWrap.wrap;
+            alignment: LayoutAlignment.end;
             spacing: Theme.space-s;
-            alignment: end;
             TextButton {
                 text: "Open another folder";
                 clicked => { Sessions.browse-project(); }
@@ -1299,6 +1389,7 @@ component ApiKeySessionDialog inherits Rectangle {
     background: Theme.surface;
     drop-shadow-blur: 24px;
     drop-shadow-color: Theme.shadow;
+    clip: true;
     // Clicks on the dialog stay with it.
     TouchArea { }
     FocusScope {
@@ -1326,6 +1417,16 @@ component ApiKeySessionDialog inherits Rectangle {
     content := VerticalLayout {
         padding: Theme.space-l;
         spacing: Theme.space-s;
+        first-fence := AreaFence {
+            area: FocusArea.conversation;
+            crossed => {
+                if !Focus.going-round {
+                    Focus.going-round = true;
+                    last-fence.focus();
+                    Focus.step(false);
+                }
+            }
+        }
         HorizontalLayout {
             spacing: Theme.space-s;
             Icon {
@@ -1338,25 +1439,36 @@ component ApiKeySessionDialog inherits Rectangle {
                 vertical-alignment: center;
                 horizontal-stretch: 1;
                 wrap: word-wrap;
+                min-width: 0px;
             }
         }
-        Small {
-            text: "It signs in with the Anthropic API key kept in your keyring. Anthropic bills each token it uses to the key's account, not to your plan. Your other sessions keep your own sign-in.";
-            wrap: word-wrap;
-        }
-        Small {
-            text: "In " + Session.cwd;
-            overflow: elide;
-        }
-        Caption {
-            text: "Model";
-        }
-        for model[index] in root.models: Choice {
-            title: model.title;
-            detail: model.detail;
-            chosen: index == root.picked;
-            tab-stop: false;
-            clicked => { root.picked = index; }
+        Flickable {
+            vertical-stretch: 1;
+            preferred-height: body.preferred-height;
+            content-height: body.preferred-height;
+            body := VerticalLayout {
+                width: parent.width;
+                spacing: Theme.space-s;
+                Small {
+                    text: "It signs in with the Anthropic API key kept in your keyring. Anthropic bills each token it uses to the key's account, not to your plan. Your other sessions keep your own sign-in.";
+                    wrap: word-wrap;
+                }
+                Small {
+                    text: "In " + Session.cwd;
+                    overflow: elide;
+                    min-width: 0px;
+                }
+                Caption {
+                    text: "Model";
+                }
+                for model[index] in root.models: Choice {
+                    title: model.title;
+                    detail: model.detail;
+                    chosen: index == root.picked;
+                    tab-stop: false;
+                    clicked => { root.picked = index; }
+                }
+            }
         }
         HorizontalLayout {
             alignment: end;
@@ -1370,6 +1482,16 @@ component ApiKeySessionDialog inherits Rectangle {
                 text: "Start";
                 primary: true;
                 clicked => { root.start(); }
+            }
+        }
+        last-fence := AreaFence {
+            area: FocusArea.conversation;
+            crossed => {
+                if !Focus.going-round {
+                    Focus.going-round = true;
+                    first-fence.focus();
+                    Focus.step(true);
+                }
             }
         }
     }
@@ -1401,8 +1523,10 @@ component SignInChoiceBar inherits Rectangle {
                 horizontal-stretch: 1;
             }
         }
-        HorizontalLayout {
-            alignment: start;
+        FlexboxLayout {
+            flex-direction: FlexboxLayoutDirection.row;
+            flex-wrap: FlexboxLayoutWrap.wrap;
+            alignment: LayoutAlignment.start;
             spacing: Theme.space-s;
             TextButton {
                 text: "Your sign-in";
@@ -1462,6 +1586,8 @@ component SignInBar inherits Rectangle {
                     color: Theme.text;
                     font-family: Theme.mono;
                     font-size: 1rem * Theme.code-size;
+                    wrap: word-wrap;
+                    min-width: 0px;
                     vertical-alignment: center;
                     horizontal-stretch: 1;
                 }
@@ -1472,9 +1598,11 @@ component SignInBar inherits Rectangle {
                 }
             }
         }
-        HorizontalLayout {
+        FlexboxLayout {
+            flex-direction: FlexboxLayoutDirection.row;
+            flex-wrap: FlexboxLayoutWrap.wrap;
+            alignment: LayoutAlignment.end;
             spacing: Theme.space-s;
-            alignment: end;
             TextButton {
                 text: "Not now";
                 clicked => { Session.dismiss-sign-in(); }
@@ -1488,12 +1616,11 @@ component SignInBar inherits Rectangle {
     }
 }
 
-// Bringing it here stops it in its window, so it asks first.
+// Shown in place of the composer while watching a session running in another window.
 component WatchBar inherits Rectangle {
-    property <bool> confirming;
     border-radius: Theme.radius-l;
     border-width: 1px;
-    border-color: root.confirming ? Theme.warning : Theme.divider;
+    border-color: Theme.divider;
     background: Theme.card;
     VerticalLayout {
         padding: Theme.space-m;
@@ -1505,17 +1632,15 @@ component WatchBar inherits Rectangle {
                 y: (parent.height - self.height) / 2;
             }
             Text {
-                text: root.confirming
-                    ? "Stop it in its window and continue it here? If it is working, its current step is interrupted."
-                    : Session.watch-text;
-                color: root.confirming ? Theme.text : Theme.text-secondary;
+                text: Session.watch-text;
+                color: Theme.text-secondary;
                 wrap: word-wrap;
                 vertical-alignment: center;
                 horizontal-stretch: 1;
             }
         }
         // In a narrow window the buttons go onto more lines.
-        if !root.confirming: FlexboxLayout {
+        FlexboxLayout {
             flex-direction: FlexboxLayoutDirection.row;
             flex-wrap: FlexboxLayoutWrap.wrap;
             alignment: LayoutAlignment.end;
@@ -1528,31 +1653,15 @@ component WatchBar inherits Rectangle {
             }
             TextButton {
                 text: "Continue here as a copy";
+                enabled: Session.can-fork;
+                primary: Session.can-fork;
+                label: Session.can-fork ? "Continue here as a copy" : "Forking a watched session isn't supported for " + Session.agent-name;
                 has-icon: true;
                 icon: @image-url("@lucide/copy.svg");
-                clicked => { Session.continue-here(); }
-            }
-            TextButton {
-                text: "Bring it here";
-                primary: true;
-                has-icon: true;
-                icon: @image-url("@lucide/arrow-down-to-line.svg");
-                clicked => { root.confirming = true; }
-            }
-        }
-        if root.confirming: HorizontalLayout {
-            spacing: Theme.space-s;
-            alignment: end;
-            TextButton {
-                text: "Cancel";
-                clicked => { root.confirming = false; }
-            }
-            TextButton {
-                text: "Stop it there, continue here";
-                primary: true;
                 clicked => {
-                    root.confirming = false;
-                    Session.bring-here();
+                    if Session.can-fork {
+                        Session.continue-here();
+                    }
                 }
             }
         }
@@ -1593,18 +1702,65 @@ export component AppWindow inherits Window {
     property <bool> switcher-open;
     property <bool> new-project-open;
     property <bool> open-folder-open;
+    property <bool> switcher-preedit;
+    property <bool> side-preedit;
+    property <bool> tall-preedit;
+    property <bool> tall-open: Nav.view == PlaceView.session && (Composer.size == ComposerSize.tall || Composer.size == ComposerSize.full) && !Session.watching && !Session.needs-trust;
+    changed tall-open => {
+        if !self.tall-open {
+            root.tall-preedit = false;
+        }
+    }
+    property <bool> narrow;
+    property <bool> tight;
+    property <bool> compact-side;
+    property <bool> compact-menus;
+    property <length> side-preferred: Theme.side-panel;
+    property <length> rem-unit: 1rem;
+    function update-breakpoints() {
+        self.narrow = self.width < 58rem;
+        self.tight = self.width < 40rem;
+        self.compact-side = self.width < 42rem;
+        self.compact-menus = self.width < 46rem;
+        self.side-preferred = min(Theme.side-panel, self.width * 42%);
+    }
+    init => { self.update-breakpoints(); }
+    changed width => { self.update-breakpoints(); }
+    changed rem-unit => { self.update-breakpoints(); }
+    property <bool> modal-open: Preferences.open || Usage.open || root.new-project-open || root.open-folder-open || root.switcher-open || Sessions.api-key-dialog;
     property <int> switcher-serial: Nav.switcher-serial;
     property <int> new-project-serial: Nav.new-project-serial;
     property <PlaceView> current-view: Nav.view;
+    property <SideView> side-view-state: Side.view;
+    property <bool> peek-open-state: Peek.open;
     changed switcher-serial => {
         if Nav.view == PlaceView.session {
             root.switcher-open = !root.switcher-open;
+        }
+    }
+    changed switcher-open => {
+        if !self.switcher-open {
+            root.switcher-preedit = false;
+        }
+    }
+    changed side-view-state => {
+        if self.side-view-state != SideView.shown {
+            root.side-preedit = false;
+        }
+    }
+    changed peek-open-state => {
+        if self.peek-open-state {
+            root.side-preedit = false;
         }
     }
     changed new-project-serial => { root.new-project-open = true; }
     changed current-view => {
         root.switcher-open = false;
         root.open-folder-open = false;
+        root.switcher-preedit = false;
+        root.side-preedit = false;
+        root.tall-preedit = false;
+        TextSelection.clear();
     }
 
     // Rust colours code with these, into the text it builds: told when they change.
@@ -1677,18 +1833,17 @@ export component AppWindow inherits Window {
                     TextSelection.copy();
                     return accept;
                 }
-                if event.text == Key.Escape {
+                if event.text == Key.Escape && composer.preedit-text == "" && !root.tall-preedit && !root.side-preedit && !root.switcher-preedit && !Changes.editing-comment {
                     TextSelection.clear();
                     return accept;
                 }
             }
             if event.text == Key.Escape {
                 if root.switcher-open {
+                    if root.switcher-preedit {
+                        return reject;
+                    }
                     root.switcher-open = false;
-                    return accept;
-                }
-                if Changes.open && !Changes.editing-comment && !Usage.open && !Preferences.open {
-                    Changes.close();
                     return accept;
                 }
                 if root.new-project-open {
@@ -1703,12 +1858,46 @@ export component AppWindow inherits Window {
                     Sessions.api-key-dialog = false;
                     return accept;
                 }
+                if Preferences.open {
+                    root.close-settings();
+                    return accept;
+                }
                 if Usage.open {
                     Usage.close();
                     return accept;
                 }
-                if Preferences.open {
-                    root.close-settings();
+                if Changes.open && !Changes.editing-comment {
+                    Changes.close();
+                    return accept;
+                }
+                if Nav.view == PlaceView.session && root.compact-side && Peek.open {
+                    Peek.close();
+                    return accept;
+                }
+                if Nav.view == PlaceView.session && root.compact-side && Side.view == SideView.shown {
+                    if root.side-preedit {
+                        return reject;
+                    }
+                    Side.toggle();
+                    return accept;
+                }
+            }
+            // Modals isolate background navigation, switching, and turn interruption.
+            if root.modal-open {
+                if event.modifiers.control && event.text == "," {
+                    if Usage.open {
+                        Usage.close();
+                        Preferences.open = true;
+                    }
+                    return accept;
+                }
+                if event.modifiers.alt && (event.text == Key.LeftArrow || event.text == Key.UpArrow) {
+                    return accept;
+                }
+                if event.modifiers.control && (event.text == "n" || event.text == "N" || event.text == "k" || event.text == "K") {
+                    return accept;
+                }
+                if event.text == Key.F6 {
                     return accept;
                 }
             }
@@ -1718,18 +1907,22 @@ export component AppWindow inherits Window {
                 return accept;
             }
             if event.modifiers.alt && (event.text == Key.LeftArrow || event.text == Key.UpArrow) && Nav.can-back {
+                if Nav.view == PlaceView.session && (Prompt.kind != PromptKind.none || Session.needs-trust) {
+                    return accept;
+                }
                 Nav.back();
                 return accept;
             }
-            // While Claude waits for an answer, Esc belongs to what asks (a comment being written).
-            // With a draft written, it stops nothing: an Esc meant for the writing (one more
-            // after an input method's conversion was cancelled, say) mustn't stop a turn; Stop
-            // is beside the draft then.
-            if Nav.view == PlaceView.session && event.text == Key.Escape && Session.busy && Prompt.kind == PromptKind.none && Composer.draft == "" {
+            // While Claude waits for an answer, an overlay is open, or an IME is composing, Esc
+            // must not interrupt a running turn.
+            if Nav.view == PlaceView.session && event.text == Key.Escape && Session.busy && Prompt.kind == PromptKind.none && !Session.needs-trust && !Changes.open && !Changes.editing-comment && !(Prompt.kind == PromptKind.plan && Prompt.reviewing) && Composer.draft == "" && composer.preedit-text == "" && !root.tall-preedit && !root.side-preedit {
                 Session.interrupt();
                 return accept;
             }
             if event.modifiers.control && (event.text == "n" || event.text == "N") {
+                if Nav.view == PlaceView.session && (Prompt.kind != PromptKind.none || Session.needs-trust) {
+                    return accept;
+                }
                 if Nav.view == PlaceView.start {
                     root.new-project-open = true;
                 } else {
@@ -1793,7 +1986,7 @@ export component AppWindow inherits Window {
                     visible: Nav.view == PlaceView.session;
                     column := VerticalLayout {
                         horizontal-stretch: 1;
-                        min-width: 360px;
+                        min-width: 0px;
                         // Tab goes round within the conversation (the transcript), and
                         // within what Claude asks together with the composer.
                         conversation-start := AreaFence {
@@ -1804,6 +1997,214 @@ export component AppWindow inherits Window {
                                     conversation-end.focus();
                                     Focus.step(false);
                                 }
+                            }
+                        }
+                        // Slim in-chat controls strip: New session and Changes on the left,
+                        // btw flush right at the top-right edge.
+                        Rectangle {
+                            background: Theme.surface-raised;
+                            height: chat-bar.preferred-height + 1px;
+                            chat-bar := HorizontalLayout {
+                                width: parent.width;
+                                padding-left: root.tight ? Theme.space-s : Theme.space-m;
+                                padding-right: root.tight ? Theme.space-s : Theme.space-m;
+                                padding-top: Theme.space-xs;
+                                padding-bottom: Theme.space-xs;
+                                spacing: Theme.space-xs;
+                                FlexboxLayout {
+                                    horizontal-stretch: 1;
+                                    min-width: 0px;
+                                    flex-direction: FlexboxLayoutDirection.row;
+                                    flex-wrap: FlexboxLayoutWrap.wrap;
+                                    alignment: LayoutAlignment.start;
+                                    spacing: Theme.space-xs;
+                                    Pressable {
+                                        height: Theme.chip;
+                                        border-radius: Theme.radius-m;
+                                        accessible-label: "New session in project (Ctrl+N)";
+                                        clicked => { Sessions.new-session-in-project(Sessions.program); }
+                                        HorizontalLayout {
+                                            padding-left: Theme.space-s;
+                                            padding-right: Theme.space-s;
+                                            spacing: Theme.space-xs;
+                                            Icon {
+                                                source: @image-url("@lucide/square-pen.svg");
+                                                tint: Theme.text-secondary;
+                                                width: Theme.icon-small;
+                                                y: (parent.height - self.height) / 2;
+                                            }
+                                            if !root.tight: Text {
+                                                text: "New session";
+                                                color: Theme.text-secondary;
+                                                font-size: 1rem * Theme.small;
+                                                vertical-alignment: center;
+                                                accessible-role: none;
+                                            }
+                                        }
+                                    }
+                                    Pressable {
+                                        selected: Changes.open;
+                                        height: Theme.chip;
+                                        border-radius: Theme.radius-m;
+                                        accessible-label: Changes.open ? "Back to the conversation"
+                                            : Changes.last-turn != "" ? "Changes: the last turn changed " + Changes.last-turn
+                                            : "Changes";
+                                        clicked => {
+                                            if Changes.open {
+                                                Changes.close();
+                                            } else {
+                                                Changes.show();
+                                            }
+                                        }
+                                        HorizontalLayout {
+                                            padding-left: Theme.space-s;
+                                            padding-right: Theme.space-s;
+                                            spacing: Theme.space-xs;
+                                            Icon {
+                                                source: @image-url("@lucide/git-compare.svg");
+                                                tint: Changes.last-turn != "" ? Theme.claude : Theme.text-secondary;
+                                                width: Theme.icon-small;
+                                                y: (parent.height - self.height) / 2;
+                                            }
+                                            Text {
+                                                text: Changes.last-turn != "" ? Changes.last-turn : "Changes";
+                                                color: Changes.open ? Theme.text : Theme.text-secondary;
+                                                font-size: 1rem * Theme.small;
+                                                vertical-alignment: center;
+                                                overflow: elide;
+                                                min-width: 0px;
+                                                max-width: 10rem;
+                                                accessible-role: none;
+                                            }
+                                        }
+                                    }
+                                    if Session.worktree-name != "": worktree := Pressable {
+                                        height: Theme.chip;
+                                        border-radius: Theme.radius-m;
+                                        border-width: 1px;
+                                        border-color: Theme.divider;
+                                        accessible-label: "Worktree " + Session.worktree-name;
+                                        clicked => { openers.show(); }
+                                        HorizontalLayout {
+                                            padding-left: Theme.space-s;
+                                            padding-right: Theme.space-s;
+                                            spacing: Theme.space-xs;
+                                            Icon {
+                                                source: @image-url("@lucide/git-branch.svg");
+                                                tint: Theme.claude;
+                                                width: Theme.icon-small;
+                                                y: (parent.height - self.height) / 2;
+                                            }
+                                            Text {
+                                                text: Session.worktree-name;
+                                                color: Theme.text;
+                                                font-size: 1rem * Theme.small;
+                                                vertical-alignment: center;
+                                                overflow: elide;
+                                                min-width: 0px;
+                                                max-width: 10rem;
+                                            }
+                                            if !root.tight && Session.worktree-branch != "" && Session.worktree-branch != Session.worktree-name: Caption {
+                                                text: Session.worktree-branch;
+                                                vertical-alignment: center;
+                                                overflow: elide;
+                                                min-width: 0px;
+                                                max-width: 8rem;
+                                            }
+                                            Icon {
+                                                source: @image-url("@lucide/chevron-down.svg");
+                                                width: Theme.icon-small;
+                                                y: (parent.height - self.height) / 2;
+                                            }
+                                        }
+                                        openers := PopupWindow {
+                                            x: max(-worktree.absolute-position.x + Theme.space-s, min(0px, worktree.width - self.width));
+                                            y: worktree.height + Theme.space-xs;
+                                            width: 220px;
+                                            height: menu.preferred-height;
+                                            close-policy: close-on-click-outside;
+                                            FocusScope {
+                                                init => { self.focus(); }
+                                                key-pressed(event) => {
+                                                    if event.text == Key.Escape {
+                                                        openers.close();
+                                                        return accept;
+                                                    }
+                                                    return reject;
+                                                }
+                                            }
+                                            Rectangle {
+                                                background: Theme.surface;
+                                                border-radius: Theme.radius-m;
+                                                border-width: 1px;
+                                                border-color: Theme.divider;
+                                                drop-shadow-blur: 12px;
+                                                drop-shadow-color: Theme.shadow;
+                                                menu := VerticalLayout {
+                                                    padding: Theme.space-xs;
+                                                    Caption {
+                                                        text: "Open the worktree in";
+                                                    }
+                                                    for opener[index] in Session.openers: Pressable {
+                                                        height: Theme.control;
+                                                        clicked => {
+                                                            Session.open-worktree(index);
+                                                            openers.close();
+                                                        }
+                                                        Text {
+                                                            x: Theme.space-s;
+                                                            text: opener;
+                                                            color: Theme.text;
+                                                            vertical-alignment: center;
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                    if Session.tasks.length > 0: TasksChip {
+                                        window-height: root.height;
+                                    }
+                                    if Session.context != "": ContextMeter { }
+                                }
+                                if Session.can-btw: Pressable {
+                                    selected: Side.view == SideView.shown;
+                                    height: Theme.chip;
+                                    y: (parent.height - self.height) / 2;
+                                    border-radius: Theme.radius-m;
+                                    accessible-label: Side.view == SideView.shown ? "Fold the side questions away" : "Side questions (/btw)";
+                                    clicked => { Side.toggle(); }
+                                    HorizontalLayout {
+                                        padding-left: Theme.space-s;
+                                        padding-right: Theme.space-s;
+                                        spacing: Theme.space-xs;
+                                        Icon {
+                                            source: @image-url("@lucide/message-circle-dashed.svg");
+                                            tint: Side.view != SideView.hidden ? Theme.claude : Theme.text-secondary;
+                                            width: Theme.icon-small;
+                                            y: (parent.height - self.height) / 2;
+                                        }
+                                        Text {
+                                            text: "btw";
+                                            color: Side.view != SideView.hidden ? Theme.text : Theme.text-secondary;
+                                            font-size: 1rem * Theme.small;
+                                            vertical-alignment: center;
+                                        }
+                                        if Side.unseen: Rectangle {
+                                            width: 8px;
+                                            height: 8px;
+                                            y: (parent.height - self.height) / 2;
+                                            border-radius: 4px;
+                                            background: Theme.claude;
+                                        }
+                                    }
+                                }
+                            }
+                            Rectangle {
+                                y: parent.height - 1px;
+                                width: parent.width;
+                                height: 1px;
+                                background: Theme.divider;
                             }
                         }
                 Rectangle {
@@ -1882,6 +2283,7 @@ export component AppWindow inherits Window {
                         opacity: self.settling ? 0 : 1;
                         property <int> opened-serial: Transcript.opened-serial;
                         changed opened-serial => {
+                            TextSelection.clear();
                             self.settling = true;
                             self.opened-at = animation-tick();
                             self.changed-at = animation-tick();
@@ -2121,6 +2523,8 @@ export component AppWindow inherits Window {
                     greeting := VerticalLayout {
                         property <bool> empty: Transcript.entries.length == 0;
                         alignment: center;
+                        padding-left: Theme.space-l;
+                        padding-right: Theme.space-l;
                         spacing: Theme.space-m;
                         HorizontalLayout {
                             alignment: center;
@@ -2128,6 +2532,7 @@ export component AppWindow inherits Window {
                                 width: 64px;
                                 height: 64px;
                                 wanted: greeting.empty;
+                                active: Nav.view == PlaceView.session;
                                 reach-x: transcript.width / 2 + 64px;
                                 reach-y: transcript.height / 2 + 64px;
                             }
@@ -2138,6 +2543,8 @@ export component AppWindow inherits Window {
                             font-weight: 600;
                             color: Theme.text;
                             horizontal-alignment: center;
+                            wrap: word-wrap;
+                            min-width: 0px;
                             opacity: greeting.empty ? 1 : 0;
                             animate opacity { duration: 250ms; easing: ease-out; }
                             visible: self.opacity > 0;
@@ -2146,6 +2553,7 @@ export component AppWindow inherits Window {
                             text: "in " + Session.cwd;
                             horizontal-alignment: center;
                             overflow: elide;
+                            min-width: 0px;
                             opacity: greeting.empty ? 1 : 0;
                             animate opacity { duration: 250ms; easing: ease-out; }
                             visible: self.opacity > 0;
@@ -2223,10 +2631,10 @@ export component AppWindow inherits Window {
                         }
                         if Composer.commands.length > 0: CommandList { }
                         if Session.watching: WatchBar { }
-                        if Session.needs-trust && !Session.watching: TrustBar { }
-                        if Session.asks-claude-trust && !Session.watching: ClaudeTrustBar { }
-                        if Session.shows-sign-in && !Session.watching: SignInBar { }
-                        if Sessions.choosing-sign-in != "": SignInChoiceBar { }
+                        if !Session.watching && Session.needs-trust: TrustBar { }
+                        if !Session.watching && !Session.needs-trust && Sessions.choosing-sign-in != "": SignInChoiceBar { }
+                        if !Session.watching && !Session.needs-trust && Sessions.choosing-sign-in == "" && Session.shows-sign-in: SignInBar { }
+                        if !Session.watching && !Session.needs-trust && Sessions.choosing-sign-in == "" && !Session.shows-sign-in && Session.asks-claude-trust: ClaudeTrustBar { }
                     }
                 }
                 // The text box, edge to edge (see `EditArea`); a watched session is only read, and
@@ -2235,6 +2643,8 @@ export component AppWindow inherits Window {
                     visible: !Session.watching && !Session.needs-trust && (Composer.size == ComposerSize.fit || Composer.size == ComposerSize.chosen);
                     height: self.visible ? self.fit-height : 0;
                     tallest-dragged: column.height * 80%;
+                    narrow: root.tight;
+                    compact-menus: root.compact-menus;
                     // Back from being made taller: the writing goes on here.
                     changed visible => {
                         if self.visible {
@@ -2253,23 +2663,44 @@ export component AppWindow inherits Window {
                     }
                 }
             }
-            if Side.view == SideView.shown || Peek.open: Rectangle {
+            if !root.compact-side && (Side.view == SideView.shown || Peek.open): Rectangle {
                 width: 1px;
                 background: Theme.divider;
             }
             // A subagent followed takes the panel's place while it is open; the side questions
             // wait meanwhile.
-            if Side.view == SideView.shown && !Peek.open: SidePanel {
-                min-width: 280px;
-                preferred-width: Theme.side-panel;
+            if !root.compact-side && Side.view == SideView.shown && !Peek.open: SidePanel {
+                min-width: 18rem;
+                preferred-width: root.side-preferred;
+                max-width: Theme.side-panel;
+                horizontal-stretch: 0;
+                changed has-preedit => { root.side-preedit = self.has-preedit; }
+            }
+            if !root.compact-side && Peek.open: PeekPanel {
+                min-width: 18rem;
+                preferred-width: root.side-preferred;
                 max-width: Theme.side-panel;
                 horizontal-stretch: 0;
             }
+        }
+        // Narrow viewports (< 42rem): overlay SidePanel / PeekPanel instead of overflowing horizontally.
+        if Nav.view == PlaceView.session && root.compact-side && (Side.view == SideView.shown || Peek.open): Rectangle {
+            x: 0;
+            y: 0;
+            width: parent.width;
+            height: parent.height;
+            background: Theme.surface-raised;
+            TouchArea {
+                scroll-event(event) => { return accept; }
+            }
+            if Side.view == SideView.shown && !Peek.open: SidePanel {
+                width: parent.width;
+                height: parent.height;
+                changed has-preedit => { root.side-preedit = self.has-preedit; }
+            }
             if Peek.open: PeekPanel {
-                min-width: 280px;
-                preferred-width: Theme.side-panel;
-                max-width: Theme.side-panel;
-                horizontal-stretch: 0;
+                width: parent.width;
+                height: parent.height;
             }
         }
         // The text box made taller: over the conversation's column, outside its layout (the
@@ -2303,6 +2734,9 @@ export component AppWindow inherits Window {
                 width: parent.width;
                 height: parent.height;
                 stretched: true;
+                narrow: root.tight;
+                compact-menus: root.compact-menus;
+                changed preedit-text => { root.tall-preedit = self.preedit-text != ""; }
                 init => { self.focus-end(); }
             }
             tall-end := AreaFence {
@@ -2316,36 +2750,32 @@ export component AppWindow inherits Window {
                 }
             }
         }
-        // The usage details, over whatever place the workspace shows so the chip in the top
-        // bar works from Start, Project, or Session.
+        // The usage popover, anchored top-right below the TopBar's Usage button.
         if Usage.open: Rectangle {
             x: 0;
             y: 0;
             width: parent.width;
             height: parent.height;
-            background: Theme.dim;
             TouchArea {
                 clicked => { Usage.close(); }
-                scroll-event(event) => { return accept; }
             }
-            // Three quarters of the area's height, not sized from its list: a list sizing what
-            // sizes it is measured again and again.
             Rectangle {
-                property <length> room: parent.height - 2 * Theme.space-xl;
-                width: min(parent.width - 2 * Theme.space-xl, 680px);
-                height: max(min(360px, self.room), self.room * 75%);
-                x: (parent.width - self.width) / 2;
-                y: Theme.space-xl;
+                width: min(parent.width - 2 * Theme.space-m, max(440px, 28rem));
+                height: min(parent.height - 2 * Theme.space-m, usage-panel.preferred-height);
+                x: max(Theme.space-m, parent.width - self.width - Theme.space-m);
+                y: Theme.space-xs;
                 background: Theme.surface;
                 border-radius: Theme.radius-l;
                 border-width: 1px;
                 border-color: Theme.divider;
-                drop-shadow-blur: 24px;
+                drop-shadow-blur: 18px;
                 drop-shadow-color: Theme.shadow;
                 clip: true;
-                // Clicks on the panel stay with it.
-                TouchArea { }
-                UsagePanel {
+                // Clicks and scrolling on the popover stay with it.
+                TouchArea {
+                    scroll-event(event) => { return accept; }
+                }
+                usage-panel := UsagePanel {
                     width: parent.width;
                     height: parent.height;
                 }
@@ -2396,9 +2826,9 @@ export component AppWindow inherits Window {
             }
             dialog := ApiKeySessionDialog {
                 width: min(parent.width - 2 * Theme.space-xl, 560px);
-                height: self.preferred-height;
+                height: min(parent.height - 2 * Theme.space-xl, self.preferred-height);
                 x: (parent.width - self.width) / 2;
-                y: max(Theme.space-xl, (parent.height - self.height) / 3);
+                y: max(Theme.space-m, (parent.height - self.height) / 3);
             }
         }
         // Quick switcher across every session in every project (Ctrl+K while in a session).
@@ -2424,6 +2854,7 @@ export component AppWindow inherits Window {
                 SessionSwitcher {
                     width: parent.width;
                     height: parent.height;
+                    changed has-preedit => { root.switcher-preedit = self.has-preedit; }
                     close => { root.switcher-open = false; }
                 }
             }
@@ -2442,13 +2873,13 @@ export component AppWindow inherits Window {
             Rectangle {
                 property <length> room: parent.height - 2 * Theme.space-xl;
                 width: min(parent.width - 2 * Theme.space-xl, 560px);
-                height: min(self.room, max(320px, self.room * 65%));
+                height: min(self.room, open-folder-dialog.preferred-height);
                 x: (parent.width - self.width) / 2;
                 y: Theme.space-xl;
                 border-radius: Theme.radius-l;
                 clip: true;
                 TouchArea { }
-                OpenFolderDialog {
+                open-folder-dialog := OpenFolderDialog {
                     width: parent.width;
                     height: parent.height;
                     close => { root.open-folder-open = false; }

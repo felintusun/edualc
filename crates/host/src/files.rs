@@ -325,6 +325,20 @@ pub fn resolve(place: &Place) -> Source {
 
 /// Reads what a window asked for, off the runtime's thread, and tells it.
 pub async fn answer(request: ActId, read: Read, outbox: Outbox) {
+    if let Read::ProviderUsage { backend, cwd } = read {
+        let usage = crate::usage::query(backend, cwd).await;
+        if outbox
+            .send(FromDaemon::Answer {
+                request,
+                answer: Answer::ProviderUsage(usage),
+            })
+            .await
+            .is_err()
+        {
+            tracing::debug!("a window gone before its provider usage answer");
+        }
+        return;
+    }
     let pieces = outbox.clone();
     let answered = tokio::task::spawn_blocking(move || read_for(request, read, &pieces)).await;
     let answer = match answered {
@@ -414,6 +428,9 @@ fn read_for(request: ActId, read: Read, pieces: &Outbox) -> Answer {
                 .map(crate::changes::Diff::fitted)
                 .map_err(|error| unkept(&error))
         })),
+        Read::ProviderUsage { .. } => {
+            unreachable!("ProviderUsage is handled asynchronously in files::answer")
+        }
         Read::Saved(id) => Answer::Saved(sessions::saved(&id)),
     }
 }
