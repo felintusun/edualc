@@ -1042,6 +1042,10 @@ impl<F: Frontend> Presenter<F> {
             Modes::Claude(Some(Mode::Known(PermissionMode::BypassPermissions))) => {
                 PermissionKind::Bypass
             }
+            Modes::Program {
+                current: Some(mode),
+                ..
+            } if mode.to_string().eq_ignore_ascii_case("plan") => PermissionKind::Plan,
             // What a program's own mode lets through is the program's to say.
             Modes::Claude(Some(Mode::Unknown(_))) | Modes::Program { .. } => {
                 PermissionKind::Unknown
@@ -1092,9 +1096,10 @@ impl<F: Frontend> Presenter<F> {
                 editing,
             } => {
                 prompt.kind = PromptKind::Plan;
-                prompt.title =
-                    "Claude's plan is ready. Comment on its parts, then approve it or keep planning."
-                        .to_owned();
+                prompt.title = format!(
+                    "{}'s plan is ready. Comment on its parts, then approve it or keep planning.",
+                    backend.agent()
+                );
                 let count = parts.iter().filter(|part| !part.comment.is_empty()).count();
                 prompt.comment_count = index_for_slint(count);
                 prompt.plan = parts
@@ -2800,5 +2805,48 @@ mod tests {
         assert_eq!(nav.cards.len(), 1);
         assert_eq!(nav.all_sessions.len(), 1);
         assert!(nav.all_sessions.first().expect("item").selected);
+    }
+
+    #[test]
+    fn acp_plan_mode_and_plan_prompt_name_the_agent() {
+        let mut presenter = Presenter::new(NavSpy::default(), &[], false);
+        let offered: Vec<wire::ProgramMode> = serde_json::from_value(serde_json::json!([
+            {"id": "build", "name": "Build", "description": ""},
+            {"id": "plan", "name": "Plan", "description": ""}
+        ]))
+        .expect("modes");
+        let status = Status {
+            backend: Backend::Opencode,
+            modes: Modes::Program {
+                offered,
+                current: Some(wire::ModeId::from("plan".to_owned())),
+            },
+            ..Status::default()
+        };
+        presenter.render_menus(&status);
+        assert_eq!(presenter.session.mode, PermissionKind::Plan);
+
+        let mut asks = VecDeque::new();
+        asks.push_back(Ask {
+            request: wire::RequestId::from("p1".to_owned()),
+            tool_use: None,
+            tool: ToolName::ExitPlanMode,
+            input: serde_json::json!({"plan": "1. Do it"}),
+            kind: AskKind::Plan {
+                input: wire::PlanInput {
+                    plan: "1. Do it".to_owned(),
+                    rest: serde_json::Map::new(),
+                },
+                parts: Vec::new(),
+                editing: None,
+            },
+        });
+        presenter.render_prompt(&asks, Path::new("/work"), Backend::Opencode);
+        assert!(
+            presenter
+                .prompt
+                .title
+                .starts_with("opencode's plan is ready.")
+        );
     }
 }

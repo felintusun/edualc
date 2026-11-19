@@ -155,7 +155,10 @@ pub enum Change {
         content: Chunk,
     },
     /// The user's prompt, as the agent took it; a session loaded replays them.
-    UserMessageChunk,
+    UserMessageChunk {
+        #[serde(default)]
+        content: Option<Chunk>,
+    },
     ToolCall(ToolCall),
     ToolCallUpdate(ToolCall),
     SessionInfoUpdate {
@@ -166,12 +169,64 @@ pub enum Change {
         #[serde(rename = "currentModeId")]
         current_mode_id: String,
     },
+    AvailableCommandsUpdate {
+        #[serde(rename = "availableCommands", default)]
+        available_commands: Vec<AvailableCommand>,
+    },
+    ConfigOptionUpdate {
+        #[serde(rename = "configOptions", default)]
+        config_options: Vec<ConfigOption>,
+    },
+    Plan {
+        #[serde(default)]
+        entries: Vec<PlanEntry>,
+    },
     /// How much of the model's context window the session uses, and the window's size, in
     /// tokens.
     UsageUpdate {
         used: u64,
         size: u64,
     },
+    #[serde(other)]
+    Other,
+}
+
+/// A slash command offered by an ACP agent.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AvailableCommand {
+    pub name: String,
+    #[serde(default)]
+    pub description: String,
+    #[serde(default)]
+    pub input: Option<AvailableCommandInput>,
+}
+
+/// Hint for a slash command's arguments.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AvailableCommandInput {
+    #[serde(default)]
+    pub hint: String,
+}
+
+/// One step of an agent's plan, sent in a `plan` session update.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PlanEntry {
+    pub content: String,
+    #[serde(default)]
+    pub status: PlanStatus,
+}
+
+/// Whether a plan step waits, runs, or finished.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PlanStatus {
+    #[default]
+    Pending,
+    InProgress,
+    Completed,
     #[serde(other)]
     Other,
 }
@@ -266,19 +321,37 @@ pub struct PrintedOutput {
     pub output: String,
 }
 
-/// A tool call's arguments (`rawInput`) as agy 1.5.6 names them, each as far as agy has given
-/// it.
+/// A tool call's arguments (`rawInput`) as agy 1.5.6+ names them, each as far as agy has
+/// given it.
 #[derive(Debug, Default, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub struct AgyArguments {
     pub path: Option<PathBuf>,
+    pub absolute_path: Option<PathBuf>,
+    pub target_file: Option<PathBuf>,
+    pub search_path: Option<PathBuf>,
+    pub search_directory: Option<PathBuf>,
+    pub directory_path: Option<PathBuf>,
     pub command_line: Option<String>,
     #[serde(rename = "toolSummary")]
     pub tool_summary: Option<String>,
     pub content: Option<String>,
+    pub code_content: Option<String>,
     pub append: Option<bool>,
     pub target: Option<String>,
     pub replacement: Option<String>,
+    pub target_content: Option<String>,
+    pub replacement_content: Option<String>,
+    #[serde(default)]
+    pub replacement_chunks: Vec<AgyReplacementChunk>,
+    pub start_line: Option<u64>,
+    pub end_line: Option<u64>,
+    #[serde(alias = "query")]
+    pub query: Option<String>,
+    pub pattern: Option<String>,
+    #[serde(default)]
+    pub includes: Vec<String>,
+    pub url: Option<String>,
     /// edualc's messaging tool's, by its own names.
     #[serde(rename = "to")]
     pub to: Option<String>,
@@ -294,9 +367,24 @@ pub struct AgyArguments {
     pub name: Option<String>,
     #[serde(rename = "brief")]
     pub brief: Option<String>,
+    /// `invoke_subagent`'s.
+    #[serde(rename = "subagent_name")]
+    pub subagent_name: Option<String>,
+    #[serde(rename = "prompt")]
+    pub prompt: Option<String>,
     /// `ask_question`'s.
     #[serde(rename = "questions", default)]
     pub questions: Vec<AgyQuestion>,
+}
+
+/// One replacement chunk of agy's `multi_replace_file_content`.
+#[derive(Debug, Default, Deserialize)]
+#[serde(rename_all = "PascalCase")]
+pub struct AgyReplacementChunk {
+    #[serde(default)]
+    pub target_content: String,
+    #[serde(default)]
+    pub replacement_content: String,
 }
 
 /// What agy's `swarm` tool does, as far as edualc shows it.
@@ -325,10 +413,96 @@ pub struct AgyQuestion {
 #[serde(rename_all = "camelCase")]
 pub struct OpencodeArguments {
     pub path: Option<PathBuf>,
+    #[serde(alias = "file_path")]
+    pub file_path: Option<PathBuf>,
     pub command: Option<String>,
+    pub description: Option<String>,
     pub content: Option<String>,
+    #[serde(alias = "old_string")]
     pub old_string: Option<String>,
+    #[serde(alias = "new_string")]
     pub new_string: Option<String>,
+    #[serde(alias = "replace_all")]
+    pub replace_all: Option<bool>,
+    pub offset: Option<u64>,
+    pub limit: Option<u64>,
+    pub pattern: Option<String>,
+    pub include: Option<String>,
+    pub url: Option<String>,
+    pub query: Option<String>,
+    pub prompt: Option<String>,
+    #[serde(alias = "subagent_type")]
+    pub subagent_type: Option<String>,
+    pub name: Option<String>,
+    #[serde(default)]
+    pub todos: Vec<PlanEntry>,
+    #[serde(default)]
+    pub questions: Vec<OpencodeQuestion>,
+}
+
+/// A question opencode's `question` tool asks.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OpencodeQuestion {
+    pub question: String,
+    #[serde(default)]
+    pub header: String,
+    #[serde(default)]
+    pub options: Vec<OpencodeQuestionOption>,
+    #[serde(default, alias = "is_multi_select")]
+    pub multiple: bool,
+}
+
+/// An option of opencode's `question` tool (an object with `label`, or a plain string).
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+pub enum OpencodeQuestionOption {
+    Detailed {
+        label: String,
+        #[serde(default)]
+        description: String,
+    },
+    Plain(String),
+}
+
+/// Fallback tool call arguments read across ACP naming conventions when an unknown tool is
+/// classified by `ToolKind` or normalized name.
+#[derive(Debug, Default, Deserialize)]
+pub struct GenericArguments {
+    #[serde(alias = "CommandLine", alias = "cmd")]
+    pub command: Option<String>,
+    #[serde(alias = "toolSummary")]
+    pub description: Option<String>,
+    #[serde(
+        alias = "file_path",
+        alias = "filePath",
+        alias = "Path",
+        alias = "AbsolutePath",
+        alias = "TargetFile",
+        alias = "DirectoryPath",
+        alias = "SearchPath",
+        alias = "SearchDirectory"
+    )]
+    pub path: Option<PathBuf>,
+    #[serde(alias = "query", alias = "Query", alias = "Pattern")]
+    pub pattern: Option<String>,
+    #[serde(alias = "include")]
+    pub glob: Option<String>,
+    #[serde(alias = "Url")]
+    pub url: Option<String>,
+    #[serde(alias = "Content", alias = "CodeContent")]
+    pub content: Option<String>,
+    #[serde(alias = "oldString", alias = "Target", alias = "TargetContent")]
+    pub old_string: Option<String>,
+    #[serde(
+        alias = "newString",
+        alias = "Replacement",
+        alias = "ReplacementContent"
+    )]
+    pub new_string: Option<String>,
+    #[serde(alias = "StartLine")]
+    pub offset: Option<u64>,
+    pub limit: Option<u64>,
 }
 
 /// `session/request_permission`'s parameters.
@@ -365,6 +539,65 @@ pub struct Opened {
     pub models: Option<Models>,
     #[serde(default)]
     pub modes: Option<SessionModes>,
+    #[serde(default)]
+    pub config_options: Vec<ConfigOption>,
+}
+
+/// An ACP session configuration option (model, mode, thought level) returned by `session/new`,
+/// `session/load`, `session/set_config_option`, or `config_option_update`.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConfigOption {
+    pub id: String,
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub category: Option<String>,
+    #[serde(default)]
+    pub current_value: Option<String>,
+    #[serde(default)]
+    pub options: Vec<ConfigOptionChoice>,
+}
+
+impl ConfigOption {
+    /// All selectable choices in order, flattening option groups if present.
+    pub fn choices(&self) -> Vec<&ConfigSelectOption> {
+        let mut flat = Vec::new();
+        for choice in &self.options {
+            match choice {
+                ConfigOptionChoice::Item(option) => flat.push(option),
+                ConfigOptionChoice::Group(group) => flat.extend(group.options.iter()),
+            }
+        }
+        flat
+    }
+}
+
+/// Either a single selectable option or a named group of options.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(untagged)]
+pub enum ConfigOptionChoice {
+    Item(ConfigSelectOption),
+    Group(ConfigOptionGroup),
+}
+
+/// One choice inside an ACP `ConfigOption`.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConfigSelectOption {
+    pub value: String,
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub description: Option<String>,
+}
+
+/// A group of choices inside an ACP `ConfigOption`.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConfigOptionGroup {
+    #[serde(default)]
+    pub options: Vec<ConfigSelectOption>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -401,6 +634,28 @@ pub struct SessionMode {
     pub name: String,
     #[serde(default)]
     pub description: Option<String>,
+}
+
+/// `session/list`'s answer.
+#[derive(Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ListSessionsResult {
+    #[serde(default)]
+    pub sessions: Vec<ListedSession>,
+    #[serde(default)]
+    pub next_cursor: Option<String>,
+}
+
+/// One session returned by `session/list`.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ListedSession {
+    pub session_id: String,
+    pub cwd: PathBuf,
+    #[serde(default)]
+    pub title: Option<String>,
+    #[serde(default)]
+    pub updated_at: Option<String>,
 }
 
 /// `session/prompt`'s answer: why the turn ended, and what it used.
@@ -452,10 +707,16 @@ pub enum ClientCall {
     NewSession(NewSessionParams),
     #[serde(rename = "session/load")]
     LoadSession(LoadSessionParams),
+    #[serde(rename = "session/fork")]
+    ForkSession(ForkSessionParams),
+    #[serde(rename = "session/list")]
+    ListSessions(ListSessionsParams),
     #[serde(rename = "session/set_model")]
     SetModel(SetModelParams),
     #[serde(rename = "session/set_mode")]
     SetMode(SetModeParams),
+    #[serde(rename = "session/set_config_option")]
+    SetConfigOption(SetConfigOptionParams),
     #[serde(rename = "session/prompt")]
     Prompt(PromptParams),
 }
@@ -517,6 +778,22 @@ pub struct LoadSessionParams {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct ForkSessionParams {
+    pub session_id: String,
+    pub cwd: PathBuf,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ListSessionsParams {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cwd: Option<PathBuf>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cursor: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SetModelParams {
     pub session_id: String,
     pub model_id: String,
@@ -527,6 +804,14 @@ pub struct SetModelParams {
 pub struct SetModeParams {
     pub session_id: String,
     pub mode_id: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SetConfigOptionParams {
+    pub session_id: String,
+    pub config_id: String,
+    pub value: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -754,5 +1039,52 @@ mod tests {
             panic!("a current mode update");
         };
         assert_eq!(current_mode_id, "accept-edits");
+
+        let commands_update = r#"{"sessionUpdate":"available_commands_update","availableCommands":[{"name":"review","description":"review changes","input":{"hint":"[branch]"}}]}"#;
+        let Change::AvailableCommandsUpdate { available_commands } =
+            serde_json::from_str(commands_update).expect("available commands update")
+        else {
+            panic!("available commands");
+        };
+        assert_eq!(available_commands.len(), 1);
+        assert_eq!(
+            available_commands.first().map(|cmd| cmd.name.as_str()),
+            Some("review")
+        );
+        assert_eq!(
+            available_commands
+                .first()
+                .and_then(|cmd| cmd.input.as_ref())
+                .map(|input| input.hint.as_str()),
+            Some("[branch]")
+        );
+
+        let plan_update = r#"{"sessionUpdate":"plan","entries":[{"content":"Inspect files","priority":"high","status":"completed"},{"content":"Write tests","status":"in_progress"}]}"#;
+        let Change::Plan { entries } = serde_json::from_str(plan_update).expect("plan update")
+        else {
+            panic!("plan");
+        };
+        assert_eq!(entries.len(), 2);
+        assert_eq!(
+            entries.get(1).map(|entry| entry.status),
+            Some(PlanStatus::InProgress)
+        );
+
+        let opencode_opened = r#"{"sessionId":"ses_1","configOptions":[{"id":"model","name":"Model","category":"model","type":"select","currentValue":"opencode/big-pickle","options":[{"value":"opencode/big-pickle","name":"Big Pickle"}]},{"id":"mode","name":"Session Mode","category":"mode","type":"select","currentValue":"build","options":[{"value":"build","name":"Build","description":"Default"}]}]}"#;
+        let opened: Opened = serde_json::from_str(opencode_opened).expect("opencode opened");
+        assert_eq!(opened.config_options.len(), 2);
+        assert_eq!(
+            opened
+                .config_options
+                .first()
+                .and_then(|opt| opt.current_value.as_deref()),
+            Some("opencode/big-pickle")
+        );
+
+        let listed_json = r#"{"sessions":[{"sessionId":"ses_1","cwd":"/w","title":"Work","updatedAt":"2026-11-19T21:00:00Z"}],"nextCursor":"c2"}"#;
+        let listed: ListSessionsResult =
+            serde_json::from_str(listed_json).expect("list sessions result");
+        assert_eq!(listed.sessions.len(), 1);
+        assert_eq!(listed.next_cursor.as_deref(), Some("c2"));
     }
 }

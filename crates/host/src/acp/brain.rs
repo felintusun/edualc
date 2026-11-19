@@ -3,6 +3,7 @@
 //! member's steps as its transcript, and a swarm's board as what its members said. Nothing is
 //! copied: the daemon translates them as a window reads them.
 
+use std::borrow::Cow;
 use std::path::Path;
 
 use serde::de::DeserializeOwned;
@@ -11,7 +12,8 @@ use super::Agent;
 use super::translate::as_claude_tool;
 use crate::external::acp::ToolCall;
 use crate::external::agy::{
-    self, AgyTask, BoardPost, MemberRole, Step, StepKind, Subagent, SubagentState, Swarm,
+    self, AgyTask, BoardPost, MemberRole, Step, StepKind, StepStatus, Subagent, SubagentState,
+    Swarm,
 };
 use crate::external::wire::{
     ApiMessage, BackgroundTask, ContentBlock, MessageId, SessionId, TaskKind, ToolUseId,
@@ -100,8 +102,7 @@ fn read<Record: DeserializeOwned>(path: &Path) -> Option<Record> {
 }
 
 /// A line of a conversation's steps as a transcript line: a message to the model as a prompt,
-/// the model's answer with its tool calls by Claude Code's names. A tool's result and agy's
-/// checkpoints give none, as a subagent's peek shows none.
+/// the model's answer with its tool calls by Claude Code's names, and any error step.
 pub(crate) fn step_line(line: &str) -> Option<TranscriptLine> {
     let step: Step = serde_json::from_str(line)
         .inspect_err(|error| tracing::debug!(%error, "an agy step edualc can't read"))
@@ -109,9 +110,13 @@ pub(crate) fn step_line(line: &str) -> Option<TranscriptLine> {
     match step.kind {
         StepKind::SystemMessage | StepKind::UserInput => {
             let text = step.content?;
+            let text = unwrapped(&text);
+            if text.is_empty() {
+                return None;
+            }
             Some(TranscriptLine::User {
                 message: UserMessage {
-                    content: UserContent::Text(unwrapped(&text).to_owned()),
+                    content: UserContent::Text(text),
                 },
                 is_meta: false,
                 is_sidechain: false,
@@ -122,9 +127,19 @@ pub(crate) fn step_line(line: &str) -> Option<TranscriptLine> {
             let mut content = Vec::new();
             content.extend(
                 step.thinking
+                    .filter(|thinking| !thinking.trim().is_empty())
                     .map(|thinking| ContentBlock::Thinking { thinking }),
             );
-            content.extend(step.content.map(|text| ContentBlock::Text { text }));
+            content.extend(
+                step.content
+                    .filter(|text| !text.trim().is_empty())
+                    .map(|text| ContentBlock::Text { text }),
+            );
+            if step.status == StepStatus::Error
+                && let Some(error) = step.error.filter(|error| !error.trim().is_empty())
+            {
+                content.push(ContentBlock::Text { text: error });
+            }
             content.extend(step.tool_calls.into_iter().zip(0_u32..).map(|(call, n)| {
                 let id = format!("agy-{}-{n}", step.step_index);
                 let (name, input) = as_claude_tool(
@@ -142,6 +157,9 @@ pub(crate) fn step_line(line: &str) -> Option<TranscriptLine> {
                     input,
                 }
             }));
+            if content.is_empty() {
+                return None;
+            }
             Some(TranscriptLine::Assistant {
                 message: ApiMessage {
                     id: MessageId::from(format!("agy-step-{}", step.step_index)),
@@ -151,22 +169,66 @@ pub(crate) fn step_line(line: &str) -> Option<TranscriptLine> {
                 is_sidechain: false,
             })
         }
+        StepKind::Generic if step.status == StepStatus::Error => {
+            let text = step
+                .error
+                .or(step.content)
+                .filter(|text| !text.trim().is_empty())?;
+            Some(TranscriptLine::Assistant {
+                message: ApiMessage {
+                    id: MessageId::from(format!("agy-step-{}", step.step_index)),
+                    content: vec![ContentBlock::Text { text }],
+                    usage: Usage::default(),
+                },
+                is_sidechain: false,
+            })
+        }
         StepKind::Generic | StepKind::Checkpoint | StepKind::Other => None,
     }
 }
 
-/// A message agy puts to the model, without the wrapper agy puts around it (whose preamble
-/// names the tag too), and without the fields before another conversation's message
-/// (`[Message] timestamp=… sender=… priority=… content=`).
-fn unwrapped(text: &str) -> &str {
-    let inner = text
+/// Removes every `<open>...</close>` block from `text`, leaving the text around them intact.
+fn strip_tag_blocks<'a>(text: &'a str, open: &str, close: &str) -> Cow<'a, str> {
+    if !text.contains(open) {
+        return Cow::Borrowed(text);
+    }
+    let mut kept = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(start) = rest.find(open) {
+        kept.push_str(&rest[..start]);
+        let after_open = &rest[start + open.len()..];
+        let Some(end) = after_open.find(close) else {
+            // Unclosed tag: keep the rest rather than dropping real text.
+            kept.push_str(&rest[start..]);
+            return Cow::Owned(kept);
+        };
+        rest = &after_open[end + close.len()..];
+    }
+    kept.push_str(rest);
+    Cow::Owned(kept)
+}
+
+/// A message agy puts to the model, without the wrappers agy puts around it (`<SYSTEM_MESSAGE>`,
+/// `<USER_REQUEST>`, `<ADDITIONAL_METADATA>`, `<USER_SETTINGS_CHANGE>`) and without the fields
+/// before another conversation's message (`[Message] timestamp=… sender=… priority=… content=`).
+fn unwrapped(text: &str) -> String {
+    let first = strip_tag_blocks(text, "<ADDITIONAL_METADATA>", "</ADDITIONAL_METADATA>");
+    let second = strip_tag_blocks(&first, "<USER_SETTINGS_CHANGE>", "</USER_SETTINGS_CHANGE>");
+    let inner = second.as_ref();
+    let inner = inner
+        .split_once("<USER_REQUEST>")
+        .and_then(|(_, after)| after.rsplit_once("</USER_REQUEST>"))
+        .map_or(inner, |(inside, _)| inside.trim());
+    let inner = inner
         .rsplit_once("<SYSTEM_MESSAGE>")
-        .and_then(|(_, inner)| inner.split_once("</SYSTEM_MESSAGE>"))
-        .map_or(text, |(inner, _)| inner.trim());
+        .and_then(|(_, after)| after.split_once("</SYSTEM_MESSAGE>"))
+        .map_or(inner, |(inside, _)| inside.trim());
     inner
         .strip_prefix("[Message] ")
         .and_then(|fields| fields.split_once(" content="))
         .map_or(inner, |(_, message)| message)
+        .trim()
+        .to_owned()
 }
 
 /// A post on a swarm's board, as what its member said.
@@ -300,6 +362,33 @@ mod tests {
         assert!(
             step_line(
                 r#"{"step_index":3,"source":"MODEL","type":"GENERIC","status":"DONE","content":"notes"}"#
+            )
+            .is_none()
+        );
+        let failed = step_line(
+            r#"{"step_index":4,"source":"MODEL","type":"GENERIC","status":"ERROR","error":"permission check failed"}"#,
+        );
+        assert!(matches!(
+            failed,
+            Some(TranscriptLine::Assistant { message, .. })
+                if matches!(message.content.first(), Some(ContentBlock::Text { text }) if text == "permission check failed")
+        ));
+    }
+
+    /// User prompts in agy's transcript unwrap `<USER_REQUEST>` and drop metadata/settings blocks.
+    #[test]
+    fn user_requests_unwrap_and_drop_metadata() {
+        let asked = step_line(
+            r#"{"step_index":1,"source":"USER_EXPLICIT","type":"USER_INPUT","status":"DONE","content":"<USER_SETTINGS_CHANGE>\nmodel: x\n</USER_SETTINGS_CHANGE>\n<USER_REQUEST>\nFix the parser.\n</USER_REQUEST>\n<ADDITIONAL_METADATA>\n{\"cwd\":\"/w\"}\n</ADDITIONAL_METADATA>"}"#,
+        );
+        assert!(matches!(
+            asked,
+            Some(TranscriptLine::User { message, .. })
+                if matches!(&message.content, UserContent::Text(text) if text == "Fix the parser.")
+        ));
+        assert!(
+            step_line(
+                r#"{"step_index":2,"source":"USER_EXPLICIT","type":"USER_INPUT","status":"DONE","content":"<USER_SETTINGS_CHANGE>\nmodel: x\n</USER_SETTINGS_CHANGE>"}"#,
             )
             .is_none()
         );

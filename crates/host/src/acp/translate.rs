@@ -16,19 +16,24 @@ use serde_json::{Map, Value};
 
 use crate::app::Mode;
 use crate::external::acp::{
-    self, AgentMethod, Change, Chunk, Incoming, Notified, OptionKind, PermissionAsked, Prompted,
-    RpcError, StopReason, ToolCall, ToolContent, ToolKind, ToolStatus,
+    self, AgentMethod, AgyArguments, AvailableCommand, Change, Chunk, ConfigOption,
+    GenericArguments, Incoming, Notified, OpencodeArguments, OpencodeQuestionOption, OptionKind,
+    PermissionAsked, PlanEntry, PlanStatus, Prompted, RpcError, StopReason, ToolCall, ToolContent,
+    ToolKind, ToolStatus,
 };
 use crate::external::agy::{self, QuotaWindow};
 use crate::external::tool_input::{
-    BashInput, EditInput, GrepInput, KnownCall, ReadInput, WebFetchInput, WriteInput,
+    AgentInput, BashInput, EditInput, GlobInput, GrepInput, KnownCall, MultiEditInput, OneEdit,
+    ReadInput, SkillInput, Todo, TodoStatus, TodoWriteInput, WebFetchInput, WebSearchInput,
+    WriteInput,
 };
 use crate::external::wire::{
-    self, Account, ApiMessage, AssistantError, ContentBlock, ControlResponse, DENIED, Delta,
-    IncomingRequest, Initialized, LimitKind, Message, MessageId, MessageOrigin, MessageStart,
-    ModeId, ModelInfo, ModelUsage, ProgramMode, ProgramModes, RequestId, ResultKind, SessionId,
-    StreamEvent, System, ToolName, ToolUseId, TranscriptLine, TurnResult, Usage, UserContent,
-    UserLine, UserMessage,
+    self, Account, ApiMessage, AssistantError, CommandInfo, ContentBlock, ControlResponse, DENIED,
+    Delta, IncomingRequest, Initialized, LimitKind, Message, MessageId, MessageOrigin,
+    MessageStart, ModeId, ModelInfo, ModelUsage, ProgramMode, ProgramModes, Question,
+    QuestionOption, Questions, RequestId, ResultKind, Rule, RuleDestination, SessionId,
+    StreamEvent, Suggestion, System, ToolName, ToolUseId, TranscriptLine, TurnResult, Usage,
+    UserContent, UserLine, UserMessage,
 };
 use crate::settings::PeerMessages;
 
@@ -159,8 +164,9 @@ enum Entry {
 }
 
 /// A tool call as the window was shown it.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 struct Shown {
+    call: ToolCall,
     name: ToolName,
     input: Value,
     done: bool,
@@ -189,10 +195,16 @@ pub struct Translator {
     /// The model asked for, then the one in use.
     model: Option<String>,
     models: Vec<acp::Model>,
+    /// When the agent configures models via ACP `configOptions` (e.g. opencode 2.3.0), its id.
+    model_config_id: Option<String>,
     /// The agent's modes, as it opened the session with them.
     modes: Vec<acp::SessionMode>,
     /// The mode the agent is in, by its id.
     mode: Option<String>,
+    /// When the agent configures modes via ACP `configOptions`, its id.
+    mode_config_id: Option<String>,
+    /// Slash commands announced via `available_commands_update`.
+    commands: Vec<CommandInfo>,
     next_rpc: u64,
     asked: HashMap<u64, Asked>,
     /// What the window said before the session was open.
@@ -272,8 +284,11 @@ impl Translator {
             phase: Phase::Connecting,
             model,
             models: Vec::new(),
+            model_config_id: None,
             modes: Vec::new(),
             mode: None,
+            mode_config_id: None,
+            commands: Vec::new(),
             next_rpc: 0,
             asked: HashMap::new(),
             held: Vec::new(),
@@ -621,18 +636,12 @@ impl Translator {
                     self.modes = modes.available_modes;
                     self.mode = modes.current_mode_id;
                 }
+                if !opened.config_options.is_empty() {
+                    self.apply_config_options(&opened.config_options);
+                }
                 self.phase = Phase::Ready(session.clone());
                 if let Some(model) = self.model.clone() {
-                    effects.push(self.request(
-                        acp::ClientCall::SetModel(acp::SetModelParams {
-                            session_id: session,
-                            model_id: model.clone(),
-                        }),
-                        Asked::Model {
-                            request: None,
-                            model,
-                        },
-                    ));
+                    effects.push(self.set_model_request(session, model, None));
                 }
                 if let Some(request) = self.initialize.take() {
                     effects.push(self.initialized(request));
@@ -722,7 +731,15 @@ impl Translator {
                     description: String::new(),
                 })
                 .collect(),
-            commands: Vec::new(),
+            commands: self
+                .commands
+                .iter()
+                .map(|command| CommandInfo {
+                    name: command.name.clone(),
+                    description: command.description.clone(),
+                    argument_hint: command.argument_hint.clone(),
+                })
+                .collect(),
             account: Account {
                 api_provider: agent.to_string(),
                 ..Account::default()
@@ -841,29 +858,11 @@ impl Translator {
                 effects
             }
             wire::ControlRequest::SetModel { model } => {
-                vec![self.request(
-                    acp::ClientCall::SetModel(acp::SetModelParams {
-                        session_id: session,
-                        model_id: model.clone(),
-                    }),
-                    Asked::Model {
-                        request: Some(request_id),
-                        model,
-                    },
-                )]
+                vec![self.set_model_request(session, model, Some(request_id))]
             }
             wire::ControlRequest::SetProgramMode { mode } => {
                 let mode = mode.to_string();
-                vec![self.request(
-                    acp::ClientCall::SetMode(acp::SetModeParams {
-                        session_id: session,
-                        mode_id: mode.clone(),
-                    }),
-                    Asked::Mode {
-                        request: request_id,
-                        mode,
-                    },
-                )]
+                vec![self.set_mode_request(session, mode, request_id)]
             }
             wire::ControlRequest::SetPermissionMode { .. } => {
                 vec![failure(
@@ -929,8 +928,17 @@ impl Translator {
         let (request_id, verdict) = match reply {
             wire::Reply::Success {
                 request_id,
-                response: wire::PermissionResult::Allow { .. },
-            } => (request_id, Verdict::Allow),
+                response:
+                    wire::PermissionResult::Allow {
+                        updated_permissions,
+                        ..
+                    },
+            } => (
+                request_id,
+                Verdict::Allow {
+                    always: !updated_permissions.is_empty(),
+                },
+            ),
             wire::Reply::Success {
                 request_id,
                 response: wire::PermissionResult::Deny { interrupt, .. },
@@ -944,7 +952,13 @@ impl Translator {
             return Vec::new();
         };
         let outcome = match verdict {
-            Verdict::Allow => outcome_of(&permission.options, OptionKind::AllowOnce),
+            Verdict::Allow { always: true } => outcome_of_any(
+                &permission.options,
+                &[OptionKind::AllowAlways, OptionKind::AllowOnce],
+            ),
+            Verdict::Allow { always: false } => {
+                outcome_of(&permission.options, OptionKind::AllowOnce)
+            }
             Verdict::Deny { .. } => outcome_of(&permission.options, OptionKind::RejectOnce),
             Verdict::Unanswered => acp::Outcome::Cancelled,
         };
@@ -1116,15 +1130,151 @@ impl Translator {
         })
     }
 
+    /// Requests a model switch using `session/set_config_option` when the agent uses ACP
+    /// `configOptions`, or `session/set_model` otherwise.
+    fn set_model_request(
+        &mut self,
+        session: String,
+        model: String,
+        request: Option<RequestId>,
+    ) -> Effect {
+        let call = match &self.model_config_id {
+            Some(config_id) => acp::ClientCall::SetConfigOption(acp::SetConfigOptionParams {
+                session_id: session,
+                config_id: config_id.clone(),
+                value: model.clone(),
+            }),
+            None => acp::ClientCall::SetModel(acp::SetModelParams {
+                session_id: session,
+                model_id: model.clone(),
+            }),
+        };
+        self.request(call, Asked::Model { request, model })
+    }
+
+    /// Requests a mode switch using `session/set_config_option` when the agent configures modes
+    /// via `configOptions`, or `session/set_mode` otherwise.
+    fn set_mode_request(&mut self, session: String, mode: String, request: RequestId) -> Effect {
+        let call = match &self.mode_config_id {
+            Some(config_id) => acp::ClientCall::SetConfigOption(acp::SetConfigOptionParams {
+                session_id: session,
+                config_id: config_id.clone(),
+                value: mode.clone(),
+            }),
+            None => acp::ClientCall::SetMode(acp::SetModeParams {
+                session_id: session,
+                mode_id: mode.clone(),
+            }),
+        };
+        self.request(call, Asked::Mode { request, mode })
+    }
+
+    /// Reads models and modes out of ACP `configOptions` when the agent sends them there instead
+    /// of `Opened.models` / `Opened.modes`. Returns the new mode if the current mode changed.
+    fn apply_config_options(&mut self, options: &[ConfigOption]) -> Option<String> {
+        let mut mode_changed = None;
+        for option in options {
+            let category = option.category.as_deref();
+            if category == Some("model") || (category.is_none() && option.id == "model") {
+                self.model_config_id = Some(option.id.clone());
+                let models: Vec<acp::Model> = option
+                    .choices()
+                    .into_iter()
+                    .map(|choice| acp::Model {
+                        model_id: choice.value.clone(),
+                        name: if choice.name.is_empty() {
+                            choice.value.clone()
+                        } else {
+                            choice.name.clone()
+                        },
+                    })
+                    .collect();
+                if !models.is_empty() {
+                    self.models = models;
+                }
+                if self.model.is_none() {
+                    self.model.clone_from(&option.current_value);
+                }
+            } else if category == Some("mode") || (category.is_none() && option.id == "mode") {
+                self.mode_config_id = Some(option.id.clone());
+                let modes: Vec<acp::SessionMode> = option
+                    .choices()
+                    .into_iter()
+                    .map(|choice| acp::SessionMode {
+                        id: choice.value.clone(),
+                        name: if choice.name.is_empty() {
+                            choice.value.clone()
+                        } else {
+                            choice.name.clone()
+                        },
+                        description: choice.description.clone(),
+                    })
+                    .collect();
+                if !modes.is_empty() {
+                    self.modes = modes;
+                }
+                if let Some(current) = &option.current_value
+                    && self.mode.as_ref() != Some(current)
+                {
+                    self.mode = Some(current.clone());
+                    mode_changed = Some(current.clone());
+                }
+            }
+        }
+        mode_changed
+    }
+
     /// What changed in the session.
     fn updated(&mut self, update: Change) -> Vec<Effect> {
-        // How full the context is holds for a loaded session as for a new one.
-        if let Change::UsageUpdate { used, size } = update {
-            self.context = Some(ContextUsed { used, size });
-            return vec![Effect::ToWindow(Message::System(System::ContextUsed {
-                used,
-                size,
-            }))];
+        match update {
+            // Context usage, commands, modes, config options, and session title still apply
+            // while a loaded session replays its history.
+            Change::UsageUpdate { used, size } => {
+                self.context = Some(ContextUsed { used, size });
+                return vec![Effect::ToWindow(Message::System(System::ContextUsed {
+                    used,
+                    size,
+                }))];
+            }
+            Change::AvailableCommandsUpdate { available_commands } => {
+                self.commands = available_commands.into_iter().map(command_info).collect();
+                return Vec::new();
+            }
+            Change::ConfigOptionUpdate { config_options } => {
+                let changed = self.apply_config_options(&config_options);
+                return if matches!(self.phase, Phase::Ready(_))
+                    && let Some(mode) = changed
+                {
+                    vec![Effect::ToWindow(Message::System(System::ProgramMode {
+                        mode: ModeId::from(mode),
+                    }))]
+                } else {
+                    Vec::new()
+                };
+            }
+            Change::CurrentModeUpdate { current_mode_id } => {
+                self.mode = Some(current_mode_id.clone());
+                return if matches!(self.phase, Phase::Ready(_)) {
+                    vec![Effect::ToWindow(Message::System(System::ProgramMode {
+                        mode: ModeId::from(current_mode_id),
+                    }))]
+                } else {
+                    Vec::new()
+                };
+            }
+            Change::SessionInfoUpdate { title: Some(title) } => {
+                return vec![Effect::Transcript(TranscriptLine::AiTitle {
+                    ai_title: title,
+                })];
+            }
+            Change::SessionInfoUpdate { title: None } => return Vec::new(),
+            Change::AgentMessageChunk { .. }
+            | Change::AgentThoughtChunk { .. }
+            | Change::UserMessageChunk { .. }
+            | Change::ToolCall(_)
+            | Change::ToolCallUpdate(_)
+            | Change::Plan { .. }
+            | Change::Other => {}
         }
         if matches!(self.phase, Phase::Opening { loading: true }) {
             // A loaded session's history: the transcript has it.
@@ -1142,25 +1292,33 @@ impl Translator {
             } => self.streamed(&Block::Thinking(text)),
             Change::ToolCall(call) => self.tool_call(&call),
             Change::ToolCallUpdate(call) => self.tool_call_update(&call),
-            Change::SessionInfoUpdate { title: Some(title) } => {
-                vec![Effect::Transcript(TranscriptLine::AiTitle {
-                    ai_title: title,
-                })]
-            }
-            Change::CurrentModeUpdate { current_mode_id } => {
-                let effect = Effect::ToWindow(Message::System(System::ProgramMode {
-                    mode: ModeId::from(current_mode_id.clone()),
-                }));
-                self.mode = Some(current_mode_id);
-                vec![effect]
-            }
+            Change::Plan { entries } => self.plan_updated(&entries),
             Change::AgentMessageChunk { .. }
             | Change::AgentThoughtChunk { .. }
-            | Change::UserMessageChunk
-            | Change::SessionInfoUpdate { title: None }
+            | Change::UserMessageChunk { .. }
+            | Change::SessionInfoUpdate { .. }
+            | Change::CurrentModeUpdate { .. }
+            | Change::AvailableCommandsUpdate { .. }
+            | Change::ConfigOptionUpdate { .. }
             | Change::UsageUpdate { .. }
             | Change::Other => Vec::new(),
         }
+    }
+
+    fn plan_updated(&mut self, entries: &[PlanEntry]) -> Vec<Effect> {
+        if entries.is_empty() {
+            return Vec::new();
+        }
+        let id = self.local_id("plan");
+        let input = serde_json::to_value(plan_todos(entries)).unwrap_or(Value::Null);
+        let tool_use = ContentBlock::ToolUse {
+            id: ToolUseId::from(id.clone()),
+            name: ToolName::TodoWrite,
+            input,
+        };
+        let mut effects = self.message_done(Some(tool_use));
+        effects.extend(tool_result_effects(id, "Updated.".to_owned(), false));
+        effects
     }
 
     /// A piece of text or thinking, streamed into the message under way.
@@ -1301,6 +1459,7 @@ impl Translator {
         self.entries.insert(
             call.tool_call_id.clone(),
             Entry::Shown(Shown {
+                call: call.clone(),
                 name: name.clone(),
                 input: input.clone(),
                 done: false,
@@ -1325,37 +1484,64 @@ impl Translator {
             let merged = merged(kept, call);
             return self.call_updated(merged);
         }
-        let failed = match call.status {
-            Some(ToolStatus::Completed) => false,
-            Some(ToolStatus::Failed) => true,
-            Some(ToolStatus::Pending | ToolStatus::InProgress) | None => return Vec::new(),
+        let mut effects = Vec::new();
+        let mut updated_use = None;
+        let finished = {
+            let Some(Entry::Shown(shown)) = self.entries.get_mut(&call.tool_call_id) else {
+                return Vec::new();
+            };
+            if shown.done {
+                return Vec::new();
+            }
+            shown.call = merged(&shown.call, call);
+            let (updated_name, updated_input) = as_claude_tool(self.agent, &shown.call);
+            if updated_name == shown.name && updated_input != shown.input {
+                shown.input = updated_input.clone();
+                updated_use = Some(ContentBlock::ToolUse {
+                    id: ToolUseId::from(call.tool_call_id.clone()),
+                    name: updated_name,
+                    input: updated_input,
+                });
+            }
+            let failed = match call.status {
+                Some(ToolStatus::Completed) => Some(false),
+                Some(ToolStatus::Failed) => Some(true),
+                Some(ToolStatus::Pending | ToolStatus::InProgress) | None => None,
+            };
+            failed.map(|failed| {
+                shown.done = true;
+                let text = match (&shown.told, shown.denied) {
+                    (_, true) => DENIED.to_owned(),
+                    (Some(told), false) => told.clone(),
+                    (None, false) => result_text(&shown.call, failed),
+                };
+                (text, failed || shown.denied)
+            })
         };
-        let Some(Entry::Shown(shown)) = self.entries.get_mut(&call.tool_call_id) else {
-            return Vec::new();
-        };
-        if shown.done {
-            return Vec::new();
-        }
-        shown.done = true;
-        let text = match (&shown.told, shown.denied) {
-            (_, true) => DENIED.to_owned(),
-            (Some(told), false) => told.clone(),
-            (None, false) => result_text(call, failed),
-        };
-        let content = UserContent::Blocks(vec![ContentBlock::ToolResult {
-            tool_use_id: ToolUseId::from(call.tool_call_id.clone()),
-            content: Some(UserContent::Text(text)),
-            is_error: failed || shown.denied,
-        }]);
-        let mut effects = vec![
-            Effect::ToWindow(Message::User(UserLine::of_session(content.clone()))),
-            Effect::Transcript(TranscriptLine::User {
-                message: UserMessage { content },
-                is_meta: false,
+        if let Some(tool_use) = updated_use {
+            let message = ApiMessage {
+                id: MessageId::from(self.local_id("message")),
+                content: vec![tool_use],
+                usage: Usage::default(),
+            };
+            effects.push(Effect::ToWindow(Message::Assistant {
+                message: message.clone(),
+                parent_tool_use_id: None,
+                error: None,
+            }));
+            effects.push(Effect::Transcript(TranscriptLine::Assistant {
+                message,
                 is_sidechain: false,
-                origin: None,
-            }),
-        ];
+            }));
+        }
+        let Some((text, is_error)) = finished else {
+            return effects;
+        };
+        effects.extend(tool_result_effects(
+            call.tool_call_id.clone(),
+            text,
+            is_error,
+        ));
         effects.extend(self.subagents());
         effects
     }
@@ -1389,6 +1575,23 @@ impl Translator {
             ));
             return effects;
         }
+        let permission_suggestions = asked
+            .options
+            .iter()
+            .any(|option| option.kind == OptionKind::AllowAlways)
+            .then(|| {
+                serde_json::to_value(Suggestion::AddRules {
+                    rules: vec![Rule {
+                        tool_name: name.to_string(),
+                        rule_content: None,
+                    }],
+                    destination: RuleDestination::Session,
+                })
+                .ok()
+            })
+            .flatten()
+            .into_iter()
+            .collect();
         let request = RequestId::from(self.local_id("permission"));
         self.permissions.insert(
             request.clone(),
@@ -1403,7 +1606,7 @@ impl Translator {
             request: IncomingRequest::CanUseTool {
                 tool_name: name,
                 input,
-                permission_suggestions: Vec::new(),
+                permission_suggestions,
                 description: asked.tool_call.title.unwrap_or_default(),
                 tool_use_id: Some(ToolUseId::from(tool)),
             },
@@ -1696,12 +1899,56 @@ fn unreadable_from_window(line: &str, error: &serde_json::Error) -> Vec<Effect> 
 
 /// What the window answered a permission request with, as edualc acts on it.
 enum Verdict {
-    Allow,
+    Allow {
+        always: bool,
+    },
     Deny {
         interrupt: bool,
     },
     /// The window couldn't answer: the request is cancelled.
     Unanswered,
+}
+
+fn command_info(command: AvailableCommand) -> CommandInfo {
+    CommandInfo {
+        name: command.name,
+        description: command.description,
+        argument_hint: command.input.map_or_default(|input| input.hint),
+    }
+}
+
+fn plan_todos(entries: &[PlanEntry]) -> TodoWriteInput {
+    TodoWriteInput {
+        todos: entries
+            .iter()
+            .map(|entry| Todo {
+                content: entry.content.clone(),
+                status: match entry.status {
+                    PlanStatus::Pending => TodoStatus::Pending,
+                    PlanStatus::InProgress => TodoStatus::InProgress,
+                    PlanStatus::Completed => TodoStatus::Completed,
+                    PlanStatus::Other => TodoStatus::Other,
+                },
+            })
+            .collect(),
+    }
+}
+
+fn tool_result_effects(tool_use_id: String, text: String, is_error: bool) -> Vec<Effect> {
+    let content = UserContent::Blocks(vec![ContentBlock::ToolResult {
+        tool_use_id: ToolUseId::from(tool_use_id),
+        content: Some(UserContent::Text(text)),
+        is_error,
+    }]);
+    vec![
+        Effect::ToWindow(Message::User(UserLine::of_session(content.clone()))),
+        Effect::Transcript(TranscriptLine::User {
+            message: UserMessage { content },
+            is_meta: false,
+            is_sidechain: false,
+            origin: None,
+        }),
+    ]
 }
 
 /// The context's use as `get_context_usage` answers it: the conversation, and what is free.
@@ -1822,9 +2069,14 @@ fn prompt_block(block: &wire::Block) -> acp::PromptBlock {
 
 /// The outcome of a permission request: the first option of `wanted`'s kind, or none.
 fn outcome_of(options: &[acp::PermissionOption], wanted: OptionKind) -> acp::Outcome {
-    options
+    outcome_of_any(options, &[wanted])
+}
+
+/// The first option matching any of `wanted` in preference order, or `Cancelled`.
+fn outcome_of_any(options: &[acp::PermissionOption], wanted: &[OptionKind]) -> acp::Outcome {
+    wanted
         .iter()
-        .find(|option| option.kind == wanted)
+        .find_map(|kind| options.iter().find(|option| option.kind == *kind))
         .map_or(acp::Outcome::Cancelled, |option| acp::Outcome::Selected {
             option_id: option.option_id.clone(),
         })
@@ -1862,8 +2114,16 @@ fn merged(kept: &ToolCall, update: &ToolCall) -> ToolCall {
 }
 
 /// Whether a tool call's arguments have come: an argument the agent sends before them (see
-/// [`Agent::early_arguments`]) doesn't count.
+/// [`Agent::early_arguments`]) doesn't count, and patch tools wait until a diff arrives.
 fn has_arguments(agent: Agent, call: &ToolCall) -> bool {
+    if call
+        .name
+        .as_deref()
+        .is_some_and(|name| matches!(name.to_ascii_lowercase().as_str(), "apply_patch" | "patch"))
+        && file_change(call).is_none()
+    {
+        return false;
+    }
     match &call.raw_input {
         None => false,
         Some(Value::Object(fields)) => fields
@@ -1880,46 +2140,385 @@ fn is_done(call: &ToolCall) -> bool {
     )
 }
 
-/// A tool call as the window knows Claude Code's: by the agent's own names where it gives one
-/// (see [`Agent::tool`]), else by the file change it shows, else by ACP's kind, with its title
-/// as what it runs, searches for or fetches; a tool none of these tells about keeps the agent's
-/// name.
+/// A tool call as the window knows Claude Code's: by the agent's extended mappings and names
+/// (see [`Agent::tool`]), else by the file change it shows, else by ACP's kind and generic
+/// arguments; a tool none of these tells about keeps the agent's name.
 pub(super) fn as_claude_tool(agent: Agent, call: &ToolCall) -> (ToolName, Value) {
     let input = call.raw_input.clone().unwrap_or(Value::Null);
+    if let Some(name) = normalized_tool_name(call)
+        && let Some(mapped) = extra_tool(agent, &name, call, &input)
+    {
+        return mapped;
+    }
     if let Some(known) = call.name.as_deref().and_then(|name| agent.tool(name, call)) {
         return as_known(&known, input);
     }
     if let Some(known) = file_change(call) {
         return as_known(&known, input);
     }
-    let title = || call.title.clone().unwrap_or_default();
-    let known = match call.kind {
-        Some(ToolKind::Execute) => KnownCall::Bash(BashInput::command(title(), None)),
-        Some(ToolKind::Read) => KnownCall::Read(ReadInput::whole(
-            first_location(call).unwrap_or_else(|| PathBuf::from(title())),
-        )),
-        Some(ToolKind::Search) => KnownCall::Grep(GrepInput {
-            pattern: title(),
-            path: first_location(call),
-            glob: None,
-        }),
-        Some(ToolKind::Fetch) => KnownCall::WebFetch(WebFetchInput {
-            url: title(),
-            prompt: None,
-        }),
-        Some(
-            ToolKind::Edit | ToolKind::Delete | ToolKind::Move | ToolKind::Think | ToolKind::Other,
-        )
-        | None => {
-            let name = call
-                .name
-                .clone()
-                .or_else(|| call.title.clone())
-                .unwrap_or_else(|| "tool".to_owned());
-            return (ToolName::from(name), input);
-        }
+    kind_fallback(call, input)
+}
+
+fn normalized_tool_name(call: &ToolCall) -> Option<String> {
+    if let Some(name) = &call.name {
+        return Some(name.to_ascii_lowercase());
+    }
+    let title = call.title.as_deref()?.trim();
+    (!title.is_empty() && !title.contains(char::is_whitespace) && !title.contains('/'))
+        .then(|| title.to_ascii_lowercase())
+}
+
+fn parse_args<Arguments: serde::de::DeserializeOwned + Default>(call: &ToolCall) -> Arguments {
+    let Some(input) = call.raw_input.clone() else {
+        return Arguments::default();
     };
-    as_known(&known, input)
+    serde_json::from_value::<Option<Arguments>>(input)
+        .ok()
+        .flatten()
+        .unwrap_or_default()
+}
+
+fn encode_tool(name: ToolName, value: &impl serde::Serialize, raw: &Value) -> (ToolName, Value) {
+    let encoded = serde_json::to_value(value).unwrap_or_else(|error| {
+        tracing::warn!(%error, tool = %name, "a tool's input that can't be written");
+        raw.clone()
+    });
+    (name, encoded)
+}
+
+fn read_range(start_line: Option<u64>, end_line: Option<u64>) -> Option<u64> {
+    match (start_line, end_line) {
+        (Some(start), Some(end)) if end >= start => Some(end - start + 1),
+        _ => None,
+    }
+}
+
+fn extra_tool(agent: Agent, name: &str, call: &ToolCall, raw: &Value) -> Option<(ToolName, Value)> {
+    match agent {
+        Agent::Agy => agy_extra_tool(name, call, raw),
+        Agent::Opencode => opencode_extra_tool(name, call, raw),
+    }
+}
+
+fn agy_extra_tool(name: &str, call: &ToolCall, raw: &Value) -> Option<(ToolName, Value)> {
+    let given: AgyArguments = parse_args(call);
+    let title = || call.title.clone().unwrap_or_default();
+    let path = given
+        .target_file
+        .or(given.absolute_path)
+        .or(given.path)
+        .or_else(|| first_location(call));
+    match name {
+        "read_file" | "view_file" | "view_file_outline" | "view_code_item" => {
+            let file_path = path.unwrap_or_else(|| PathBuf::from(title()));
+            let limit = read_range(given.start_line, given.end_line);
+            Some(encode_tool(
+                ToolName::Read,
+                &ReadInput {
+                    file_path,
+                    offset: given.start_line,
+                    limit,
+                },
+                raw,
+            ))
+        }
+        "write_to_file" => Some(as_known(
+            &KnownCall::Write(WriteInput {
+                file_path: path.unwrap_or_else(|| PathBuf::from(title())),
+                content: given.code_content.or(given.content).unwrap_or_default(),
+            }),
+            raw.clone(),
+        )),
+        "replace_file_content" => Some(as_known(
+            &KnownCall::Edit(EditInput::once(
+                path.unwrap_or_else(|| PathBuf::from(title())),
+                given.target_content.or(given.target).unwrap_or_default(),
+                given
+                    .replacement_content
+                    .or(given.replacement)
+                    .unwrap_or_default(),
+            )),
+            raw.clone(),
+        )),
+        "multi_replace_file_content" => {
+            let file_path = path.unwrap_or_else(|| PathBuf::from(title()));
+            let edits: Vec<OneEdit> = given
+                .replacement_chunks
+                .into_iter()
+                .map(|chunk| OneEdit {
+                    old_string: chunk.target_content,
+                    new_string: chunk.replacement_content,
+                })
+                .collect();
+            Some(encode_tool(
+                ToolName::MultiEdit,
+                &MultiEditInput { file_path, edits },
+                raw,
+            ))
+        }
+        "grep_search" => Some(as_known(
+            &KnownCall::Grep(GrepInput {
+                pattern: given.query.unwrap_or_else(title),
+                path: given.search_path.or_else(|| first_location(call)),
+                glob: given.includes.into_iter().next(),
+            }),
+            raw.clone(),
+        )),
+        "find_by_name" => Some(encode_tool(
+            ToolName::Glob,
+            &GlobInput {
+                pattern: given.pattern.unwrap_or_else(title),
+                path: given.search_directory.or_else(|| first_location(call)),
+            },
+            raw,
+        )),
+        "list_dir" => Some(encode_tool(
+            ToolName::Glob,
+            &GlobInput {
+                pattern: "*".to_owned(),
+                path: given.directory_path.or_else(|| first_location(call)),
+            },
+            raw,
+        )),
+        "read_url_content" => Some(as_known(
+            &KnownCall::WebFetch(WebFetchInput {
+                url: given.url.unwrap_or_else(title),
+                prompt: None,
+            }),
+            raw.clone(),
+        )),
+        "search_web" => Some(encode_tool(
+            ToolName::WebSearch,
+            &WebSearchInput {
+                query: given.query.unwrap_or_else(title),
+            },
+            raw,
+        )),
+        "invoke_subagent" => Some(as_known(
+            &KnownCall::Agent(AgentInput {
+                description: given.subagent_name.clone().unwrap_or_else(title),
+                prompt: given.prompt.unwrap_or_default(),
+                subagent_type: given.subagent_name,
+            }),
+            raw.clone(),
+        )),
+        _ => None,
+    }
+}
+
+fn opencode_extra_tool(name: &str, call: &ToolCall, raw: &Value) -> Option<(ToolName, Value)> {
+    let given: OpencodeArguments = parse_args(call);
+    let title = || call.title.clone().unwrap_or_default();
+    let path = first_location(call).or(given.file_path).or(given.path);
+    match name {
+        "bash" | "shell" => Some(as_known(
+            &KnownCall::Bash(BashInput::command(
+                given.command.unwrap_or_default(),
+                given.description,
+            )),
+            raw.clone(),
+        )),
+        "read" => Some(encode_tool(
+            ToolName::Read,
+            &ReadInput {
+                file_path: path.unwrap_or_default(),
+                offset: given.offset,
+                limit: given.limit,
+            },
+            raw,
+        )),
+        "write" => Some(as_known(
+            &KnownCall::Write(WriteInput {
+                file_path: path.unwrap_or_default(),
+                content: given.content.unwrap_or_default(),
+            }),
+            raw.clone(),
+        )),
+        "edit" => Some(encode_tool(
+            ToolName::Edit,
+            &EditInput {
+                file_path: path.unwrap_or_default(),
+                old_string: given.old_string.unwrap_or_default(),
+                new_string: given.new_string.unwrap_or_default(),
+                replace_all: given.replace_all,
+            },
+            raw,
+        )),
+        "multiedit" | "multi_edit" | "apply_patch" | "patch" => {
+            file_change(call).map(|known| as_known(&known, raw.clone()))
+        }
+        "glob" => Some(encode_tool(
+            ToolName::Glob,
+            &GlobInput {
+                pattern: given.pattern.unwrap_or_else(title),
+                path,
+            },
+            raw,
+        )),
+        "grep" => Some(as_known(
+            &KnownCall::Grep(GrepInput {
+                pattern: given.pattern.unwrap_or_else(title),
+                path,
+                glob: given.include,
+            }),
+            raw.clone(),
+        )),
+        "list" | "ls" => Some(encode_tool(
+            ToolName::Glob,
+            &GlobInput {
+                pattern: "*".to_owned(),
+                path,
+            },
+            raw,
+        )),
+        "webfetch" | "web_fetch" => Some(as_known(
+            &KnownCall::WebFetch(WebFetchInput {
+                url: given.url.unwrap_or_else(title),
+                prompt: given.prompt,
+            }),
+            raw.clone(),
+        )),
+        "websearch" | "web_search" => Some(encode_tool(
+            ToolName::WebSearch,
+            &WebSearchInput {
+                query: given.query.unwrap_or_else(title),
+            },
+            raw,
+        )),
+        "todowrite" | "todo_write" => Some(encode_tool(
+            ToolName::TodoWrite,
+            &plan_todos(&given.todos),
+            raw,
+        )),
+        "task" | "agent" => Some(as_known(
+            &KnownCall::Agent(AgentInput {
+                description: given.description.unwrap_or_else(title),
+                prompt: given.prompt.unwrap_or_default(),
+                subagent_type: given.subagent_type,
+            }),
+            raw.clone(),
+        )),
+        "skill" => Some(encode_tool(
+            ToolName::Skill,
+            &SkillInput {
+                skill: given.name,
+                command: None,
+                name: None,
+            },
+            raw,
+        )),
+        "question" => {
+            let questions = Questions {
+                questions: given
+                    .questions
+                    .into_iter()
+                    .map(|asked| Question {
+                        question: asked.question,
+                        header: asked.header,
+                        options: asked
+                            .options
+                            .into_iter()
+                            .map(|option| match option {
+                                OpencodeQuestionOption::Detailed { label, description } => {
+                                    QuestionOption {
+                                        label,
+                                        description,
+                                        preview: String::new(),
+                                        rest: Map::new(),
+                                    }
+                                }
+                                OpencodeQuestionOption::Plain(label) => QuestionOption {
+                                    label,
+                                    description: String::new(),
+                                    preview: String::new(),
+                                    rest: Map::new(),
+                                },
+                            })
+                            .collect(),
+                        multi_select: asked.multiple,
+                        rest: Map::new(),
+                    })
+                    .collect(),
+                answers: std::collections::BTreeMap::new(),
+                annotations: std::collections::BTreeMap::new(),
+                rest: Map::new(),
+            };
+            Some(as_known(&KnownCall::Questions(questions), raw.clone()))
+        }
+        _ => None,
+    }
+}
+
+fn kind_fallback(call: &ToolCall, raw: Value) -> (ToolName, Value) {
+    let args: GenericArguments = parse_args(call);
+    let title = || call.title.clone().unwrap_or_default();
+    let path = first_location(call).or(args.path);
+    match call.kind {
+        Some(ToolKind::Execute) => as_known(
+            &KnownCall::Bash(BashInput::command(
+                args.command.unwrap_or_else(title),
+                args.description,
+            )),
+            raw,
+        ),
+        Some(ToolKind::Read) => encode_tool(
+            ToolName::Read,
+            &ReadInput {
+                file_path: path.unwrap_or_else(|| PathBuf::from(title())),
+                offset: args.offset,
+                limit: args.limit,
+            },
+            &raw,
+        ),
+        Some(ToolKind::Edit | ToolKind::Delete | ToolKind::Move) => {
+            if let Some(file_path) = path {
+                if args.old_string.is_some() || args.new_string.is_some() {
+                    as_known(
+                        &KnownCall::Edit(EditInput::once(
+                            file_path,
+                            args.old_string.unwrap_or_default(),
+                            args.new_string.unwrap_or_default(),
+                        )),
+                        raw,
+                    )
+                } else if let Some(content) = args.content {
+                    as_known(&KnownCall::Write(WriteInput { file_path, content }), raw)
+                } else {
+                    as_known(
+                        &KnownCall::Edit(EditInput::once(file_path, String::new(), String::new())),
+                        raw,
+                    )
+                }
+            } else {
+                raw_tool_name(call, raw)
+            }
+        }
+        Some(ToolKind::Search) => as_known(
+            &KnownCall::Grep(GrepInput {
+                pattern: args.pattern.unwrap_or_else(title),
+                path,
+                glob: args.glob,
+            }),
+            raw,
+        ),
+        Some(ToolKind::Fetch) => as_known(
+            &KnownCall::WebFetch(WebFetchInput {
+                url: args.url.unwrap_or_else(title),
+                prompt: None,
+            }),
+            raw,
+        ),
+        Some(ToolKind::Think | ToolKind::Other) | None => raw_tool_name(call, raw),
+    }
+}
+
+fn raw_tool_name(call: &ToolCall, raw: Value) -> (ToolName, Value) {
+    let name = call
+        .name
+        .clone()
+        .or_else(|| call.title.clone())
+        .unwrap_or_else(|| "tool".to_owned());
+    (ToolName::from(name), raw)
 }
 
 /// The first file change a call shows, as an `Edit`, or a `Write` of a new file.
@@ -3593,5 +4192,209 @@ mod tests {
             Some(&json!("error"))
         );
         assert_eq!(second.model.as_deref(), Some("gemini-3.8-flash-high"));
+    }
+
+    #[test]
+    fn available_commands_and_config_options_reach_the_window() {
+        let mut translator = translator_for(Agent::Opencode, Start::Resume("ses_1".to_owned()));
+        translator.start();
+        translator.window_said(&asks(
+            "r1",
+            ControlRequest::Initialize {
+                per_task_stop_affordance: true,
+            },
+        ));
+        translator.agent_said(r#"{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":1}}"#);
+        let cmd_during_load = translator.agent_said(
+            r#"{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"ses_1","update":{"sessionUpdate":"available_commands_update","availableCommands":[{"name":"review","description":"review changes","input":{"hint":"[branch]"}}]}}}"#,
+        );
+        assert!(cmd_during_load.is_empty());
+
+        let opened = translator.agent_said(
+            r#"{"jsonrpc":"2.0","id":2,"result":{"configOptions":[{"id":"model","name":"Model","category":"model","type":"select","currentValue":"opencode/big-pickle","options":[{"value":"opencode/big-pickle","name":"Big Pickle"},{"value":"opencode/beam-free","name":"Beam Free"}]},{"id":"mode","name":"Session Mode","category":"mode","type":"select","currentValue":"build","options":[{"value":"build","name":"Build","description":"Default"},{"value":"plan","name":"Plan","description":"Read-only"}]}]}}"#,
+        );
+        let init_answer = window_lines(&opened)
+            .into_iter()
+            .find(|line| line.get("type") == Some(&json!("control_response")))
+            .expect("initialize answered");
+        assert_eq!(
+            init_answer.pointer("/response/response/commands"),
+            Some(
+                &json!([{"name":"review","description":"review changes","argumentHint":"[branch]"}])
+            )
+        );
+        assert_eq!(
+            init_answer.pointer("/response/response/models/1/value"),
+            Some(&json!("opencode/beam-free"))
+        );
+        assert_eq!(
+            init_answer.pointer("/response/response/programModes/current"),
+            Some(&json!("build"))
+        );
+
+        let ask_model = translator.window_said(&asks(
+            "r2",
+            ControlRequest::SetModel {
+                model: "opencode/beam-free".to_owned(),
+            },
+        ));
+        let set_opt = agent_lines(&ask_model)
+            .into_iter()
+            .find(|line| line.get("method") == Some(&json!("session/set_config_option")))
+            .expect("set_config_option called for model");
+        assert_eq!(
+            set_opt.get("params"),
+            Some(&json!({"sessionId":"ses_1","configId":"model","value":"opencode/beam-free"}))
+        );
+
+        let config_update = translator.agent_said(
+            r#"{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"ses_1","update":{"sessionUpdate":"config_option_update","configOptions":[{"id":"mode","category":"mode","currentValue":"plan","options":[]}]}}}"#,
+        );
+        assert_eq!(
+            window_lines(&config_update)
+                .first()
+                .map(|line| (line.get("subtype"), line.get("mode"))),
+            Some((Some(&json!("program_mode")), Some(&json!("plan"))))
+        );
+    }
+
+    #[test]
+    fn plan_updates_become_todowrite_calls() {
+        let mut translator = opened_with(Agent::Opencode);
+        let planned = translator.agent_said(
+            r#"{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"s","update":{"sessionUpdate":"plan","entries":[{"content":"Read code","status":"completed"},{"content":"Fix bug","status":"in_progress"}]}}}"#,
+        );
+        let window = window_lines(&planned);
+        assert_eq!(kinds(&window), ["assistant", "user"]);
+        assert_eq!(
+            window
+                .first()
+                .and_then(|line| line.pointer("/message/content/0/name")),
+            Some(&json!("TodoWrite"))
+        );
+        assert_eq!(
+            window
+                .first()
+                .and_then(|line| line.pointer("/message/content/0/input/todos/1/status")),
+            Some(&json!("in_progress"))
+        );
+        assert_eq!(
+            window
+                .get(1)
+                .and_then(|line| line.pointer("/message/content/0/type")),
+            Some(&json!("tool_result"))
+        );
+    }
+
+    #[test]
+    fn extended_opencode_and_agy_tools_and_diff_updates_map_cleanly() {
+        let mut translator = opened_with(Agent::Opencode);
+        let shown = translator.agent_said(
+            r#"{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"s","update":{"sessionUpdate":"tool_call","toolCallId":"c1","name":"edit","kind":"edit","status":"in_progress","rawInput":{"filePath":"a.rs","oldString":"x","newString":"y"}}}}"#,
+        );
+        assert_eq!(
+            window_lines(&shown)
+                .first()
+                .and_then(|line| line.pointer("/message/content/0/input/file_path")),
+            Some(&json!("a.rs"))
+        );
+        let updated = translator.agent_said(
+            r#"{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"s","update":{"sessionUpdate":"tool_call_update","toolCallId":"c1","status":"completed","locations":[{"path":"/w/a.rs"}]}}}"#,
+        );
+        let window = window_lines(&updated);
+        assert_eq!(kinds(&window), ["assistant", "user"]);
+        assert_eq!(
+            window
+                .first()
+                .and_then(|line| line.pointer("/message/content/0/input/file_path")),
+            Some(&json!("/w/a.rs"))
+        );
+
+        let (name, input) = as_claude_tool(
+            Agent::Opencode,
+            &ToolCall {
+                tool_call_id: "c2".to_owned(),
+                name: Some("grep".to_owned()),
+                raw_input: Some(json!({"pattern":"foo","path":"/w","include":"*.rs"})),
+                ..ToolCall::default()
+            },
+        );
+        assert_eq!(name, ToolName::Grep);
+        assert_eq!(input, json!({"pattern":"foo","path":"/w","glob":"*.rs"}));
+
+        let (name, input) = as_claude_tool(
+            Agent::Opencode,
+            &ToolCall {
+                tool_call_id: "c3".to_owned(),
+                name: Some("glob".to_owned()),
+                raw_input: Some(json!({"pattern":"**/*.rs","path":"/w"})),
+                ..ToolCall::default()
+            },
+        );
+        assert_eq!(name, ToolName::Glob);
+        assert_eq!(input, json!({"pattern":"**/*.rs","path":"/w"}));
+
+        let (name, input) = as_claude_tool(
+            Agent::Agy,
+            &ToolCall {
+                tool_call_id: "c4".to_owned(),
+                name: Some("read_file".to_owned()),
+                raw_input: Some(json!({"Path":"/w/a.rs","StartLine":5,"EndLine":10})),
+                ..ToolCall::default()
+            },
+        );
+        assert_eq!(name, ToolName::Read);
+        assert_eq!(input, json!({"file_path":"/w/a.rs","offset":5,"limit":6}));
+
+        let (name, input) = as_claude_tool(
+            Agent::Agy,
+            &ToolCall {
+                tool_call_id: "c5".to_owned(),
+                name: Some("grep_search".to_owned()),
+                raw_input: Some(json!({"Query":"needle","SearchPath":"/w/src"})),
+                ..ToolCall::default()
+            },
+        );
+        assert_eq!(name, ToolName::Grep);
+        assert_eq!(input, json!({"pattern":"needle","path":"/w/src"}));
+    }
+
+    #[test]
+    fn allow_always_suggestion_selects_allow_always_option() {
+        let mut translator = opened();
+        translator.window_said(&prompt("go"));
+        let asked = translator.agent_said(
+            r#"{"jsonrpc":"2.0","method":"session/request_permission","params":{"sessionId":"s","toolCall":{"toolCallId":"c9","name":"run_command","kind":"execute","status":"pending","title":"ls","rawInput":{"CommandLine":"ls"}},"options":[{"optionId":"once","name":"Allow","kind":"allow_once"},{"optionId":"always","name":"Always","kind":"allow_always"}]},"id":"9"}"#,
+        );
+        let request = window_lines(&asked)
+            .into_iter()
+            .find(|line| line.get("type") == Some(&json!("control_request")))
+            .expect("permission asked");
+        assert!(
+            request
+                .pointer("/request/permission_suggestions/0")
+                .is_some()
+        );
+        let request_id = request
+            .get("request_id")
+            .and_then(Value::as_str)
+            .expect("request id");
+        let answered = translator.window_said(&said(&Input::ControlResponse {
+            response: Reply::Success {
+                request_id: RequestId::from(request_id.to_owned()),
+                response: PermissionResult::Allow {
+                    updated_input: ToolInput::from(json!({"command": "ls"})),
+                    updated_permissions: vec![wire::PermissionUpdate::Offered(
+                        json!({"type":"addRules","rules":[{"toolName":"Bash"}],"destination":"session"}),
+                    )],
+                },
+            },
+        }));
+        assert_eq!(
+            agent_lines(&answered)
+                .first()
+                .and_then(|line| line.pointer("/result/outcome/optionId")),
+            Some(&json!("always"))
+        );
     }
 }
