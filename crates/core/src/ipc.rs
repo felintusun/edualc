@@ -1,9 +1,11 @@
 //! The window and its daemon (`edualcd`), speaking over a Unix socket that only they reach.
 //!
-//! - The socket lives in `$XDG_RUNTIME_DIR/edualc`, a folder of the user's alone (0700), which is
-//!   checked through the descriptor it was opened by, never followed through a link, and used by
-//!   that descriptor from then on: binding and connecting go through `/proc/self/fd/<folder>`, so
-//!   no path can be swapped in between. Never an abstract socket, which anyone may take first.
+//! - The socket lives in `$XDG_RUNTIME_DIR/edualc` (on macOS, `$TMPDIR/edualc`), a folder of the
+//!   user's alone (0700), which is checked through the descriptor it was opened by, never
+//!   followed through a link, and used by that descriptor from then on: on Linux, binding and
+//!   connecting go through `/proc/self/fd/<folder>`, so no path can be swapped in between; macOS
+//!   has no such path, and goes by one no one else can change. Never an abstract socket, which
+//!   anyone may take first.
 //! - Who is the daemon is decided by a lock held as long as it runs: only its holder removes a
 //!   stale socket and binds anew, so two starting at once can't both bind, nor one unbind the
 //!   other's.
@@ -24,7 +26,7 @@ pub use frame::{Deframer, Error, MAX_FRAME, deframe, frame};
 #[cfg(not(target_arch = "wasm32"))]
 mod socket;
 #[cfg(not(target_arch = "wasm32"))]
-pub use socket::{AsyncChannel, Channel, Folder, Listener, Writing, recv, send};
+pub use socket::{AsyncChannel, Channel, Folder, Listener, Writing, recv, runtime_dir, send};
 
 pub mod pairing;
 #[cfg(not(target_arch = "wasm32"))]

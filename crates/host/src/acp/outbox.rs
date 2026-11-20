@@ -258,6 +258,16 @@ fn closes_envelope(after: &str) -> bool {
     spelled && !after.next().is_some_and(word)
 }
 
+/// Where Claude Code opens a session's inbox, and so where edualc opens its own:
+/// `$XDG_RUNTIME_DIR/cc-socks`, or on macOS, which has none, `/tmp/cc-socks`.
+pub(super) fn inbox_folder() -> Option<PathBuf> {
+    if cfg!(target_os = "macos") {
+        Some(PathBuf::from("/tmp/cc-socks"))
+    } else {
+        std::env::var_os("XDG_RUNTIME_DIR").map(|runtime| PathBuf::from(runtime).join("cc-socks"))
+    }
+}
+
 /// Where Claude Code keeps the records of running sessions, and the folders their inboxes
 /// may be in.
 #[derive(Debug, Clone)]
@@ -267,14 +277,12 @@ pub(super) struct Places {
 }
 
 impl Places {
-    /// The user's: `~/.claude/sessions`, and `$XDG_RUNTIME_DIR/cc-socks` or the fallback in
-    /// /tmp that Claude Code takes when that path is too long for a socket.
+    /// The user's: `~/.claude/sessions`, and the [`inbox_folder`] or the fallback in /tmp that
+    /// Claude Code takes when that path is too long for a socket.
     pub(super) fn of_user() -> Self {
         let uid = rustix::process::getuid().as_raw();
         let mut inboxes = vec![PathBuf::from(format!("/tmp/cc-socks-{uid}"))];
-        if let Some(runtime) = std::env::var_os("XDG_RUNTIME_DIR") {
-            inboxes.push(PathBuf::from(runtime).join("cc-socks"));
-        }
+        inboxes.extend(inbox_folder());
         Self {
             sessions: sessions::config_dir().join("sessions"),
             inboxes,

@@ -11,7 +11,9 @@ use super::MAX_MESSAGE;
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     #[cfg(not(target_arch = "wasm32"))]
-    #[error("XDG_RUNTIME_DIR isn't set: there is no private place for the daemon's socket")]
+    #[error(
+        "XDG_RUNTIME_DIR (or on macOS, TMPDIR) isn't set: there is no private place for the daemon's socket"
+    )]
     NoRuntimeDir,
     #[cfg(not(target_arch = "wasm32"))]
     #[error("{0} isn't the user's alone (it must be a folder they own, closed to others)")]

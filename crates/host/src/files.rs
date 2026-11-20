@@ -2,19 +2,14 @@
 //! records, transcripts, projects) and edualc's settings. The browser demo can't read them, and
 //! the native window needn't, so both ask the same way: they ask (`ipc::Read`), and are told
 //! when what they watch changes
-//! (`ipc::Target`), noticed by inotify, never by looking every few seconds (only a watch that
+//! (`ipc::Target`), noticed by inotify (FSEvents on macOS), never by looking every few seconds (only a watch that
 //! couldn't be placed is tried again so, until it is).
 
 use std::collections::{HashMap, HashSet};
 use std::ffi::{OsStr, OsString};
-use std::mem::MaybeUninit;
-use std::os::fd::OwnedFd;
-use std::os::unix::ffi::OsStrExt as _;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use rustix::fs::inotify::{self, CreateFlags, WatchFlags};
-use rustix::io::Errno;
 use tokio::sync::mpsc;
 
 use crate::acp::brain;
@@ -24,6 +19,17 @@ use crate::external::wire::TranscriptLine;
 use crate::folder::Folder;
 use crate::ipc::{self, ActId, Answer, FromDaemon, Place, ProjectOverview, Read, Target, Watched};
 use crate::{sessions, settings, snapshots};
+
+// What notices a change differs by system: inotify on Linux, FSEvents on macOS. Each watches a
+// folder by a descriptor, and tells what changed in it by that descriptor and the name there.
+#[cfg(target_os = "macos")]
+mod fsevents;
+#[cfg(any(target_os = "linux", target_os = "android"))]
+mod inotify;
+#[cfg(target_os = "macos")]
+use fsevents::Notifier;
+#[cfg(any(target_os = "linux", target_os = "android"))]
+use inotify::Notifier;
 
 /// Where what is told to a window goes.
 type Outbox = mpsc::Sender<FromDaemon>;
@@ -545,7 +551,7 @@ pub enum Order {
     Unwatch(Watched),
 }
 
-/// A window's watch: a folder, watched by inotify; for a transcript, the folder it is in. A
+/// A window's watch: a folder, watched by the notifier; for a transcript, the folder it is in. A
 /// transcript is watched by its folder, not itself: a file watched follows the file, so one
 /// written anew by a rename over it would go unseen, and its folder sees that too. Before the folder is there, the nearest one above it is watched (at most
 /// [`MOST_ABOVE`] up), until the next one down comes.
@@ -602,7 +608,7 @@ impl Watch {
 
     /// Watches the nearest folder there is to its goal, down as far as folders are there (one
     /// made as it is placed too); the descriptors it let go of. Whether it moved, in `moved`.
-    fn place(&mut self, inotify: &OwnedFd, moved: &mut bool) -> Vec<i32> {
+    fn place(&mut self, notifier: &mut Notifier, moved: &mut bool) -> Vec<i32> {
         let mut left = Vec::new();
         self.misplaced = false;
         // Each step down nearer: as many as there are folders it may be above its goal.
@@ -619,7 +625,7 @@ impl Watch {
             {
                 break;
             }
-            match add(inotify, &nearest, FOLDER_FLAGS) {
+            match notifier.add(&nearest) {
                 Ok(descriptor) => {
                     if let Some((_, old)) = self.at.replace((nearest, descriptor))
                         && old != descriptor
@@ -639,7 +645,7 @@ impl Watch {
     }
 }
 
-/// What inotify noticed, once read off its queue.
+/// What the notifier noticed.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 struct Noticed {
     descriptor: i32,
@@ -658,28 +664,23 @@ enum Left {
     Moved,
 }
 
-/// A window's watches (an actor): one inotify instance, its watches named as the window named
-/// them, until the window's orders end. What inotify notices is read on a thread of its own,
-/// which ends as the actor does (the pipe it waits on beside inotify closes).
+/// A window's watches (an actor): one notifier, its watches named as the window named them,
+/// until the window's orders end. What the notifier notices comes from a thread of its own,
+/// which stops telling as the actor ends.
 pub async fn watch(mut orders: mpsc::Receiver<Order>, outbox: Outbox) {
-    // Not blocking, so the thread reads all there is each time `poll` wakes it.
-    let started = inotify::init(CreateFlags::CLOEXEC | CreateFlags::NONBLOCK).and_then(|inotify| {
-        let reading = rustix::io::fcntl_dupfd_cloexec(&inotify, 0)?;
-        let (waits, _held) = rustix::pipe::pipe_with(rustix::pipe::PipeFlags::CLOEXEC)?;
-        Ok((inotify, reading, waits, _held))
-    });
-    // `_held` is the pipe's other end, closed as this returns: the thread wakes, and ends.
-    let (inotify, reading, ending, _held) = match started {
-        Ok(started) => started,
+    let (noticing, mut noticed) = mpsc::channel(QUEUE);
+    let mut notifier = match Notifier::start(noticing) {
+        Ok(notifier) => notifier,
         Err(error) => {
             tracing::warn!(%error, "a window's watches go unnoticed");
             while orders.recv().await.is_some() {}
             return;
         }
     };
-    let (noticing, mut noticed) = mpsc::channel(QUEUE);
-    std::thread::spawn(move || read(&reading, &ending, &noticing));
     let mut watches: HashMap<Watched, Watch> = HashMap::new();
+    // What came at once is taken at once: FSEvents tells each change on its own, which would
+    // otherwise wake the actor, and tell the window, once for each.
+    let mut batches = Vec::with_capacity(QUEUE);
     let mut retrying = tokio::time::interval(RETRY);
     retrying.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     loop {
@@ -688,33 +689,37 @@ pub async fn watch(mut orders: mpsc::Receiver<Order>, outbox: Outbox) {
             order = orders.recv() => match order {
                 Some(Order::Watch(watched, target)) => {
                     let mut watch = start(&target);
-                    let mut left = watch.place(&inotify, &mut false);
+                    let mut left = watch.place(&mut notifier, &mut false);
                     left.extend(watches.insert(watched, watch).and_then(|old| old.descriptor()));
-                    forget_unused(&inotify, &watches, left);
+                    forget_unused(&mut notifier, &watches, left);
                     HashSet::new()
                 }
                 Some(Order::Unwatch(watched)) => {
                     let left = watches.remove(&watched).and_then(|old| old.descriptor());
-                    forget_unused(&inotify, &watches, left);
+                    forget_unused(&mut notifier, &watches, left);
                     HashSet::new()
                 }
                 None => return,
             },
-            batch = noticed.recv() => {
-                let Some(batch) = batch else {
+            received = noticed.recv_many(&mut batches, QUEUE) => {
+                if received == 0 {
                     tracing::warn!("stopped noticing changes for a window");
                     return;
-                };
+                }
+                let batch: HashSet<Noticed> = batches
+                    .drain(..)
+                    .flat_map(|batch| notifier.noticed(batch))
+                    .collect();
                 if batch.iter().any(|noticed| noticed.descriptor == OVERFLOW) {
-                    overflowed(&inotify, &mut watches)
+                    overflowed(&mut notifier, &mut watches)
                 } else {
                     batch
                         .iter()
-                        .flat_map(|noticed| touched(&inotify, &mut watches, noticed))
+                        .flat_map(|noticed| touched(&mut notifier, &mut watches, noticed))
                         .collect()
                 }
             },
-            _ = retrying.tick(), if misplaced => retried(&inotify, &mut watches),
+            _ = retrying.tick(), if misplaced => retried(&mut notifier, &mut watches),
         };
         for watched in changed {
             if outbox.send(FromDaemon::Changed(watched)).await.is_err() {
@@ -726,7 +731,8 @@ pub async fn watch(mut orders: mpsc::Receiver<Order>, outbox: Outbox) {
 
 /// Batches of watches noticed and waiting for the actor.
 const QUEUE: usize = 64;
-/// The watch descriptor inotify tells its queue's overflow on (`IN_Q_OVERFLOW`).
+/// The watch descriptor inotify tells its queue's overflow on (`IN_Q_OVERFLOW`), and the
+/// notifier on macOS a change FSEvents couldn't tell in full.
 const OVERFLOW: i32 = -1;
 /// How far above its goal a watch may be: no further, lest it watch the home folder, or the
 /// root, whose many writes would each wake it.
@@ -734,72 +740,10 @@ const MOST_ABOVE: usize = 2;
 /// How often a watch that couldn't be placed is tried again.
 const RETRY: Duration = Duration::from_secs(5);
 
-/// Sends on what inotify notices, all it has to tell at a time, until the actor ends: its end
-/// of `ending` closes.
-fn read(inotify: &OwnedFd, ending: &OwnedFd, noticing: &mpsc::Sender<HashSet<Noticed>>) {
-    use rustix::event::{PollFd, PollFlags, poll};
-    let mut buffer = [MaybeUninit::<u8>::uninit(); 4096];
-    loop {
-        let mut ready = [
-            PollFd::new(inotify, PollFlags::IN),
-            PollFd::new(ending, PollFlags::IN),
-        ];
-        match poll(&mut ready, None) {
-            Ok(_) | Err(Errno::INTR) => {}
-            Err(error) => {
-                tracing::warn!(%error, "stopped noticing changes for a window");
-                return;
-            }
-        }
-        let [noticed, ended] = ready;
-        if !ended.revents().is_empty() {
-            return;
-        }
-        if noticed.revents().is_empty() {
-            continue;
-        }
-        let mut reader = inotify::Reader::new(inotify, &mut buffer);
-        let mut batch = HashSet::new();
-        loop {
-            match reader.next() {
-                Ok(event) => {
-                    let flags = event.events();
-                    let left = if flags.contains(inotify::ReadFlags::IGNORED) {
-                        Some(Left::Gone)
-                    } else if flags.contains(inotify::ReadFlags::MOVE_SELF) {
-                        Some(Left::Moved)
-                    } else {
-                        None
-                    };
-                    batch.insert(Noticed {
-                        descriptor: event.wd(),
-                        name: event
-                            .file_name()
-                            .map(|name| OsStr::from_bytes(name.to_bytes()).to_owned()),
-                        left,
-                    });
-                }
-                Err(Errno::INTR) => {}
-                // All read, for now.
-                Err(Errno::WOULDBLOCK) => {
-                    if !batch.is_empty() && noticing.blocking_send(batch).is_err() {
-                        return;
-                    }
-                    break;
-                }
-                Err(error) => {
-                    tracing::warn!(%error, "stopped noticing changes for a window");
-                    return;
-                }
-            }
-        }
-    }
-}
-
 /// The window's watches `noticed` is about. One whose folder went is placed again; one above
 /// its goal moves down as folders on the way come.
 fn touched(
-    inotify: &OwnedFd,
+    notifier: &mut Notifier,
     watches: &mut HashMap<Watched, Watch>,
     noticed: &Noticed,
 ) -> Vec<Watched> {
@@ -825,48 +769,38 @@ fn touched(
         } else if !watch.above_its_goal() {
             continue;
         }
-        left.extend(watch.place(inotify, &mut false));
+        left.extend(watch.place(notifier, &mut false));
     }
-    forget_unused(inotify, watches, left);
+    forget_unused(notifier, watches, left);
     named
 }
 
-/// inotify's queue overflowed: what was lost may have been any watch's, a folder come or gone
-/// among it. Each is placed afresh, and told.
-fn overflowed(inotify: &OwnedFd, watches: &mut HashMap<Watched, Watch>) -> HashSet<Watched> {
+/// The notifier's queue overflowed: what was lost may have been any watch's, a folder come or
+/// gone among it. Each is placed afresh, and told.
+fn overflowed(notifier: &mut Notifier, watches: &mut HashMap<Watched, Watch>) -> HashSet<Watched> {
     let mut left = Vec::new();
     for watch in watches.values_mut() {
         left.extend(watch.at.take().map(|(_, descriptor)| descriptor));
-        left.extend(watch.place(inotify, &mut false));
+        left.extend(watch.place(notifier, &mut false));
     }
-    forget_unused(inotify, watches, left);
+    forget_unused(notifier, watches, left);
     watches.keys().copied().collect()
 }
 
 /// Tries again to place the watches that couldn't be; those that moved are told.
-fn retried(inotify: &OwnedFd, watches: &mut HashMap<Watched, Watch>) -> HashSet<Watched> {
+fn retried(notifier: &mut Notifier, watches: &mut HashMap<Watched, Watch>) -> HashSet<Watched> {
     let mut changed = HashSet::new();
     let mut left = Vec::new();
     for (watched, watch) in watches.iter_mut().filter(|(_, watch)| watch.misplaced) {
         let mut moved = false;
-        left.extend(watch.place(inotify, &mut moved));
+        left.extend(watch.place(notifier, &mut moved));
         if moved {
             changed.insert(*watched);
         }
     }
-    forget_unused(inotify, watches, left);
+    forget_unused(notifier, watches, left);
     changed
 }
-
-/// What a folder watched is watched for: anything written, made, removed or moved in it, and
-/// its own moving away.
-const FOLDER_FLAGS: WatchFlags = WatchFlags::CREATE
-    .union(WatchFlags::MODIFY)
-    .union(WatchFlags::DELETE)
-    .union(WatchFlags::CLOSE_WRITE)
-    .union(WatchFlags::MOVED_TO)
-    .union(WatchFlags::MOVED_FROM)
-    .union(WatchFlags::MOVE_SELF);
 
 /// The nearest folder to `goal` that is there: itself, or one at most [`MOST_ABOVE`] above it.
 fn nearest_folder(goal: &Path) -> Option<PathBuf> {
@@ -888,14 +822,9 @@ fn start(target: &Target) -> Watch {
     }
 }
 
-fn add(inotify: &OwnedFd, path: &Path, flags: WatchFlags) -> Result<i32, Errno> {
-    // Added to what is watched there already for another of the window's watches.
-    inotify::add_watch(inotify, path, flags | WatchFlags::MASK_ADD)
-}
-
 /// Lets go of each of `descriptors` that none of the window's watches is on.
 fn forget_unused(
-    inotify: &OwnedFd,
+    notifier: &mut Notifier,
     watches: &HashMap<Watched, Watch>,
     descriptors: impl IntoIterator<Item = i32>,
 ) {
@@ -905,7 +834,7 @@ fn forget_unused(
             && watches
                 .values()
                 .all(|watch| watch.descriptor() != Some(descriptor))
-            && let Err(error) = inotify::remove_watch(inotify, descriptor)
+            && let Err(error) = notifier.remove(descriptor)
         {
             tracing::debug!(%error, "a watch that was gone already");
         }

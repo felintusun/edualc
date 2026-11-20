@@ -1,5 +1,5 @@
 //! The socket the window and the daemon speak over, and its frames (see the parent module):
-//! Linux only, as the browser demo's daemon is in the page.
+//! not in the browser demo, whose daemon is in the page.
 
 use std::io::{Read, Write};
 use std::os::fd::{AsFd, OwnedFd};
@@ -21,6 +21,15 @@ const FOLDER: &str = "edualc";
 const SOCKET: &str = "edualcd.sock";
 const LOCK: &str = "edualcd.lock";
 
+/// The user's own folder for what lasts as long as their session: `$XDG_RUNTIME_DIR`, or on
+/// macOS, which has none, their temporary folder (`$TMPDIR`), which is theirs alone too.
+pub fn runtime_dir() -> Option<PathBuf> {
+    let found = std::env::var_os("XDG_RUNTIME_DIR");
+    #[cfg(target_os = "macos")]
+    let found = found.or_else(|| std::env::var_os("TMPDIR"));
+    found.map(PathBuf::from)
+}
+
 /// The private folder, open: what is done in it is done through this descriptor.
 #[derive(Debug)]
 pub struct Folder {
@@ -29,12 +38,11 @@ pub struct Folder {
 }
 
 impl Folder {
-    /// `$XDG_RUNTIME_DIR/edualc/protocol-<PROTOCOL>`, made if it isn't there, and checked to be
+    /// `edualc/protocol-<PROTOCOL>` in the [`runtime_dir`], made if it isn't there, and checked to be
     /// the user's alone. Each protocol has a folder of its own, so a daemon of an earlier build
     /// runs on beside this build's until its sessions end, instead of keeping its windows out.
     pub fn open() -> Result<Self, Error> {
-        let runtime =
-            PathBuf::from(std::env::var_os("XDG_RUNTIME_DIR").ok_or(Error::NoRuntimeDir)?);
+        let runtime = runtime_dir().ok_or(Error::NoRuntimeDir)?;
         let runtime_fd = open_folder(rustix::fs::CWD, &runtime, &runtime)?;
         let edualc = runtime.join(FOLDER);
         let edualc_fd = made_folder(&runtime_fd, FOLDER, &edualc)?;
@@ -58,10 +66,19 @@ impl Folder {
 
     /// A name in the folder as a socket address that resolves through the folder's descriptor,
     /// not through the path it was found at.
+    #[cfg(any(target_os = "linux", target_os = "android"))]
     fn address(&self, name: &str) -> Result<SocketAddrUnix, Error> {
         use std::os::fd::AsRawFd;
         let through = format!("/proc/self/fd/{}/{name}", self.fd.as_raw_fd());
         SocketAddrUnix::new(through).map_err(Error::Socket)
+    }
+
+    /// A name in the folder as a socket address. macOS resolves no path through a descriptor,
+    /// so it goes by the path the folder was found at: no one else can swap a folder on it, as
+    /// each is either root's (above `$TMPDIR`) or the user's alone (checked as it was opened).
+    #[cfg(target_os = "macos")]
+    fn address(&self, name: &str) -> Result<SocketAddrUnix, Error> {
+        SocketAddrUnix::new(self.path.join(name)).map_err(Error::Socket)
     }
 }
 
@@ -104,6 +121,20 @@ fn open_folder(at: impl AsFd, name: &Path, path: &Path) -> Result<OwnedFd, Error
     Ok(fd)
 }
 
+/// A Unix stream socket, closed in programs this one starts. macOS can't say so as it makes
+/// one, so it is said right after, as Rust's own sockets do there.
+fn unix_socket() -> Result<OwnedFd, Error> {
+    #[cfg(any(target_os = "linux", target_os = "android"))]
+    let flags = SocketFlags::CLOEXEC;
+    #[cfg(target_os = "macos")]
+    let flags = SocketFlags::empty();
+    let socket = rustix::net::socket_with(AddressFamily::UNIX, SocketType::STREAM, flags, None)
+        .map_err(Error::Socket)?;
+    #[cfg(target_os = "macos")]
+    rustix::io::fcntl_setfd(&socket, rustix::io::FdFlags::CLOEXEC).map_err(Error::Socket)?;
+    Ok(socket)
+}
+
 /// The daemon's end: the lock it holds, and the socket it listens on.
 #[derive(Debug)]
 pub struct Listener {
@@ -137,13 +168,7 @@ impl Listener {
             Ok(()) | Err(Errno::NOENT) => {}
             Err(source) => return Err(Error::Socket(source)),
         }
-        let socket = rustix::net::socket_with(
-            AddressFamily::UNIX,
-            SocketType::STREAM,
-            SocketFlags::CLOEXEC,
-            None,
-        )
-        .map_err(Error::Socket)?;
+        let socket = unix_socket()?;
         rustix::net::bind(&socket, &folder.address(SOCKET)?).map_err(Error::Socket)?;
         rustix::fs::chmodat(
             &folder.fd,
@@ -167,8 +192,8 @@ impl Listener {
     }
 }
 
-/// The daemon a window reached is this user's. Its program isn't compared: the daemon makes
-/// itself non-dumpable, which closes its `/proc` entries to the window; that it is the daemon
+/// The daemon a window reached is this user's. Its program isn't compared: on Linux the daemon
+/// makes itself non-dumpable, which closes its `/proc` entries to the window; that it is the daemon
 /// the socket's place says, a folder of the user's alone that only the lock's holder binds in.
 fn check_daemon(fd: impl AsFd) -> Result<(), Error> {
     let (uid, pid) = peer(fd)?;
@@ -188,17 +213,30 @@ fn check_window(fd: impl AsFd) -> Result<(), Error> {
     if uid != rustix::process::getuid().as_raw() {
         return Err(stranger);
     }
-    let theirs = std::fs::read_link(format!("/proc/{pid}/exe"));
-    let ours = std::fs::read_link("/proc/self/exe");
+    let theirs = u32::try_from(pid).ok().and_then(crate::process::program);
+    let ours = crate::process::program(std::process::id());
     match (theirs, ours) {
-        (Ok(theirs), Ok(ours)) if is_window_of(&theirs, &ours) => Ok(()),
+        (Some(theirs), Some(ours)) if is_window_of(&theirs, &ours) => Ok(()),
         _ => Err(stranger),
     }
 }
 
+/// The user and process at the other end of a socket.
+#[cfg(any(target_os = "linux", target_os = "android"))]
 fn peer(fd: impl AsFd) -> Result<(u32, i32), Error> {
     let peer = rustix::net::sockopt::socket_peercred(fd).map_err(Error::Socket)?;
     Ok((peer.uid.as_raw(), peer.pid.as_raw_nonzero().get()))
+}
+
+/// The user and process at the other end of a socket: macOS tells them apart, the user by
+/// `getpeereid`, the process by the socket's `LOCAL_PEERPID`.
+#[cfg(target_os = "macos")]
+fn peer(fd: impl AsFd) -> Result<(u32, i32), Error> {
+    use nix::sys::socket::{getsockopt, sockopt::LocalPeerPid};
+    let errno = |error: nix::errno::Errno| Error::Socket(Errno::from_raw_os_error(error as i32));
+    let (uid, _gid) = nix::unistd::getpeereid(&fd).map_err(errno)?;
+    let pid = getsockopt(&fd, LocalPeerPid).map_err(errno)?;
+    Ok((uid.as_raw(), pid))
 }
 
 /// The programs that are windows, by their names, beside the daemon they talk to.
@@ -235,13 +273,7 @@ pub struct Channel {
 impl Channel {
     /// Connects to the daemon, if one is listening.
     pub fn connect(folder: &Folder) -> Result<Self, Error> {
-        let fd = rustix::net::socket_with(
-            AddressFamily::UNIX,
-            SocketType::STREAM,
-            SocketFlags::CLOEXEC,
-            None,
-        )
-        .map_err(Error::Socket)?;
+        let fd = unix_socket()?;
         rustix::net::connect(&fd, &folder.address(SOCKET)?).map_err(Error::Socket)?;
         check_daemon(&fd)?;
         Ok(Self {
