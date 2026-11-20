@@ -100,7 +100,7 @@ folder alone, so you can copy anything you still need from it. Their transcripts
 ## Known limits
 
 - Jumping to another session's window works only on niri.
-- `opencode` sessions keep their own transcripts and can't be continued from edualc yet.
+- `opencode` doesn't report usage or plan limits.
 - You can't mention files with `@` yet, and you paste images rather than drag them in.
 - edualc builds Slint from a fork, until the features it needs are in a Slint release.
 - The Android app keeps its connection only while it's on screen. Android stops an app in the

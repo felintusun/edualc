@@ -7,7 +7,7 @@ use std::process::Stdio;
 
 use tokio::process::{Child, Command};
 
-use crate::claude::{Conversation, FolderConfiguration, Launch, SignInWith};
+use crate::provider::{Conversation, FolderConfiguration, Launch, SignInWith};
 use crate::sessions::MessagingName;
 
 /// Set by Claude Code for its own children. Launched from inside a Claude Code session, the
@@ -63,10 +63,12 @@ pub fn spawn(launch: &Launch, runtime: &tokio::runtime::Handle) -> Result<Spawne
         .ok()
         .filter(|cwd| cwd.is_dir())
         .ok_or_else(|| Error::NoFolder(launch.cwd.clone()))?;
+    if launch.sign_in == SignInWith::ApiKey
+        && !launch.backend.capabilities(launch.sign_in).api_key_sign_in
+    {
+        return Err(Error::AcpApiKey);
+    }
     if launch.backend.is_acp() {
-        if launch.sign_in == SignInWith::ApiKey {
-            return Err(Error::AcpApiKey);
-        }
         return spawn_acp(launch, &cwd, runtime);
     }
     let mut command = Command::new(crate::claude::program());
@@ -161,7 +163,7 @@ fn spawn_acp(
         Conversation::New(id) => command.arg(format!("--session-id={id}")),
         Conversation::Continue(id) => command.arg(format!("--resume={id}")),
         Conversation::Fork { of, id } => {
-            if !launch.backend.can_fork() {
+            if !launch.backend.capabilities(launch.sign_in).fork {
                 return Err(Error::AcpFork);
             }
             command

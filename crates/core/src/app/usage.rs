@@ -6,10 +6,10 @@ use serde::de::DeserializeOwned;
 use serde_json::Value;
 
 use super::{App, LimitUse, Reading, Request};
-use crate::claude::Backend;
 use crate::external::wire::{ContextReport, ControlRequest, LimitKind, UsageReport};
 use crate::ipc::{ProviderUsage, Read};
 use crate::present::Frontend;
+use crate::provider::Backend;
 
 impl<F: Frontend> App<F> {
     pub(super) fn show_usage(&mut self) {
@@ -50,9 +50,12 @@ impl<F: Frontend> App<F> {
                 state.error = None;
                 state.waiting = 0;
             }
+            let reports_plan_limits = backend
+                .capabilities(crate::provider::SignInWith::Account)
+                .plan_limits;
             if live_here {
                 let mut sent = 0_usize;
-                if backend != Backend::Opencode
+                if reports_plan_limits
                     && self.request(ControlRequest::GetUsage, Request::Usage(backend))
                 {
                     sent += 1;
@@ -65,17 +68,22 @@ impl<F: Frontend> App<F> {
                 }
                 let state = self.usage.for_backend_mut(backend);
                 state.waiting = sent;
-                if backend == Backend::Opencode {
-                    state.error = Some("opencode doesn't report usage or plan limits.".into());
+                if !reports_plan_limits {
+                    state.error = Some(format!(
+                        "{} doesn't report usage or plan limits.",
+                        backend.program()
+                    ));
                 } else if sent == 0 {
                     state.error = Some(format!("{} isn't running to ask.", backend.program()));
                 }
             } else if !available {
                 self.usage.for_backend_mut(backend).error =
                     Some(format!("{} isn't installed on PATH.", backend.program()));
-            } else if backend == Backend::Opencode {
-                self.usage.for_backend_mut(backend).error =
-                    Some("opencode doesn't report usage or plan limits.".into());
+            } else if !reports_plan_limits {
+                self.usage.for_backend_mut(backend).error = Some(format!(
+                    "{} doesn't report usage or plan limits.",
+                    backend.program()
+                ));
             } else {
                 self.usage.for_backend_mut(backend).waiting = 1;
                 self.read(
@@ -150,18 +158,27 @@ impl<F: Frontend> App<F> {
         }
     }
 
-    /// The sidebar's bars from the fuller answer: the session's five hours and the week.
+    /// The session's quota bars from the fuller answer: five-hour and weekly windows for the
+    /// active model/plan. Clears stale windows when a full report omits them (e.g., weekly-only
+    /// models like Argon).
     fn take_plan_limits_for(&mut self, backend: Backend, report: &UsageReport) {
         let Some(kept) = self.status.limits.mut_for_backend(backend) else {
             return;
         };
+        if report.rate_limits.limits.is_empty() {
+            return;
+        }
+        let mut five_hour = None;
+        let mut seven_day = None;
         for limit in &report.rate_limits.limits {
             let used = LimitUse::from(limit);
             match limit.kind {
-                LimitKind::Session => kept.five_hour = Some(used),
-                LimitKind::WeeklyAll => kept.seven_day = Some(used),
+                LimitKind::Session => five_hour = Some(used),
+                LimitKind::WeeklyAll => seven_day = Some(used),
                 LimitKind::WeeklyScoped | LimitKind::Other => {}
             }
         }
+        kept.five_hour = five_hour;
+        kept.seven_day = seven_day;
     }
 }

@@ -329,13 +329,23 @@ export component TopBar inherits Rectangle {
                 }
             }
             Pressable {
+                property <bool> show-session-limit: Nav.view == PlaceView.session
+                    && (Session.limit-five-hour >= 0 || Session.limit-seven-day >= 0);
+                property <bool> show-weekly: Session.limit-seven-day >= 0
+                    && (Session.limit-five-hour < 0 || Session.limit-seven-day > Session.limit-five-hour);
+                property <float> binding-limit: show-weekly ? Session.limit-seven-day : Session.limit-five-hour;
+                property <string> limit-text: !show-session-limit
+                    ? "Usage"
+                    : show-weekly
+                        ? "7d \{round(clamp(Session.limit-seven-day, 0, 1) * 100)}%"
+                        : "5h \{round(clamp(Session.limit-five-hour, 0, 1) * 100)}%";
                 selected: Usage.open;
                 height: Theme.chip;
                 y: (parent.height - self.height) / 2;
                 border-radius: Theme.radius-m;
-                accessible-label: Session.limit-five-hour >= 0
-                    ? "Usage: 5h \{round(clamp(Session.limit-five-hour, 0, 1) * 100)}%"
-                    : "Usage details";
+                accessible-label: show-session-limit
+                    ? "Usage: \{limit-text}"
+                    : "Usage overview";
                 clicked => {
                     if Usage.open {
                         Usage.close();
@@ -349,13 +359,21 @@ export component TopBar inherits Rectangle {
                     spacing: Theme.space-xs;
                     Icon {
                         source: @image-url("@lucide/gauge.svg");
-                        tint: Usage.open ? Theme.accent : Theme.text-secondary;
+                        tint: Usage.open
+                            ? Theme.accent
+                            : (show-session-limit && binding-limit >= 0.75)
+                                ? Theme.warning-text
+                                : Theme.text-secondary;
                         width: Theme.icon-small;
                         y: (parent.height - self.height) / 2;
                     }
                     if !root.tight: Small {
-                        text: Session.limit-five-hour >= 0 ? "5h \{round(clamp(Session.limit-five-hour, 0, 1) * 100)}%" : "Usage";
-                        color: Usage.open ? Theme.text : Theme.text-secondary;
+                        text: limit-text;
+                        color: Usage.open
+                            ? Theme.text
+                            : (show-session-limit && binding-limit >= 0.75)
+                                ? Theme.warning-text
+                                : Theme.text-secondary;
                         vertical-alignment: center;
                         accessible-role: none;
                     }

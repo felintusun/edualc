@@ -5,9 +5,9 @@
 use serde_json::Value;
 
 use super::{App, Request};
-use crate::claude::Resume;
 use crate::external::wire::{ControlRequest, SideAnswer, SideTurn};
 use crate::present::Frontend;
+use crate::provider::Resume;
 
 #[derive(Debug, Default)]
 pub struct SideChat {
@@ -94,7 +94,7 @@ impl<F: Frontend> App<F> {
             self.view.focus_side();
             return;
         }
-        if self.status.backend != crate::claude::Backend::Claude {
+        if !self.status.capabilities().side_questions {
             self.side.exchanges.push(Exchange {
                 question: question.to_owned(),
                 answer: Answer::Failed(format!(
@@ -202,7 +202,7 @@ impl<F: Frontend> App<F> {
                 .error("There is no conversation to branch yet; send a first message.");
             return;
         };
-        if self.status.backend != crate::claude::Backend::Claude
+        if !self.status.capabilities().side_questions
             || self.status.turns > 0
             || !self.side.has_answers()
         {

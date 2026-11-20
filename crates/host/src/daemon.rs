@@ -29,16 +29,16 @@ use tokio::sync::{mpsc, watch};
 use tokio::task::JoinSet;
 use tokio::time::Instant;
 
-use crate::claude::{Launch, SignInWith};
+use crate::agent;
 use crate::decode::{self, Refusal};
 use crate::desktop;
-use crate::external::wire::{
-    self, ControlPeek, IncomingRequest, PeekedKind, PeekedSubtype, SessionId, TaskId,
-};
+use crate::driver::{Decoded, Driver};
+use crate::external::wire::{self, IncomingRequest, SessionId, TaskId};
 use crate::ipc::{
     self, Act, ActFailure, ActId, CreateProjectError, Deframer, FromDaemon, Generation, Hosted,
     HostedId, HostedState, LineSplitter, PasteFailure, ProjectName, StartFailure, Stream, ToDaemon,
 };
+use crate::provider::{Launch, SignInWith};
 use crate::{files, sessions, settings, snapshots, spawn, tools, trust};
 
 /// How long the daemon waits, with no window and no session, before it ends.
@@ -588,7 +588,7 @@ impl Connection {
                 self.keys.insert(key, String::new());
                 vec![Effect::Hub(Ask::Attach { key, hosted })]
             }
-            ToDaemon::Input { key, text, last } => {
+            ToDaemon::Command { key, text, last } => {
                 let Some(line) = self.keys.get_mut(&key) else {
                     return Vec::new();
                 };
@@ -1389,10 +1389,12 @@ enum Doing {
 }
 
 impl Doing {
-    /// A line the process wrote: the files it names, if a turn is under way.
-    fn saw(&mut self, line: &str) {
-        if let Self::Turn { touched } = self {
-            touched.extend(snapshots::edited(line));
+    /// An agent event the process wrote: the files named, if a turn is under way.
+    fn saw(&mut self, event: &agent::Event) {
+        if let Self::Turn { touched } = self
+            && let agent::Event::Assistant { message, .. } = event
+        {
+            touched.extend(snapshots::edited_in(&message.content));
         }
     }
 
@@ -1450,7 +1452,7 @@ async fn host(
     shown: Option<(Generation, mpsc::Sender<FromDaemon>)>,
     reporting: Reporting,
 ) -> Session {
-    let session = Session::new(id);
+    let session = Session::with_driver(id, Driver::of(launch.backend));
     let place = Place {
         cwd: launch.cwd.clone(),
         session: launch.conversation.id().clone(),
@@ -1500,6 +1502,7 @@ enum Phase {
 #[derive(Debug, PartialEq, Eq)]
 struct Session {
     id: HostedId,
+    driver: Driver,
     phase: Phase,
     /// What it asked the user and wasn't answered: asked again of a window that attaches.
     pending: Pending,
@@ -1511,9 +1514,15 @@ struct Session {
 }
 
 impl Session {
+    #[cfg(test)]
     fn new(id: HostedId) -> Self {
+        Self::with_driver(id, Driver::Claude)
+    }
+
+    fn with_driver(id: HostedId, driver: Driver) -> Self {
         Self {
             id,
+            driver,
             phase: Phase::Running,
             pending: Pending::default(),
             lines_in: 0,
@@ -1629,12 +1638,24 @@ impl Session {
                     Some(Command::Line(line)) => {
                         self.lines_in += 1;
                         self.active = Instant::now();
-                        self.pending.answered(&line);
-                        self.publish_state(cwd, &mut last_state, states.as_ref());
-                        if let Some(job) = doing.follow(self.pending.in_turn(), place, &changed) {
-                            keep(&keeper, job).await;
+                        match serde_json::from_str::<agent::Command>(&line) {
+                            Ok(command) => {
+                                self.pending.sent(&command);
+                                self.publish_state(&mut last_state, states.as_ref());
+                                if let Some(job) = doing.follow(self.pending.in_turn(), place, &changed) {
+                                    keep(&keeper, job).await;
+                                }
+                                match self.driver.encode_command(command) {
+                                    Ok(encoded) => self.write(&mut stdin, encoded),
+                                    Err(error) => {
+                                        tracing::warn!(%error, id = ?self.id, "couldn't encode command for driver");
+                                    }
+                                }
+                            }
+                            Err(error) => {
+                                tracing::warn!(%error, id = ?self.id, "dropping unreadable command from window");
+                            }
                         }
-                        self.write(&mut stdin, line);
                     }
                     Some(Command::Attach { key, outbox }) => {
                         self.alone_since = None;
@@ -1657,19 +1678,44 @@ impl Session {
                     }
                 },
                 line = output.recv(), if output_open => match line {
-                    Some((stream, line)) => {
+                    Some((Stream::Out, line)) => {
                         self.active = Instant::now();
-
-                        if stream == Stream::Out {
-                            doing.saw(&line);
-                            self.pending.said(&line);
-                            self.publish_state(cwd, &mut last_state, states.as_ref());
-                            if let Some(job) = doing.follow(self.pending.in_turn(), place, &changed) {
-                                keep(&keeper, job).await;
+                        match self.driver.decode_output(line) {
+                            Decoded::Event { event, wire_line } => {
+                                doing.saw(&event);
+                                self.pending.saw(&event, &wire_line, cwd);
+                                self.publish_state(&mut last_state, states.as_ref());
+                                if let Some(job) = doing.follow(self.pending.in_turn(), place, &changed) {
+                                    keep(&keeper, job).await;
+                                }
+                                if let Some((key, outbox)) = &shown {
+                                    send_line(outbox, *key, Stream::Out, &wire_line).await;
+                                }
+                            }
+                            Decoded::UnreadableRequest {
+                                reply_to_process,
+                                notice,
+                            } => {
+                                if !reply_to_process.is_empty() {
+                                    self.write(&mut stdin, reply_to_process);
+                                }
+                                if let Some((key, outbox)) = &shown {
+                                    send_line(outbox, *key, Stream::Err, &notice).await;
+                                }
+                            }
+                            Decoded::Log(line) => {
+                                if !line.is_empty()
+                                    && let Some((key, outbox)) = &shown
+                                {
+                                    send_line(outbox, *key, Stream::Err, &line).await;
+                                }
                             }
                         }
+                    }
+                    Some((Stream::Err, line)) => {
+                        self.active = Instant::now();
                         if let Some((key, outbox)) = &shown {
-                            send_line(outbox, *key, stream, &line).await;
+                            send_line(outbox, *key, Stream::Err, &line).await;
                         }
                     }
                     None => output_open = false,
@@ -1702,10 +1748,28 @@ impl Session {
         }
         while let Some((stream, line)) = output.recv().await {
             if stream == Stream::Out {
-                doing.saw(&line);
-            }
-            if let Some((key, outbox)) = &shown {
-                send_line(outbox, *key, stream, &line).await;
+                match self.driver.decode_output(line) {
+                    Decoded::Event { event, wire_line } => {
+                        doing.saw(&event);
+                        if let Some((key, outbox)) = &shown {
+                            send_line(outbox, *key, Stream::Out, &wire_line).await;
+                        }
+                    }
+                    Decoded::UnreadableRequest { notice, .. } => {
+                        if let Some((key, outbox)) = &shown {
+                            send_line(outbox, *key, Stream::Err, &notice).await;
+                        }
+                    }
+                    Decoded::Log(line) => {
+                        if !line.is_empty()
+                            && let Some((key, outbox)) = &shown
+                        {
+                            send_line(outbox, *key, Stream::Err, &line).await;
+                        }
+                    }
+                }
+            } else if let Some((key, outbox)) = &shown {
+                send_line(outbox, *key, Stream::Err, &line).await;
             }
         }
         // A turn the process ended in ends with it.
@@ -1720,11 +1784,10 @@ impl Session {
 
     fn publish_state(
         &self,
-        cwd: &Path,
         last: &mut HostedState,
         states: Option<&mpsc::UnboundedSender<(HostedId, HostedState)>>,
     ) {
-        let next = self.pending.state(cwd);
+        let next = self.pending.state();
         if next == *last {
             return;
         }
@@ -1739,14 +1802,15 @@ impl Session {
 
 #[derive(Debug, PartialEq, Eq)]
 struct Asked {
+    summary: String,
     line: String,
     since: SystemTime,
 }
 
 /// What a window attaching is told again (sans-io): how many turns are under way, the
 /// process's latest `init` (its session, model and mode), what runs in the background, then the
-/// permission requests it asked and nothing answered yet. Only the messages' kind and request
-/// id are read, the rest is passed on as it is.
+/// permission requests it asked and nothing answered yet. Stored as serialized [`agent::Event`]
+/// lines ready to send over IPC.
 #[derive(Debug, Default, PartialEq, Eq)]
 struct Pending {
     init: Option<String>,
@@ -1762,100 +1826,94 @@ struct Pending {
     /// counts them, for one that attaches meanwhile.
     turns: usize,
     /// A turn the session started itself, as for another session's message: no prompt was
-    /// written for it, so Claude's first words tell it, and its result ends it.
+    /// written for it, so the model's first words tell it, and its result ends it.
     own_turn: bool,
 }
 
 impl Pending {
-    /// A line the process wrote.
-    fn said(&mut self, line: &str) {
-        let Ok(peek) = serde_json::from_str::<ControlPeek>(line) else {
-            return;
-        };
-        match (peek.kind, peek.subtype, peek.request_id) {
-            (PeekedKind::System, Some(PeekedSubtype::Init), _) => {
-                self.init = Some(line.to_owned());
+    /// A typed event decoded from the process's stdout, alongside its serialized [`agent::Event`]
+    /// wire representation for attaching windows.
+    fn saw(&mut self, event: &agent::Event, wire_line: &str, cwd: &Path) {
+        match event {
+            agent::Event::System(wire::System::Init { .. }) => {
+                self.init = Some(wire_line.to_owned());
             }
-            (PeekedKind::System, Some(PeekedSubtype::BackgroundTasksChanged), _) => {
-                self.tasks = Some(line.to_owned());
+            agent::Event::System(wire::System::BackgroundTasksChanged { .. }) => {
+                self.tasks = Some(wire_line.to_owned());
             }
-            (PeekedKind::System, Some(PeekedSubtype::TaskStarted), _) => {
-                if let Some(task) = peek.task_id
-                    && self.open_tasks.len() < MAX_PENDING
-                {
-                    self.open_tasks.insert(task, vec![line.to_owned()]);
+            agent::Event::System(wire::System::TaskStarted { task_id, .. }) => {
+                if self.open_tasks.len() < MAX_PENDING {
+                    self.open_tasks
+                        .insert(task_id.clone(), vec![wire_line.to_owned()]);
                 }
             }
-            (PeekedKind::System, Some(PeekedSubtype::TaskUpdated), _) => {
-                if let Some(said) = peek.task_id.and_then(|task| self.open_tasks.get_mut(&task))
+            agent::Event::System(wire::System::TaskUpdated { task_id, .. }) => {
+                if let Some(said) = self.open_tasks.get_mut(task_id)
                     && said.len() < MAX_PENDING
                 {
-                    said.push(line.to_owned());
+                    said.push(wire_line.to_owned());
                 }
             }
-            (PeekedKind::System, Some(PeekedSubtype::TaskNotification), _) => {
-                if let Some(task) = peek.task_id {
-                    self.open_tasks.remove(&task);
-                    self.progress.remove(&task);
+            agent::Event::System(wire::System::TaskNotification { task_id }) => {
+                self.open_tasks.remove(task_id);
+                self.progress.remove(task_id);
+            }
+            agent::Event::System(wire::System::TaskProgress { task_id, .. }) => {
+                if self.progress.len() < MAX_PENDING || self.progress.contains_key(task_id) {
+                    self.progress.insert(task_id.clone(), wire_line.to_owned());
                 }
             }
-            (PeekedKind::System, Some(PeekedSubtype::TaskProgress), _) => {
-                if let Some(task) = peek.task_id
-                    && (self.progress.len() < MAX_PENDING || self.progress.contains_key(&task))
-                {
-                    self.progress.insert(task, line.to_owned());
-                }
-            }
-            (PeekedKind::ControlRequest, _, Some(id)) if self.asked.len() < MAX_PENDING => {
+            agent::Event::ControlRequest {
+                request_id,
+                request,
+            } if self.asked.len() < MAX_PENDING => {
                 let asked = Asked {
+                    summary: request_summary(request, cwd),
                     since: SystemTime::now(),
-                    line: line.to_owned(),
+                    line: wire_line.to_owned(),
                 };
-                self.asked.insert(id, asked);
+                self.asked.insert(request_id.to_string(), asked);
             }
-            (PeekedKind::ControlCancelRequest, _, Some(id)) => {
-                self.asked.remove(&id);
+            agent::Event::RequestCancelled { request_id } => {
+                self.asked.remove(&request_id.to_string());
             }
-            (PeekedKind::Result, _, _) => {
+            agent::Event::Result(_) => {
                 self.turns = self.turns.saturating_sub(1);
                 self.own_turn = false;
                 // No foreground task outlives its turn, and the list names those that run on.
                 self.open_tasks.clear();
             }
-            (PeekedKind::Assistant | PeekedKind::StreamEvent, _, _) if self.turns == 0 => {
+            agent::Event::Assistant { .. } | agent::Event::Stream { .. } if self.turns == 0 => {
                 self.own_turn = true;
             }
-            _ => {}
+            agent::Event::Stream { .. }
+            | agent::Event::Assistant { .. }
+            | agent::Event::User(_)
+            | agent::Event::System(_)
+            | agent::Event::RateLimits(_)
+            | agent::Event::ControlRequest { .. }
+            | agent::Event::ControlAnswered(_) => {}
         }
     }
 
-    /// A line the window wrote to the process.
-    fn answered(&mut self, line: &str) {
-        let Ok(peek) = serde_json::from_str::<ControlPeek>(line) else {
-            return;
-        };
-        match peek.kind {
-            PeekedKind::ControlResponse => {
-                if let Some(id) = peek.response.and_then(|response| response.request_id) {
-                    self.asked.remove(&id);
+    /// A command the window sent to the session.
+    fn sent(&mut self, command: &agent::Command) {
+        match command {
+            agent::Command::ControlResponse { .. } => {
+                if let Some(id) = command.answered_request_id() {
+                    self.asked.remove(&id.to_string());
                 }
             }
-            PeekedKind::User => self.turns = self.turns.saturating_add(1),
-            PeekedKind::System
-            | PeekedKind::ControlRequest
-            | PeekedKind::ControlCancelRequest
-            | PeekedKind::Result
-            | PeekedKind::Assistant
-            | PeekedKind::StreamEvent
-            | PeekedKind::Other => {}
+            agent::Command::Prompt { .. } => self.turns = self.turns.saturating_add(1),
+            agent::Command::Shell { .. } | agent::Command::ControlRequest { .. } => {}
         }
     }
 
-    /// What it does now; a question is put in words for a session working in `cwd`.
-    fn state(&self, cwd: &Path) -> HostedState {
+    /// What it does now; a question's summary was computed when asked.
+    fn state(&self) -> HostedState {
         if let Some(asked) = self.asked.values().min_by_key(|asked| asked.since) {
             HostedState::Waiting {
-                question: question_summary(&asked.line, cwd),
+                question: asked.summary.clone(),
                 since: asked.since,
             }
         } else if self.in_turn() {
@@ -1880,21 +1938,17 @@ impl Pending {
     }
 }
 
-fn question_summary(line: &str, cwd: &Path) -> String {
-    let Ok(wire::Message::ControlRequest {
-        request:
-            IncomingRequest::CanUseTool {
-                tool_name,
-                input,
-                description,
-                ..
-            },
+fn request_summary(request: &IncomingRequest, cwd: &Path) -> String {
+    let IncomingRequest::CanUseTool {
+        tool_name,
+        input,
+        description,
         ..
-    }) = serde_json::from_str::<wire::Message>(line)
+    } = request
     else {
         return "Waiting for you".to_owned();
     };
-    let view = tools::describe(&tool_name, &input, cwd, tools::Depth::Headline);
+    let view = tools::describe(tool_name, input, cwd, tools::Depth::Headline);
     let summary = match tool_name {
         wire::ToolName::AskUserQuestion => {
             if view.summary.trim().is_empty() {
@@ -1929,7 +1983,7 @@ fn question_summary(line: &str, cwd: &Path) -> String {
         | wire::ToolName::EdualcIncomingMessage
         | wire::ToolName::Other(_) => {
             if !description.trim().is_empty() {
-                description
+                description.clone()
             } else if !view.summary.trim().is_empty() {
                 format!("{}: {}", view.title, view.summary)
             } else {
@@ -2177,14 +2231,26 @@ mod tests {
         let (changed, _summaries) = mpsc::channel(1);
         let place = place();
         let mut doing = Doing::default();
-        doing.saw(r#"{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t0","name":"Write","input":{"file_path":"/p/early.rs","content":"x"}}]},"parent_tool_use_id":null}"#);
+        let decode_event = |line: &str| match Driver::Claude.decode_output(line.to_owned()) {
+            Decoded::Event { event, .. } => event,
+            other @ (Decoded::UnreadableRequest { .. } | Decoded::Log(_)) => {
+                panic!("expected event, got {other:?}")
+            }
+        };
+        let early = decode_event(
+            r#"{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t0","name":"Write","input":{"file_path":"/p/early.rs","content":"x"}}]},"parent_tool_use_id":null}"#,
+        );
+        doing.saw(&early);
         assert!(doing.follow(false, &place, &changed).is_none());
         assert!(matches!(
             doing.follow(true, &place, &changed),
             Some(snapshots::Job::TurnStarted { .. })
         ));
         assert!(doing.follow(true, &place, &changed).is_none());
-        doing.saw(r#"{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t1","name":"Edit","input":{"file_path":"/p/a.rs","old_string":"a","new_string":"b"}}]},"parent_tool_use_id":null}"#);
+        let edit = decode_event(
+            r#"{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t1","name":"Edit","input":{"file_path":"/p/a.rs","old_string":"a","new_string":"b"}}]},"parent_tool_use_id":null}"#,
+        );
+        doing.saw(&edit);
         let Some(snapshots::Job::TurnEnded { touched, .. }) = doing.follow(false, &place, &changed)
         else {
             panic!("the turn ends");
@@ -2194,7 +2260,7 @@ mod tests {
     }
 
     fn piece(key: Generation, text: &str, last: bool) -> ToDaemon {
-        ToDaemon::Input {
+        ToDaemon::Command {
             key,
             text: text.to_owned(),
             last,
@@ -2371,17 +2437,46 @@ mod tests {
         assert_eq!(sign_ins, [SignInWith::Account, SignInWith::ApiKey]);
     }
 
+    fn claude_saw(pending: &mut Pending, line: &str) -> String {
+        claude_saw_in(pending, line, Path::new("/code/beep"))
+    }
+
+    fn claude_saw_in(pending: &mut Pending, line: &str, cwd: &Path) -> String {
+        match Driver::Claude.decode_output(line.to_owned()) {
+            Decoded::Event { event, wire_line } => {
+                pending.saw(&event, &wire_line, cwd);
+                wire_line
+            }
+            Decoded::Log(raw) => raw,
+            Decoded::UnreadableRequest { .. } => panic!("unexpected unreadable request"),
+        }
+    }
+
+    fn prompt_command(text: &str) -> agent::Command {
+        agent::Command::Prompt {
+            shell: Vec::new(),
+            images: Vec::new(),
+            text: text.to_owned(),
+        }
+    }
+
     #[test]
     fn the_latest_init_is_told_first() {
         let mut pending = Pending::default();
-        let first = r#"{"type":"system","subtype":"init","session_id":"a","model":"m1"}"#;
-        let later = r#"{"type":"system","subtype":"init","session_id":"a","model":"m2"}"#;
-        let asked = r#"{"type":"control_request","request_id":"r1","request":{}}"#;
-        pending.said(first);
-        pending.said(asked);
-        pending.said(later);
-        pending.said(r#"{"type":"system","subtype":"status","status":"requesting"}"#);
-        assert_eq!(pending.lines().collect::<Vec<_>>(), [later, asked]);
+        let first = r#"{"type":"system","subtype":"init","session_id":"11111111-2222-4333-8444-555555555555","model":"m1","permissionMode":"default","cwd":"/code"}"#;
+        let later = r#"{"type":"system","subtype":"init","session_id":"11111111-2222-4333-8444-555555555555","model":"m2","permissionMode":"default","cwd":"/code"}"#;
+        let asked = r#"{"type":"control_request","request_id":"r1","request":{"subtype":"can_use_tool","tool_name":"Bash","input":{}}}"#;
+        claude_saw(&mut pending, first);
+        let asked_wire = claude_saw(&mut pending, asked);
+        let later_wire = claude_saw(&mut pending, later);
+        claude_saw(
+            &mut pending,
+            r#"{"type":"system","subtype":"status","status":"requesting"}"#,
+        );
+        assert_eq!(
+            pending.lines().cloned().collect::<Vec<_>>(),
+            vec![later_wire, asked_wire]
+        );
     }
 
     /// A window attaching meanwhile learns what runs in the background from the latest list,
@@ -2389,18 +2484,24 @@ mod tests {
     #[test]
     fn the_latest_background_tasks_are_told_after_the_init() {
         let mut pending = Pending::default();
-        let init = r#"{"type":"system","subtype":"init","session_id":"a","model":"m"}"#;
-        let two = r#"{"type":"system","subtype":"background_tasks_changed","tasks":[{"task_type":"local_agent","description":"a"},{"task_type":"local_bash","description":"b"}]}"#;
-        let one = r#"{"type":"system","subtype":"background_tasks_changed","tasks":[{"task_type":"local_bash","description":"b"}]}"#;
+        let init = r#"{"type":"system","subtype":"init","session_id":"11111111-2222-4333-8444-555555555555","model":"m","permissionMode":"default","cwd":"/code"}"#;
+        let two = r#"{"type":"system","subtype":"background_tasks_changed","tasks":[{"task_id":"t1","task_type":"local_agent","description":"a"},{"task_id":"t2","task_type":"local_bash","description":"b"}]}"#;
+        let one = r#"{"type":"system","subtype":"background_tasks_changed","tasks":[{"task_id":"t2","task_type":"local_bash","description":"b"}]}"#;
         let none = r#"{"type":"system","subtype":"background_tasks_changed","tasks":[]}"#;
-        let asked = r#"{"type":"control_request","request_id":"r1","request":{}}"#;
-        pending.said(two);
-        pending.said(init);
-        pending.said(asked);
-        pending.said(one);
-        assert_eq!(pending.lines().collect::<Vec<_>>(), [init, one, asked]);
-        pending.said(none);
-        assert_eq!(pending.lines().collect::<Vec<_>>(), [init, none, asked]);
+        let asked = r#"{"type":"control_request","request_id":"r1","request":{"subtype":"can_use_tool","tool_name":"Bash","input":{}}}"#;
+        claude_saw(&mut pending, two);
+        let init_wire = claude_saw(&mut pending, init);
+        let asked_wire = claude_saw(&mut pending, asked);
+        let one_wire = claude_saw(&mut pending, one);
+        assert_eq!(
+            pending.lines().cloned().collect::<Vec<_>>(),
+            vec![init_wire.clone(), one_wire, asked_wire.clone()]
+        );
+        let none_wire = claude_saw(&mut pending, none);
+        assert_eq!(
+            pending.lines().cloned().collect::<Vec<_>>(),
+            vec![init_wire, none_wire, asked_wire]
+        );
     }
 
     /// A task begun and not yet ended is told again, all that was said about it, in order and
@@ -2409,7 +2510,7 @@ mod tests {
     #[test]
     fn open_tasks_are_told_until_they_end() {
         let mut pending = Pending::default();
-        let init = r#"{"type":"system","subtype":"init","session_id":"a","model":"m"}"#;
+        let init = r#"{"type":"system","subtype":"init","session_id":"11111111-2222-4333-8444-555555555555","model":"m","permissionMode":"default","cwd":"/code"}"#;
         let list = r#"{"type":"system","subtype":"background_tasks_changed","tasks":[]}"#;
         let started = |id: &str| {
             format!(
@@ -2419,21 +2520,43 @@ mod tests {
         let (agent, other) = (started("a1"), started("a2"));
         let moved = r#"{"type":"system","subtype":"task_updated","task_id":"a1","patch":{"is_backgrounded":true}}"#;
         let ended = r#"{"type":"system","subtype":"task_notification","task_id":"a2","status":"completed"}"#;
-        let asked = r#"{"type":"control_request","request_id":"r1","request":{}}"#;
-        for line in [init, list, &agent, &other, asked, moved] {
-            pending.said(line);
-        }
+        let asked = r#"{"type":"control_request","request_id":"r1","request":{"subtype":"can_use_tool","tool_name":"Bash","input":{}}}"#;
+        let init_wire = claude_saw(&mut pending, init);
+        let list_wire = claude_saw(&mut pending, list);
+        let agent_wire = claude_saw(&mut pending, &agent);
+        let other_wire = claude_saw(&mut pending, &other);
+        let asked_wire = claude_saw(&mut pending, asked);
+        let moved_wire = claude_saw(&mut pending, moved);
         assert_eq!(
-            pending.lines().collect::<Vec<_>>(),
-            [init, list, &agent, moved, &other, asked]
+            pending.lines().cloned().collect::<Vec<_>>(),
+            vec![
+                init_wire.clone(),
+                list_wire.clone(),
+                agent_wire.clone(),
+                moved_wire.clone(),
+                other_wire,
+                asked_wire.clone(),
+            ]
         );
-        pending.said(ended);
+        claude_saw(&mut pending, ended);
         assert_eq!(
-            pending.lines().collect::<Vec<_>>(),
-            [init, list, &agent, moved, asked]
+            pending.lines().cloned().collect::<Vec<_>>(),
+            vec![
+                init_wire.clone(),
+                list_wire.clone(),
+                agent_wire,
+                moved_wire,
+                asked_wire.clone(),
+            ]
         );
-        pending.said(r#"{"type":"result","subtype":"success","is_error":false}"#);
-        assert_eq!(pending.lines().collect::<Vec<_>>(), [init, list, asked]);
+        claude_saw(
+            &mut pending,
+            r#"{"type":"result","subtype":"success","is_error":false}"#,
+        );
+        assert_eq!(
+            pending.lines().cloned().collect::<Vec<_>>(),
+            vec![init_wire, list_wire, asked_wire]
+        );
     }
 
     /// Only a task's latest progress is told again, past the turn's end (a background task runs
@@ -2447,11 +2570,20 @@ mod tests {
             )
         };
         let (early, late) = (progress(10), progress(20));
-        pending.said(&early);
-        pending.said(&late);
-        pending.said(r#"{"type":"result","subtype":"success","is_error":false}"#);
-        assert_eq!(pending.lines().collect::<Vec<_>>(), [&late]);
-        pending.said(r#"{"type":"system","subtype":"task_notification","task_id":"a1","status":"completed"}"#);
+        claude_saw(&mut pending, &early);
+        let late_wire = claude_saw(&mut pending, &late);
+        claude_saw(
+            &mut pending,
+            r#"{"type":"result","subtype":"success","is_error":false}"#,
+        );
+        assert_eq!(
+            pending.lines().cloned().collect::<Vec<_>>(),
+            vec![late_wire]
+        );
+        claude_saw(
+            &mut pending,
+            r#"{"type":"system","subtype":"task_notification","task_id":"a1","status":"completed"}"#,
+        );
         assert_eq!(pending.lines().count(), 0);
     }
 
@@ -2460,36 +2592,56 @@ mod tests {
     #[test]
     fn turns_under_way_are_counted_for_a_window_attaching() {
         let mut pending = Pending::default();
-        let prompt = r#"{"type":"user","message":{"role":"user","content":"Hi"},"parent_tool_use_id":null,"session_id":"default"}"#;
+        let prompt = prompt_command("Hi");
         let result = r#"{"type":"result","subtype":"success","is_error":false}"#;
-        pending.answered(prompt);
-        pending.answered(prompt);
-        pending.answered(r#"{"type":"bash_command","command":"ls","uuid":"x"}"#);
-        pending.answered(
-            r#"{"type":"control_request","request_id":"gui_1","request":{"subtype":"interrupt"}}"#,
+        pending.sent(&prompt);
+        pending.sent(&prompt);
+        pending.sent(&agent::Command::Shell {
+            command: "ls".to_owned(),
+        });
+        pending.sent(&agent::Command::ControlRequest {
+            request_id: wire::RequestId::from("gui_1".to_owned()),
+            request: wire::ControlRequest::Interrupt,
+        });
+        claude_saw(
+            &mut pending,
+            r#"{"type":"user","message":{"role":"user","content":"<bash-input>ls</bash-input>"},"isReplay":true}"#,
         );
-        pending.said(r#"{"type":"user","message":{"role":"user","content":"<bash-input>ls</bash-input>"},"isReplay":true}"#);
         assert_eq!(pending.turns, 2);
-        pending.said(result);
+        claude_saw(&mut pending, result);
         assert_eq!(pending.turns, 1);
-        pending.said(result);
-        pending.said(result);
+        claude_saw(&mut pending, result);
+        claude_saw(&mut pending, result);
         assert_eq!(pending.turns, 0, "never below none");
     }
 
     #[test]
     fn what_was_asked_and_not_answered_is_kept() {
         let mut pending = Pending::default();
-        let asked =
-            r#"{"type":"control_request","request_id":"r1","request":{"subtype":"can_use_tool"}}"#;
-        pending.said(asked);
-        pending.said(r#"{"type":"control_request","request_id":"r2","request":{}}"#);
-        pending.said(r#"{"type":"control_cancel_request","request_id":"r2"}"#);
-        pending.said("not json");
-        assert_eq!(pending.lines().collect::<Vec<_>>(), [asked]);
-        pending.answered(
-            r#"{"type":"control_response","response":{"subtype":"success","request_id":"r1"}}"#,
+        let asked = r#"{"type":"control_request","request_id":"r1","request":{"subtype":"can_use_tool","tool_name":"Bash","input":{}}}"#;
+        let asked_wire = claude_saw(&mut pending, asked);
+        claude_saw(
+            &mut pending,
+            r#"{"type":"control_request","request_id":"r2","request":{"subtype":"can_use_tool","tool_name":"Bash","input":{}}}"#,
         );
+        claude_saw(
+            &mut pending,
+            r#"{"type":"control_cancel_request","request_id":"r2"}"#,
+        );
+        claude_saw(&mut pending, "not json");
+        assert_eq!(
+            pending.lines().cloned().collect::<Vec<_>>(),
+            vec![asked_wire]
+        );
+        pending.sent(&agent::Command::ControlResponse {
+            response: wire::Reply::Success {
+                request_id: wire::RequestId::from("r1".to_owned()),
+                response: wire::PermissionResult::Deny {
+                    message: String::new(),
+                    interrupt: false,
+                },
+            },
+        });
         assert_eq!(pending.lines().count(), 0);
     }
 
@@ -2595,10 +2747,6 @@ mod tests {
         );
     }
 
-    fn cat() -> spawn::Spawned {
-        running("cat", &[])
-    }
-
     fn running(program: &str, args: &[&str]) -> spawn::Spawned {
         let mut command = tokio::process::Command::new(program);
         command
@@ -2618,29 +2766,41 @@ mod tests {
     async fn a_session_asks_again_what_a_window_missed() {
         let (orders, commands) = mpsc::channel(8);
         let (outbox, mut answers) = mpsc::channel(32);
-        let asked = r#"{"type":"control_request","request_id":"r1","request":{}}"#;
+        let asked = r#"{"type":"control_request","request_id":"r1","request":{"subtype":"can_use_tool","tool_name":"Bash","input":{}}}"#;
+        let expected = match Driver::Claude.decode_output(asked.to_owned()) {
+            Decoded::Event { wire_line, .. } => wire_line,
+            other @ (Decoded::UnreadableRequest { .. } | Decoded::Log(_)) => {
+                panic!("expected event, got {other:?}")
+            }
+        };
         let key = Generation::default().next();
-        orders
-            .send(Command::Line(asked.to_owned()))
-            .await
-            .expect("queued");
-        // `cat` says it back, as claude would ask; then a window attaches.
+        let bye = agent::Command::Shell {
+            command: "bye".to_owned(),
+        }
+        .encode()
+        .expect("encodes");
+        let process = running(
+            "sh",
+            &[
+                "-c",
+                "printf '%s\\n' \"$1\"; head -n1 >/dev/null",
+                "_",
+                asked,
+            ],
+        );
         let attach = tokio::spawn(async move {
-            tokio::task::yield_now().await;
+            tokio::time::sleep(Duration::from_millis(50)).await;
             orders
                 .send(Command::Attach { key, outbox })
                 .await
                 .expect("queued");
-            orders
-                .send(Command::Line("bye".to_owned()))
-                .await
-                .expect("queued");
+            orders.send(Command::Line(bye)).await.expect("queued");
         });
         let session = Session::new(HostedId::default().next())
-            .event_loop(&place(), cat(), commands, None, reporting())
+            .event_loop(&place(), process, commands, None, reporting())
             .await;
         attach.await.expect("the attaching task");
-        assert_eq!(session.lines_in, 2);
+        assert_eq!(session.lines_in, 1);
         let mut told = Vec::new();
         while let Some(answer) = answers.recv().await {
             told.push(answer);
@@ -2651,7 +2811,7 @@ mod tests {
         assert!(told.iter().any(|answer| matches!(
             answer,
             FromDaemon::Output { key: shown, stream: Stream::Out, text, last: true }
-                if *shown == key && text == asked
+                if *shown == key && text == &expected
         )));
         assert!(matches!(
             told.last(),
@@ -2679,7 +2839,11 @@ mod tests {
                 .await
         });
         // More than a pipe holds: its writing waits on the process for good.
-        let unread = "x".repeat(4 * 1024 * 1024);
+        let unread = agent::Command::Shell {
+            command: "x".repeat(4 * 1024 * 1024),
+        }
+        .encode()
+        .expect("encodes");
         orders.send(Command::Line(unread)).await.expect("queued");
         orders
             .send(Command::Attach { key, outbox })
@@ -2719,27 +2883,34 @@ mod tests {
     fn pending_state_follows_turns_and_questions() {
         let mut pending = Pending::default();
         let here = Path::new("/code/beep");
-        assert_eq!(pending.state(here), HostedState::Idle);
-        let prompt = r#"{"type":"user","message":{"role":"user","content":"Hi"},"parent_tool_use_id":null,"session_id":"default"}"#;
+        assert_eq!(pending.state(), HostedState::Idle);
+        let prompt = prompt_command("Hi");
         let result = r#"{"type":"result","subtype":"success","is_error":false}"#;
         let ask = r#"{"type":"control_request","request_id":"r1","request":{"subtype":"can_use_tool","tool_name":"AskUserQuestion","input":{"questions":[{"question":"Which colour?","header":"Pick","options":[{"label":"Red","description":""}],"multiSelect":false}]}}}"#;
-        let answer =
-            r#"{"type":"control_response","response":{"subtype":"success","request_id":"r1"}}"#;
+        let answer = agent::Command::ControlResponse {
+            response: wire::Reply::Success {
+                request_id: wire::RequestId::from("r1".to_owned()),
+                response: wire::PermissionResult::Deny {
+                    message: String::new(),
+                    interrupt: false,
+                },
+            },
+        };
 
-        pending.answered(prompt);
-        assert_eq!(pending.state(here), HostedState::Busy);
+        pending.sent(&prompt);
+        assert_eq!(pending.state(), HostedState::Busy);
 
-        pending.said(ask);
+        claude_saw_in(&mut pending, ask, here);
         assert!(matches!(
-            pending.state(here),
+            pending.state(),
             HostedState::Waiting { ref question, .. } if question == "Which colour?"
         ));
 
-        pending.answered(answer);
-        assert_eq!(pending.state(here), HostedState::Busy);
+        pending.sent(&answer);
+        assert_eq!(pending.state(), HostedState::Busy);
 
-        pending.said(result);
-        assert_eq!(pending.state(here), HostedState::Idle);
+        claude_saw_in(&mut pending, result, here);
+        assert_eq!(pending.state(), HostedState::Idle);
     }
 
     /// The gap the Changes view had: a turn the session starts itself, for another session's
@@ -2748,20 +2919,21 @@ mod tests {
     #[test]
     fn a_turn_the_session_starts_itself_is_a_turn() {
         let mut pending = Pending::default();
-        let streamed = r#"{"type":"stream_event","event":{"type":"message_start"}}"#;
+        let streamed =
+            r#"{"type":"stream_event","event":{"type":"message_start","message":{"id":"m1"}}}"#;
         let said = r#"{"type":"assistant","message":{"content":[]},"parent_tool_use_id":null}"#;
         let result = r#"{"type":"result","subtype":"success","is_error":false}"#;
-        let prompt = r#"{"type":"user","message":{"role":"user","content":"Hi"},"parent_tool_use_id":null,"session_id":"default"}"#;
+        let prompt = prompt_command("Hi");
 
-        pending.said(streamed);
+        claude_saw(&mut pending, streamed);
         assert!(pending.in_turn());
-        pending.said(said);
-        pending.said(result);
+        claude_saw(&mut pending, said);
+        claude_saw(&mut pending, result);
         assert!(!pending.in_turn());
 
-        pending.answered(prompt);
-        pending.said(said);
-        pending.said(result);
+        pending.sent(&prompt);
+        claude_saw(&mut pending, said);
+        claude_saw(&mut pending, result);
         assert!(!pending.in_turn(), "a prompted turn ends with its result");
     }
 

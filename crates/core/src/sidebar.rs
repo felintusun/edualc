@@ -5,9 +5,9 @@
 use std::path::Path;
 use web_time::SystemTime;
 
-use crate::claude::{Backend, Program, SignInWith};
 use crate::external::wire::SessionId;
 use crate::ipc::{Hosted, HostedState};
+use crate::provider::{Backend, Program, SignInWith};
 use crate::sessions::{self, LiveSession, LiveStatus, SessionInfo};
 
 /// The session this window's own process runs.

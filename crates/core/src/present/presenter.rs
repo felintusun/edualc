@@ -639,25 +639,7 @@ impl<F: Frontend> Presenter<F> {
             SignIn::Unknown | SignIn::Asked => SignInState::Unknown,
         };
         session.shows_sign_in = status.sign_in.waits_for_user();
-        let (help, command) = match status.backend {
-            crate::claude::Backend::Claude => (
-                "Run this in a terminal and follow its steps, then try again. Claude Code starts \
-                 again with your sign-in, and the message that failed is sent again.",
-                "claude auth login",
-            ),
-            crate::claude::Backend::Agy => (
-                "agy renews its sign-in by itself, so trying again often works. If it keeps \
-                 failing, run agy in a terminal and sign in when it asks, then try again. The \
-                 message that failed is sent again.",
-                "agy",
-            ),
-            crate::claude::Backend::Opencode => (
-                "opencode keeps its own sign-in, so trying again often works. If it keeps \
-                 failing, run opencode in a terminal and sign in when it asks, then try again. \
-                 The message that failed is sent again.",
-                "opencode",
-            ),
-        };
+        let (help, command) = status.backend.sign_in_help();
         help.clone_into(&mut session.sign_in_help);
         command.clone_into(&mut session.sign_in_command);
         session.needs_trust = asking.is_some();
@@ -666,11 +648,11 @@ impl<F: Frontend> Presenter<F> {
         status.backend.agent().clone_into(&mut session.agent);
         status.backend.agent().clone_into(&mut session.agent_name);
         status.backend.program().clone_into(&mut session.program);
-        let is_claude = status.backend == crate::claude::Backend::Claude;
-        session.shell_commands = is_claude;
-        session.can_shell = is_claude;
-        session.can_btw = is_claude;
-        session.can_fork = status.backend.can_fork();
+        let caps = status.capabilities();
+        session.shell_commands = caps.inline_shell;
+        session.can_shell = caps.inline_shell;
+        session.can_btw = caps.side_questions;
+        session.can_fork = caps.fork;
         self.sessions.program = program_shown(crate::claude::Program::of(
             status.backend,
             status.sign_in_with,
@@ -703,15 +685,10 @@ impl<F: Frontend> Presenter<F> {
         session.limit_five_hour_resets = resets(limits.five_hour);
         session.limit_seven_day = used(limits.seven_day);
         // What stands where the bars would, without any.
-        match (status.backend, status.sign_in_with) {
-            (crate::claude::Backend::Opencode, _) => "opencode reports no usage limits",
-            (crate::claude::Backend::Claude, crate::claude::SignInWith::ApiKey) => {
-                "API key · billed by the token"
-            }
-            (crate::claude::Backend::Claude, crate::claude::SignInWith::Account)
-            | (crate::claude::Backend::Agy, _) => "Usage",
-        }
-        .clone_into(&mut session.limits_note);
+        status
+            .backend
+            .limits_note(status.sign_in_with)
+            .clone_into(&mut session.limits_note);
         let account = &status.account;
         session.email = account.email.as_str().into();
         session.organization = account.organization.as_str().into();

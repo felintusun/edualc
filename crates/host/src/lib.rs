@@ -8,6 +8,7 @@ use edualc_core::*;
 mod acp;
 mod daemon;
 pub mod demo;
+mod driver;
 mod files;
 mod keyring;
 pub mod net;

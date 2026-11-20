@@ -4,8 +4,8 @@
 
 use std::collections::{BTreeMap, HashMap};
 
+use crate::agent::Output;
 use crate::app::Event;
-use crate::claude::Output;
 use crate::decode;
 use crate::desktop::Opener;
 use crate::ipc::{self, Generation, ToDaemon};
@@ -38,14 +38,14 @@ pub fn send(link: &Link, message: ToDaemon) -> Result<(), Lost> {
     }
 }
 
-/// A line for a session's input, in pieces that each fit a message.
-pub fn send_input(link: &Link, key: Generation, line: &str) -> Result<(), Lost> {
+/// A command for a session, in pieces that each fit a message.
+pub fn send_command(link: &Link, key: Generation, line: &str) -> Result<(), Lost> {
     let mut pieces = ipc::chunks(line).peekable();
     while let Some(text) = pieces.next() {
         let last = pieces.peek().is_none();
         send(
             link,
-            ToDaemon::Input {
+            ToDaemon::Command {
                 key,
                 text: text.to_owned(),
                 last,
@@ -74,7 +74,7 @@ pub struct Greeting {
     /// The daemon's user's home folder.
     pub home: std::path::PathBuf,
     /// Coding agent backends available on PATH when the window connected.
-    pub backends: Vec<crate::claude::Backend>,
+    pub backends: Vec<crate::provider::Backend>,
 }
 
 /// Why what the daemon said as a line opened isn't a greeting.
@@ -144,16 +144,16 @@ impl Inbox {
     pub fn take(&mut self, message: FromDaemon) -> Option<Event> {
         match message {
             FromDaemon::Started { key, pid, turns } => {
-                Some(claude(key, Output::Started { pid, turns }))
+                Some(agent(key, Output::Started { pid, turns }))
             }
-            FromDaemon::Failed { key, failure } => Some(claude(key, Output::Failed(failure))),
+            FromDaemon::Failed { key, failure } => Some(agent(key, Output::Failed(failure))),
             FromDaemon::Output {
                 key,
                 stream,
                 text,
                 last,
             } => match self.lines.push((key, stream), &text, last) {
-                Ok(Some(line)) => Some(claude(
+                Ok(Some(line)) => Some(agent(
                     key,
                     match stream {
                         Stream::Out => Output::of_line(line),
@@ -162,14 +162,14 @@ impl Inbox {
                 )),
                 Ok(None) => None,
                 Err(error) => {
-                    tracing::warn!(%error, "a line from claude too long to keep");
+                    tracing::warn!(%error, "a line from session too long to keep");
                     None
                 }
             },
             FromDaemon::Ended { key, code } => {
                 self.lines.forget(&(key, Stream::Out));
                 self.lines.forget(&(key, Stream::Err));
-                Some(claude(key, Output::Ended(code)))
+                Some(agent(key, Output::Ended(code)))
             }
             FromDaemon::Done { request, result } => Some(Event::Acted { request, result }),
             FromDaemon::Picked { request, folder } => Some(Event::Picked { request, folder }),
@@ -179,7 +179,7 @@ impl Inbox {
                 Some(Event::ClaudeTrustRead { request, trusted })
             }
             FromDaemon::TurnChanged { key, summary } => {
-                Some(claude(key, Output::TurnChanged(summary)))
+                Some(agent(key, Output::TurnChanged(summary)))
             }
             FromDaemon::Pasted {
                 request,
@@ -233,8 +233,8 @@ impl Inbox {
     }
 }
 
-fn claude(generation: Generation, output: Output) -> Event {
-    Event::Claude { generation, output }
+fn agent(generation: Generation, output: Output) -> Event {
+    Event::Agent { generation, output }
 }
 
 /// A pasted image's pieces, as they come.

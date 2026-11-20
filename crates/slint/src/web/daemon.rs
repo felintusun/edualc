@@ -22,7 +22,7 @@ pub(crate) async fn run(requests: Receiver<ToDaemon>, events: Sender<Event>) {
                 let session = Session::start(key, Sink::Events(events.clone()), &launch);
                 sessions.insert(key, session);
             }
-            ToDaemon::Input { key, text, last } => {
+            ToDaemon::Command { key, text, last } => {
                 if let Some(session) = sessions.get_mut(&key)
                     && let Some(task) = session.take(&text, last)
                     && let Err(error) = slint::spawn_local(task.run())

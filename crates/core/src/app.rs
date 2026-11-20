@@ -11,8 +11,9 @@ use async_channel::{Receiver, Sender};
 use serde::Deserialize;
 use serde_json::Value;
 
+use crate::agent::{self, Agent, Output};
 use crate::chat::{Body, Change, Chat, ImageKey, ToolState};
-use crate::claude::{self, Claude, FolderConfiguration, Launch, Output, Resume};
+use crate::claude::{self, FolderConfiguration, Launch, Resume};
 use crate::decode::{Picture, Pixels};
 use crate::desktop;
 use crate::external::wire::{
@@ -129,12 +130,16 @@ impl Default for Modes {
 impl Modes {
     /// What a session of `backend` offers before its process says more.
     pub fn of(backend: claude::Backend) -> Self {
-        match backend {
-            claude::Backend::Claude => Self::Claude(None),
-            claude::Backend::Agy | claude::Backend::Opencode => Self::Program {
+        if backend
+            .capabilities(claude::SignInWith::Account)
+            .claude_modes
+        {
+            Self::Claude(None)
+        } else {
+            Self::Program {
                 offered: Vec::new(),
                 current: None,
-            },
+            }
         }
     }
 
@@ -191,7 +196,7 @@ impl ChosenMode {
 #[derive(Debug)]
 pub enum Event {
     Action(Action),
-    Claude {
+    Agent {
         generation: Generation,
         output: Output,
     },
@@ -809,19 +814,34 @@ impl Status {
         self.turns > 0 || self.doing != Doing::Nothing
     }
 
+    /// Features this session's provider supports with its active sign-in method.
+    pub(crate) fn capabilities(&self) -> crate::provider::Capabilities {
+        self.backend.capabilities(self.sign_in_with)
+    }
+
     /// The limits of the plan that pays for the session: Claude Code's account's, or agy's;
-    /// none for an API key or opencode, which have none.
+    /// none for an API key or a provider that doesn't report limits.
     pub(crate) fn plan_limits(&self) -> Option<Limits> {
-        match (self.backend, self.sign_in_with) {
-            (claude::Backend::Claude, claude::SignInWith::Account) => Some(self.limits.claude),
-            (claude::Backend::Agy, _) => Some(self.limits.agy),
-            (claude::Backend::Claude, claude::SignInWith::ApiKey)
-            | (claude::Backend::Opencode, _) => None,
+        if !self.capabilities().plan_limits {
+            return None;
+        }
+        match self.backend {
+            claude::Backend::Claude => Some(self.limits.claude),
+            claude::Backend::Agy => Some(self.limits.agy),
+            claude::Backend::Opencode => None,
         }
     }
 
-    /// Where the limits the session's program reports are kept; none for opencode.
+    /// Where the limits the session's program reports are kept; none when that provider
+    /// doesn't report plan limits.
     pub(crate) fn limits_mut(&mut self) -> Option<&mut Limits> {
+        if !self
+            .backend
+            .capabilities(claude::SignInWith::Account)
+            .plan_limits
+        {
+            return None;
+        }
         match self.backend {
             claude::Backend::Claude => Some(&mut self.limits.claude),
             claude::Backend::Agy => Some(&mut self.limits.agy),
@@ -1332,7 +1352,7 @@ pub struct App<F: Frontend> {
     status: Status,
     asks: VecDeque<Ask>,
     requests: HashMap<RequestId, Request>,
-    process: Option<Claude>,
+    process: Option<Agent>,
     generation: Generation,
     location: Location,
     sessions: Vec<SessionInfo>,
@@ -1643,7 +1663,7 @@ impl<F: Frontend> App<F> {
     fn handle(&mut self, event: Event) -> ControlFlow<()> {
         match event {
             Event::Action(action) => return self.act(action),
-            Event::Claude { generation, output } => self.take(generation, output),
+            Event::Agent { generation, output } => self.take(generation, output),
             Event::SessionsListed { cwd, sessions } => self.sessions_listed(&cwd, sessions),
             Event::ProjectsListed(projects) => self.view.render_projects(&projects),
             Event::SessionLoaded { id, path, result } => self.session_loaded(&id, path, result),
@@ -1750,9 +1770,10 @@ impl<F: Frontend> App<F> {
                 self.process = None;
                 self.forget_process();
                 match self.daemon {
-                    Daemon::Running => self.chat.error(
-                        "Lost the edualc daemon, which runs Claude Code. Open edualc again to go on.",
-                    ),
+                    Daemon::Running => {
+                        self.chat
+                            .error("Lost the edualc daemon. Open edualc again to go on.");
+                    }
                     // Said as it began.
                     Daemon::ShuttingDown => {}
                 }
@@ -1765,7 +1786,7 @@ impl<F: Frontend> App<F> {
                 self.acting.clear();
                 self.listing_live = Refresh::Idle;
                 self.chat
-                    .error("Lost the line to edualcd, which runs Claude Code; reaching it again.");
+                    .error("Lost the line to edualcd; reaching it again.");
             }
             Event::Reconnected { hosted, live } => self.reconnected(hosted, live),
             Event::DaemonShuttingDown => {
@@ -2124,7 +2145,7 @@ impl<F: Frontend> App<F> {
             );
         }
         if redraw.side {
-            let can_ask = self.watch.is_none() && self.status.backend == claude::Backend::Claude;
+            let can_ask = self.watch.is_none() && self.status.capabilities().side_questions;
             let can_branch = can_ask
                 && self.status.turns == 0
                 && self.status.session_id.is_some()
@@ -2287,13 +2308,15 @@ impl<F: Frontend> App<F> {
             return;
         };
         let cwd = cwd.clone();
-        // What a folder configures is Claude Code's; the ACP agents read none of it.
-        if self.status.backend.is_acp()
+        // What a folder configures is for providers that read folder trust (Claude Code); others
+        // read none of it.
+        let checks_folder_trust = self.status.capabilities().folder_trust;
+        if !checks_folder_trust
             || trust::trusted_in_edualc(&cwd, &self.settings)
             || self.accepted_in_terminal.contains(&cwd)
         {
             // Trusted here: is it for Claude Code too, unless you said not to?
-            if !self.status.backend.is_acp()
+            if checks_folder_trust
                 && trust::trusted_in_edualc(&cwd, &self.settings)
                 && !self.settings.not_for_claude_code.contains(&cwd)
             {
@@ -2363,7 +2386,7 @@ impl<F: Frontend> App<F> {
             folder_configuration,
             sign_in: self.status.sign_in_with,
         };
-        match Claude::start(&self.link, self.generation, launch) {
+        match Agent::start(&self.link, self.generation, launch) {
             Ok(process) => self.process = Some(process),
             Err(error) => {
                 self.chat.error(error.to_string());
@@ -2689,7 +2712,7 @@ impl<F: Frontend> App<F> {
     }
 
     /// Writes to the process; says so in the transcript if that fails.
-    fn write(&mut self, action: impl FnOnce(&mut Claude) -> Result<(), claude::Error>) {
+    fn write(&mut self, action: impl FnOnce(&mut Agent) -> Result<(), agent::Error>) {
         let Some(process) = self.process.as_mut() else {
             return;
         };
@@ -2727,7 +2750,7 @@ impl<F: Frontend> App<F> {
         self.location = Location::Session(cwd);
         self.reset_session(None, None, backend);
         // agy and opencode sign in themselves.
-        self.status.sign_in_with = if backend.is_acp() {
+        self.status.sign_in_with = if !backend.capabilities(sign_in).api_key_sign_in {
             claude::SignInWith::Account
         } else {
             sign_in
@@ -2802,10 +2825,14 @@ impl<F: Frontend> App<F> {
             return;
         }
         let backend = self.backend_of(&id);
-        // With a key kept, the user picks what a Claude Code session continues with; switch to
+        // With a key kept, you pick what a provider supporting API keys continues with; switch to
         // the session view right away so `SignInChoiceBar` is shown immediately instead of staying
         // hidden on the project page.
-        if backend == claude::Backend::Claude && self.api_key == ApiKeyKept::Kept {
+        if backend
+            .capabilities(claude::SignInWith::Account)
+            .api_key_sign_in
+            && self.api_key == ApiKeyKept::Kept
+        {
             let Some(cwd) = self.location.cwd().map(Path::to_path_buf) else {
                 return;
             };
@@ -2924,7 +2951,7 @@ impl<F: Frontend> App<F> {
         self.status.sign_in_with = hosted.sign_in;
         self.load_session(id.clone(), hosted.cwd.clone());
         self.generation = self.generation.next();
-        match Claude::attach(&self.link, self.generation, hosted.id) {
+        match Agent::attach(&self.link, self.generation, hosted.id) {
             Ok(process) => self.process = Some(process),
             Err(error) => {
                 self.chat.error(error.to_string());
@@ -3066,7 +3093,12 @@ impl<F: Frontend> App<F> {
         let Some(watch) = self.watch.take() else {
             return;
         };
-        if !watch.session.backend.can_fork() {
+        if !watch
+            .session
+            .backend
+            .capabilities(claude::SignInWith::Account)
+            .fork
+        {
             let agent = watch.session.backend.agent();
             self.watch = Some(watch);
             self.chat
@@ -3174,7 +3206,7 @@ impl<F: Frontend> App<F> {
         if self.listing_live.done() {
             self.list_live();
         }
-        let own = self.process.as_ref().and_then(Claude::pid);
+        let own = self.process.as_ref().and_then(Agent::pid);
         live.retain(|session| Some(session.pid) != own);
         for session in &live {
             let was = self
@@ -3497,7 +3529,7 @@ impl<F: Frontend> App<F> {
             return;
         }
         if let Some(command) = shell_command(text) {
-            if self.status.backend != claude::Backend::Claude {
+            if !self.status.capabilities().inline_shell {
                 self.chat.info(format!(
                     "{} sessions don't run ! commands. Ask {} to run it, or run it in a terminal.",
                     self.status.backend.agent(),
@@ -3657,7 +3689,7 @@ impl<F: Frontend> App<F> {
         }
         // An ACP agent takes a mode as a turn starts: the turn under way keeps the one it began
         // with.
-        if self.status.backend.is_acp() && self.status.turns > 0 {
+        if self.status.capabilities().deferred_mode_switch && self.status.turns > 0 {
             self.chat.info(format!(
                 "{} switches to “{}” from your next prompt; this turn goes on in the mode it started in.",
                 self.status.backend.agent(),
@@ -4615,7 +4647,7 @@ mod tests {
                 }
             })
             .expect("the session starts");
-        driven.take(Event::Claude {
+        driven.take(Event::Agent {
             generation,
             output: Output::Started { pid: 7, turns: 0 },
         });
@@ -4631,11 +4663,11 @@ mod tests {
         assert!(driven.session().busy, "the turn is under way");
         let error = serde_json::from_str::<wire::TurnResult>("{")
             .expect_err("a line cut short doesn't parse");
-        driven.take(Event::Claude {
+        driven.take(Event::Agent {
             generation,
             output: Output::Unreadable {
-                lost: claude::Lost::Result,
-                error,
+                lost: agent::Lost::Result,
+                error: error.to_string(),
             },
         });
         assert!(!driven.session().busy, "the turn has ended");
@@ -4657,9 +4689,9 @@ mod tests {
         let (mut driven, generation) = started();
         driven.take(Event::Action(Action::Send("Count the lines".to_owned())));
         driven.sent();
-        driven.take(Event::Claude {
+        driven.take(Event::Agent {
             generation,
-            output: Output::of_line(
+            output: claude::output_of_line(
                 r#"{"type":"control_request","request_id":"m1","request":{"subtype":"can_use_tool","tool_name":"edualc_incoming_message","input":{"from":"tidy-otter","message":"Hi"}}}"#
                     .to_owned(),
             ),
@@ -4672,19 +4704,26 @@ mod tests {
             .sent()
             .into_iter()
             .filter_map(|message| {
-                if let ToDaemon::Input { text, .. } = message {
+                if let ToDaemon::Command { text, .. } = message {
                     Some(text)
                 } else {
                     None
                 }
             })
             .collect();
-        let answer: serde_json::Value = serde_json::from_str(&answered).expect("an answer");
-        assert_eq!(
-            answer.pointer("/response/response/behavior"),
-            Some(&serde_json::json!("deny"))
-        );
-        assert_eq!(answer.pointer("/response/response/interrupt"), None);
+        let command: agent::Command = serde_json::from_str(&answered).expect("a command");
+        assert!(matches!(
+            command,
+            agent::Command::ControlResponse {
+                response: wire::Reply::Success {
+                    response: wire::PermissionResult::Deny {
+                        interrupt: false,
+                        ..
+                    },
+                    ..
+                }
+            }
+        ));
         assert!(!driven.app.status.stop_asked);
         assert!(driven.session().busy, "the turn goes on");
     }
@@ -4707,9 +4746,9 @@ mod tests {
             r#"{"type":"system","subtype":"peer_message_hold","state":"held","message_uuid":"m","lane":"socket","from":"uds:/run/user/1000/cc-socks/9.sock","from_name":"calm-heron","cause":"mode-mismatch","uuid":"u1","session_id":"s"}"#,
             r#"{"type":"system","subtype":"peer_message_hold","state":"dropped","message_uuid":"m","lane":"socket","from":"uds:/run/user/1000/cc-socks/9.sock","from_name":"calm-heron","outcome":"expired","uuid":"u2","session_id":"s"}"#,
         ] {
-            driven.take(Event::Claude {
+            driven.take(Event::Agent {
                 generation,
-                output: Output::of_line(line.to_owned()),
+                output: claude::output_of_line(line.to_owned()),
             });
         }
         let said = said(&driven);
@@ -5808,9 +5847,9 @@ mod tests {
             attached: true,
             ..hosted.clone()
         }]));
-        test.send(Event::Claude {
+        test.send(Event::Agent {
             generation: attach_key,
-            output: claude::Output::Started { pid: 123, turns: 0 },
+            output: agent::Output::Started { pid: 123, turns: 0 },
         });
         drop(test.drain_daemon());
 
@@ -6115,9 +6154,9 @@ mod tests {
         )));
 
         let generation = test.app.generation;
-        test.send(Event::Claude {
+        test.send(Event::Agent {
             generation,
-            output: claude::Output::Message(wire::Message::System(wire::System::Commands {
+            output: agent::Output::Event(agent::Event::System(wire::System::Commands {
                 commands: vec![
                     wire::CommandInfo {
                         name: "review".to_owned(),

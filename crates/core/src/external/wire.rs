@@ -66,7 +66,7 @@ impl SessionId {
 
     /// The stable window id for an external session whose own backend id is `raw_id`: kept as
     /// itself when already a UUID (Claude, agy), or mapped deterministically to a UUID (opencode).
-    pub fn for_external(backend: crate::claude::Backend, raw_id: &str) -> Self {
+    pub fn for_external(backend: crate::provider::Backend, raw_id: &str) -> Self {
         use sha2::Digest as _;
         if let Ok(uuid) = Self::try_from(raw_id.to_owned()) {
             return uuid;

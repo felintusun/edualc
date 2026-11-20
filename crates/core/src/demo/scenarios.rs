@@ -15,9 +15,9 @@ use super::world as demo;
 use crate::app::{Mode, PermissionMode};
 use crate::external::tool_input::{BashInput, EditInput, GrepInput, ReadInput};
 use crate::external::wire::{
-    Account, CommandInfo, ContentBlock, GivenAnswers, Initialized, Message, ModelInfo,
-    PermissionResult, PlanInput, Question, QuestionOption, Questions, ReceivedImage, Rule,
-    RuleDestination, Suggestion, ToolInput, ToolName, UserContent, UserLine,
+    Account, CommandInfo, ContentBlock, GivenAnswers, Initialized, ModelInfo, PermissionResult,
+    PlanInput, Question, QuestionOption, Questions, ReceivedImage, Rule, RuleDestination,
+    Suggestion, ToolInput, ToolName, UserContent, UserLine,
 };
 
 /// Plays the turn for `prompt`, to its end or an interrupt.
@@ -563,9 +563,9 @@ pub fn shell(out: &Out, command: &str) {
         )
     };
     let replayed = |content: String| {
-        out.line(&Message::User(UserLine::replayed(UserContent::Text(
-            content,
-        ))));
+        out.event(&crate::agent::Event::User(UserLine::replayed(
+            UserContent::Text(content),
+        )));
     };
     replayed(format!("<bash-input>{command}</bash-input>"));
     replayed(format!(

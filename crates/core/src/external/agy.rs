@@ -184,13 +184,13 @@ pub struct UsageCommand {
     pub data: Quotas,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct Quotas {
     pub groups: Vec<QuotaGroup>,
 }
 
 /// Models that share their quotas: a five hours' and a week's, or only a week's.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct QuotaGroup {
     pub name: String,
     /// Which models are in the group, in words: "Models within this group: Gemini 4 Hydrogen,
@@ -205,23 +205,40 @@ const LISTED: &str = "Models within this group: ";
 
 impl QuotaGroup {
     /// Whether the model agy names `model` ("Gemini 3.8 Flash (High)", its effort in
-    /// brackets) draws on this group's quotas: the group is named after it, or its description
-    /// lists it.
+    /// brackets, or "Orchestrator (Argon)") draws on this group's quotas: the group is named
+    /// after it, or its description lists it.
     pub fn covers(&self, model: &str) -> bool {
+        if let Some(inner) = model
+            .strip_prefix("Orchestrator (")
+            .and_then(|rest| rest.strip_suffix(')'))
+        {
+            return self.matches_token(inner);
+        }
         let model = model
             .rsplit_once(" (")
             .map_or(model, |(model, _effort)| model);
-        self.name == model
-            || self.description.strip_prefix(LISTED).is_some_and(|listed| {
-                listed
-                    .trim_end_matches('.')
-                    .split(", ")
-                    .any(|listed| listed == model)
-            })
+        self.matches_exact(model)
+    }
+
+    fn matches_exact(&self, model: &str) -> bool {
+        self.name == model || self.listed_models().any(|listed| listed == model)
+    }
+
+    fn matches_token(&self, token: &str) -> bool {
+        let suffix = format!(" {token}");
+        let matches = |candidate: &str| candidate == token || candidate.ends_with(&suffix);
+        matches(&self.name) || self.listed_models().any(matches)
+    }
+
+    fn listed_models(&self) -> impl Iterator<Item = &str> {
+        self.description
+            .strip_prefix(LISTED)
+            .into_iter()
+            .flat_map(|listed| listed.trim_end_matches('.').split(", "))
     }
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct Quota {
     pub window: QuotaWindow,
     /// What is left, from 0 to 1.
@@ -269,7 +286,9 @@ mod tests {
         assert!(gemini.covers("Gemini 4 Hydrogen (XHigh)"));
         assert!(!gemini.covers("Gemini 4 Argon (High)"));
         assert!(argon.covers("Gemini 4 Argon (High)"));
-        assert!(!argon.covers("Orchestrator (Argon)"));
+        assert!(argon.covers("Orchestrator (Argon)"));
+        assert!(!gemini.covers("Orchestrator (Argon)"));
+        assert!(gemini.covers("Orchestrator (Hydrogen)"));
     }
 
     /// Steps as agy 1.5.9 writes them: an answer with a tool call, then its result.

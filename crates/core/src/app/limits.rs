@@ -27,7 +27,10 @@ impl<F: Frontend> App<F> {
     /// Asks Claude Code for the plan's limits, if it runs; `usage_answered` takes the answer.
     fn ask_limits(&mut self) -> bool {
         let backend = self.status.backend;
-        if backend == crate::claude::Backend::Opencode {
+        if !backend
+            .capabilities(crate::provider::SignInWith::Account)
+            .plan_limits
+        {
             return false;
         }
         let asked = self.process.is_some()
@@ -53,9 +56,10 @@ impl<F: Frontend> App<F> {
                 }
                 None => {
                     self.status.limit_wait = LimitWait::Idle;
-                    self.chat.info(
-                        "Claude Code didn't say when the limit resets: send a prompt to go on once it has.",
-                    );
+                    self.chat.info(format!(
+                        "{} didn't say when the limit resets: send a prompt to go on once it has.",
+                        self.status.backend.program()
+                    ));
                 }
             }
             self.view.scroll_to_end();

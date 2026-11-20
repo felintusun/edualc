@@ -266,17 +266,34 @@ pub fn Composer() -> Element {
     } else {
         String::new()
     };
+    let agent = if session.agent_name.is_empty() {
+        "Claude"
+    } else {
+        session.agent_name.as_str()
+    };
+    let shell_tip = if session.can_shell {
+        "  ·  ! for a shell command"
+    } else {
+        ""
+    };
     let placeholder = if session.turn {
-        "Write the next message; it waits until Claude is done"
+        format!("Write the next message; it waits until {agent} is done")
     } else {
         match send_key {
             SendKey::CtrlEnter => {
-                "Message Claude  ·  / for commands  ·  ! for a shell command  ·  Ctrl+Enter to send"
+                format!("Message {agent}  ·  / for commands{shell_tip}  ·  Ctrl+Enter to send")
             }
             SendKey::Enter => {
-                "Message Claude  ·  / for commands  ·  ! for a shell command  ·  Shift+Enter for a new line"
+                format!(
+                    "Message {agent}  ·  / for commands{shell_tip}  ·  Shift+Enter for a new line"
+                )
             }
         }
+    };
+    let aria_placeholder = if session.can_shell {
+        format!("Message {agent}, or start with ! for a shell command")
+    } else {
+        format!("Message {agent}")
     };
     let send_title = if stop {
         "Stop (Esc)"
@@ -553,8 +570,8 @@ pub fn Composer() -> Element {
                         id: INPUT,
                         class: "composer-input",
                         rows: "1",
-                        "aria-label": "Message to Claude",
-                        "aria-placeholder": "Message Claude, or start with ! for a shell command",
+                        "aria-label": "Message to {agent}",
+                        "aria-placeholder": "{aria_placeholder}",
                         "aria-autocomplete": "list",
                         "aria-controls": (commands > 0).then_some(COMMANDS),
                         "aria-activedescendant": active_command,
@@ -629,11 +646,13 @@ pub fn Composer() -> Element {
                             onclick: move |_| view.act(Action::PasteImage),
                         }
                     }
-                    IconButton {
-                        icon: Lucide::SquareTerminal,
-                        label: shell_label,
-                        class: shell_tint,
-                        onclick: move |_| view.act(Action::ToggleShell),
+                    if session.can_shell {
+                        IconButton {
+                            icon: Lucide::SquareTerminal,
+                            label: shell_label,
+                            class: shell_tint,
+                            onclick: move |_| view.act(Action::ToggleShell),
+                        }
                     }
                     IconButton {
                         icon: tall_icon,

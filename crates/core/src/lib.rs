@@ -5,6 +5,7 @@
 //! frontend; the daemon (`edualc-host`) shares its types and what only Linux has
 //! (`#[cfg(not(target_arch = "wasm32"))]`), which the browser build leaves out.
 
+pub mod agent;
 pub mod app;
 pub mod changes;
 pub mod chat;
@@ -26,6 +27,7 @@ pub mod overview;
 pub mod plan;
 pub mod present;
 pub mod process;
+pub mod provider;
 pub mod repeat;
 pub mod replace;
 pub mod sessions;

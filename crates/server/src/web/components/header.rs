@@ -61,11 +61,25 @@ pub fn Header() -> Element {
     } else {
         format!("Changes: the last turn changed {}", changes.last_turn)
     };
-    // The five hours' limit used, once it is known.
-    let usage = if session.limit_five_hour >= 0.0 {
-        format!("5h {}%", percent(session.limit_five_hour))
+    // Outside a session show a neutral overview button; inside a session show whichever quota
+    // window is binding for this session's provider and model (7d for weekly-only or tighter
+    // weekly buckets, otherwise 5h).
+    let (usage, binding_limit) = if !in_session {
+        ("Usage".to_owned(), 0.0)
+    } else if session.limit_seven_day >= 0.0
+        && (session.limit_five_hour < 0.0 || session.limit_seven_day > session.limit_five_hour)
+    {
+        (
+            format!("7d {}%", percent(session.limit_seven_day)),
+            session.limit_seven_day,
+        )
+    } else if session.limit_five_hour >= 0.0 {
+        (
+            format!("5h {}%", percent(session.limit_five_hour)),
+            session.limit_five_hour,
+        )
     } else {
-        "Usage".to_owned()
+        ("Usage".to_owned(), 0.0)
     };
     let heron = format!(
         "--heron: url('{HERON}'); --heron-back: url('{HERON_BACK}'); --heron-preen-1: url('{HERON_PREEN_1}'); --heron-preen-2: url('{HERON_PREEN_2}'); --heron-half: url('{HERON_HALF}'); --heron-up: url('{HERON_UP}');"
@@ -171,17 +185,19 @@ pub fn Header() -> Element {
                     }
                 }
                 // Side questions: labelled, as a bare question mark reads as help.
-                button {
-                    class: if side_shown { "header-btw selected" } else { "header-btw" },
-                    class: if side_lit { "lit" },
-                    r#type: "button",
-                    "aria-label": if side_shown { "Fold the side questions away" } else { "Side questions (/btw)" },
-                    onclick: move |_| view.act(Action::ToggleSide),
-                    Icon { icon: Lucide::MessageCircleDashed, class: "small" }
-                    span { class: "header-btw-text", "btw" }
-                    // An answer came while folded away.
-                    if side.unseen {
-                        span { class: "header-unseen", "aria-hidden": "true" }
+                if session.can_btw {
+                    button {
+                        class: if side_shown { "header-btw selected" } else { "header-btw" },
+                        class: if side_lit { "lit" },
+                        r#type: "button",
+                        "aria-label": if side_shown { "Fold the side questions away" } else { "Side questions (/btw)" },
+                        onclick: move |_| view.act(Action::ToggleSide),
+                        Icon { icon: Lucide::MessageCircleDashed, class: "small" }
+                        span { class: "header-btw-text", "btw" }
+                        // An answer came while folded away.
+                        if side.unseen {
+                            span { class: "header-unseen", "aria-hidden": "true" }
+                        }
                     }
                 }
             }
@@ -210,15 +226,13 @@ pub fn Header() -> Element {
                         onclick: move |_| dialog.set(Some(super::pages::Dialog::NewSession)),
                     }
                 }
-                if in_session || session.limit_five_hour >= 0.0 {
-                    button {
-                        class: "header-btw {level(session.limit_five_hour.max(0.0))}",
-                        r#type: "button",
-                        "aria-label": "Usage details",
-                        onclick: move |_| view.act(Action::ShowUsage),
-                        Icon { icon: Lucide::Gauge, class: "small" }
-                        span { "{usage}" }
-                    }
+                button {
+                    class: "header-btw {level(binding_limit)}",
+                    r#type: "button",
+                    "aria-label": if in_session { format!("Usage: {usage}") } else { "Usage overview".to_owned() },
+                    onclick: move |_| view.act(Action::ShowUsage),
+                    Icon { icon: Lucide::Gauge, class: "small" }
+                    span { "{usage}" }
                 }
                 IconButton {
                     icon: Lucide::Palette,

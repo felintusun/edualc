@@ -363,9 +363,11 @@ program starts with that program's default.
   as each turn ends.
 - **Context:** how full the model's context is, as agy and opencode tell it, shows as it does for
   Claude Code.
-- **Not available with agy:** shell commands (`!`) and the trust question.
-- **opencode:** edualc runs `opencode acp` in the project. opencode signs in and keeps its
-  sessions itself, so its sessions can't be continued from edualc yet.
+- **Not available with agy:** shell commands (`!`), side questions (`/btw`), plan review comments,
+  and the trust question.
+- **opencode:** edualc runs `opencode acp` in the project. Its sessions list, continue, and fork
+  alongside Claude Code and agy, with models and modes read from `configOptions`; opencode doesn't
+  report usage limits or run `!` / `/btw`.
 
 ## Look
 

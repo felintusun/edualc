@@ -13,17 +13,18 @@ use serde_json::{Map, Value};
 use web_time::Duration;
 
 use super::scenarios;
+use crate::agent::{self, Command, Output};
 use crate::app::{Event, Mode, PermissionMode};
-use crate::claude::{Launch, Output};
 use crate::external::wire::{
     ApiMessage, ContentBlock, ContextReport, ControlRequest, ControlResponse, Delta,
-    IncomingRequest, Input, Message, MessageId, MessageStart, ModelUsage, PermissionResult, Reply,
-    RequestId, ResultKind, SessionId, SideAnswer, StreamEvent, Suggestion, System, ToolName,
-    ToolUseId, TurnResult, Usage, UserContent, UserLine,
+    IncomingRequest, MessageId, MessageStart, ModelUsage, PermissionResult, Reply, RequestId,
+    ResultKind, SessionId, SideAnswer, StreamEvent, Suggestion, System, ToolName, ToolUseId,
+    TurnResult, Usage, UserContent, UserLine,
 };
 use crate::ipc::Generation;
 #[cfg(not(target_arch = "wasm32"))]
 use crate::ipc::{self, FromDaemon, Stream};
+use crate::provider::Launch;
 
 /// What the demo's Claude says it runs as.
 const MODEL: &str = "claude-opus-5-5";
@@ -45,7 +46,7 @@ impl Sink {
     fn line(&self, key: Generation, text: String) {
         let told = match self {
             Self::Events(events) => events
-                .try_send(Event::Claude {
+                .try_send(Event::Agent {
                     generation: key,
                     output: Output::of_line(text),
                 })
@@ -76,7 +77,7 @@ impl Sink {
     fn started(&self, key: Generation) {
         let told = match self {
             Self::Events(events) => events
-                .try_send(Event::Claude {
+                .try_send(Event::Agent {
                     generation: key,
                     output: Output::Started { pid: PID, turns: 0 },
                 })
@@ -99,7 +100,7 @@ impl Sink {
     pub fn ended(&self, key: Generation) {
         let told = match self {
             Self::Events(events) => events
-                .try_send(Event::Claude {
+                .try_send(Event::Agent {
                     generation: key,
                     output: Output::Ended(Some(0)),
                 })
@@ -158,11 +159,11 @@ pub struct Out {
 }
 
 impl Out {
-    /// One stream-json line, as `claude -p` writes it.
-    pub fn line(&self, message: &Message) {
-        match serde_json::to_string(message) {
+    /// One provider-neutral event for the session's window.
+    pub fn event(&self, event: &agent::Event) {
+        match serde_json::to_string(event) {
             Ok(line) => self.sink.line(self.key, line),
-            Err(error) => tracing::warn!(%error, "a line the demo can't write"),
+            Err(error) => tracing::warn!(%error, "an event the demo can't write"),
         }
     }
 
@@ -178,7 +179,7 @@ impl Out {
                 error: error.to_string(),
             },
         };
-        self.line(&Message::ControlResponse { response });
+        self.event(&agent::Event::ControlAnswered(response));
     }
 }
 
@@ -236,32 +237,32 @@ impl Session {
     }
 
     fn line(&mut self, line: &str) -> Option<Task> {
-        let input = match serde_json::from_str::<Input>(line) {
-            Ok(input) => input,
+        let command = match serde_json::from_str::<Command>(line) {
+            Ok(command) => command,
             Err(error) => {
-                tracing::warn!(%error, "a line from the window the demo can't read");
+                tracing::warn!(%error, "a command from the window the demo can't read");
                 return None;
             }
         };
-        match input {
-            Input::ControlRequest {
+        match command {
+            Command::ControlRequest {
                 request_id,
                 request,
             } => self.control(request_id, request),
-            Input::ControlResponse {
+            Command::ControlResponse {
                 response: Reply::Success { response, .. },
             } => {
                 self.tell_turn(Said::Answer(response));
                 None
             }
-            Input::ControlResponse {
+            Command::ControlResponse {
                 response: Reply::Error { error, .. },
             } => {
                 tracing::warn!(%error, "the window turned a request down");
                 None
             }
-            Input::User { message, .. } => Some(self.prompt(&message.content)),
-            Input::BashCommand { command, .. } => {
+            Command::Prompt { text, .. } => Some(self.prompt_text(text)),
+            Command::Shell { command } => {
                 scenarios::shell(&self.out, &command);
                 None
             }
@@ -321,19 +322,7 @@ impl Session {
     }
 
     /// A prompt: a turn plays the scenario it picks.
-    fn prompt(&mut self, content: &crate::external::wire::Content) -> Task {
-        use crate::external::wire::{Block, Content};
-        let prompt = match content {
-            Content::Text(text) => text.clone(),
-            Content::Blocks(blocks) => blocks
-                .iter()
-                .filter_map(|block| match block {
-                    Block::Text { text } => Some(text.as_str()),
-                    Block::Image(_) => None,
-                })
-                .collect::<Vec<_>>()
-                .join(" "),
-        };
+    fn prompt_text(&mut self, prompt: String) -> Task {
         self.turns += 1;
         let (said, inbox) = async_channel::unbounded();
         self.turn = Some(said);
@@ -343,7 +332,7 @@ impl Session {
             model: self.model.clone(),
             number: self.turns,
         };
-        self.out.line(&Message::System(System::Init {
+        self.out.event(&agent::Event::System(System::Init {
             session_id: self.out.session.clone(),
             model: self.model.clone(),
             permission_mode: Mode::Known(self.mode),
@@ -390,7 +379,7 @@ impl Turn {
     }
 
     fn assistant(&self, content: Vec<ContentBlock>, id: MessageId) {
-        self.out.line(&Message::Assistant {
+        self.out.event(&agent::Event::Assistant {
             message: ApiMessage {
                 id,
                 content,
@@ -410,7 +399,7 @@ impl Turn {
     pub async fn say(&self, text: &str) -> Result<(), Interrupted> {
         let id = MessageId::from(format!("msg_{}", uuid::Uuid::new_v4().simple()));
         let event = |event: StreamEvent| {
-            self.out.line(&Message::StreamEvent {
+            self.out.event(&agent::Event::Stream {
                 event,
                 parent_tool_use_id: None,
             });
@@ -459,14 +448,13 @@ impl Turn {
     }
 
     pub fn result(&self, id: &ToolUseId, content: UserContent, is_error: bool) {
-        self.out
-            .line(&Message::User(UserLine::of_session(UserContent::Blocks(
-                vec![ContentBlock::ToolResult {
-                    tool_use_id: id.clone(),
-                    content: Some(content),
-                    is_error,
-                }],
-            ))));
+        self.out.event(&agent::Event::User(UserLine::of_session(
+            UserContent::Blocks(vec![ContentBlock::ToolResult {
+                tool_use_id: id.clone(),
+                content: Some(content),
+                is_error,
+            }]),
+        )));
     }
 
     /// A tool call that needs no asking, its result after `milliseconds`.
@@ -491,7 +479,7 @@ impl Turn {
         id: &ToolUseId,
         suggestions: &[Suggestion],
     ) -> Result<PermissionResult, Interrupted> {
-        self.out.line(&Message::ControlRequest {
+        self.out.event(&agent::Event::ControlRequest {
             request_id: RequestId::from(format!("perm_{id}")),
             request: IncomingRequest::CanUseTool {
                 tool_name: name,
@@ -509,7 +497,7 @@ impl Turn {
 
     /// The turn's end.
     pub fn finish(&self, text: &str) {
-        self.out.line(&Message::Result(TurnResult {
+        self.out.event(&agent::Event::Result(TurnResult {
             subtype: ResultKind::Success,
             is_error: false,
             result: Some(text.to_owned()),
@@ -534,12 +522,11 @@ impl Turn {
 
     /// The turn's end, as an interrupt makes it.
     pub fn interrupted(&self) {
-        self.out
-            .line(&Message::User(UserLine::of_session(UserContent::Blocks(
-                vec![ContentBlock::Text {
-                    text: "[Request interrupted by user]".to_owned(),
-                }],
-            ))));
+        self.out.event(&agent::Event::User(UserLine::of_session(
+            UserContent::Blocks(vec![ContentBlock::Text {
+                text: "[Request interrupted by user]".to_owned(),
+            }]),
+        )));
         self.finish("interrupted");
     }
 

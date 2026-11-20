@@ -12,8 +12,10 @@
 use std::collections::{BTreeSet, HashMap, VecDeque};
 use std::path::PathBuf;
 
+use serde::Deserialize;
 use serde_json::{Map, Value};
 
+use crate::agent::{Command, Event};
 use crate::app::Mode;
 use crate::external::acp::{
     self, AgentMethod, AgyArguments, AvailableCommand, Change, Chunk, ConfigOption,
@@ -29,11 +31,10 @@ use crate::external::tool_input::{
 };
 use crate::external::wire::{
     self, Account, ApiMessage, AssistantError, CommandInfo, ContentBlock, ControlResponse, DENIED,
-    Delta, IncomingRequest, Initialized, LimitKind, Message, MessageId, MessageOrigin,
-    MessageStart, ModeId, ModelInfo, ModelUsage, ProgramMode, ProgramModes, Question,
-    QuestionOption, Questions, RequestId, ResultKind, Rule, RuleDestination, SessionId,
-    StreamEvent, Suggestion, System, ToolName, ToolUseId, TranscriptLine, TurnResult, Usage,
-    UserContent, UserLine, UserMessage,
+    Delta, IncomingRequest, Initialized, LimitKind, MessageId, MessageOrigin, MessageStart, ModeId,
+    ModelInfo, ModelUsage, ProgramMode, ProgramModes, Question, QuestionOption, Questions,
+    RequestId, ResultKind, Rule, RuleDestination, SessionId, StreamEvent, Suggestion, System,
+    ToolName, ToolUseId, TranscriptLine, TurnResult, Usage, UserContent, UserLine, UserMessage,
 };
 use crate::settings::PeerMessages;
 
@@ -71,10 +72,10 @@ pub struct ToolServer {
 /// What is to be done.
 #[derive(Debug)]
 pub enum Effect {
-    /// A line to the agent.
+    /// A command to the agent.
     ToAgent(acp::ToAgent),
-    /// A line to the window, through the daemon.
-    ToWindow(Message),
+    /// An event to the window, through the daemon.
+    ToWindow(Event),
     /// A line for the transcript; the session, folder and time are added as it is written.
     Transcript(TranscriptLine),
     /// A message: carry it out (see [`super::outbox`]) and answer the call.
@@ -216,7 +217,7 @@ pub struct Translator {
     next_rpc: u64,
     asked: HashMap<u64, Asked>,
     /// What the window said before the session was open.
-    held: Vec<wire::Input>,
+    held: Vec<Command>,
     /// The window's `initialize`, answered once the session is open.
     initialize: Option<RequestId>,
     /// A prompt is under way.
@@ -238,6 +239,11 @@ pub struct Translator {
     senders_let_in: BTreeSet<String>,
     /// The agent's forms the window was asked as questions, by the request asking.
     forms: HashMap<RequestId, Form>,
+    /// Most recent plan quotas reported by the agent, reused when switching models so the header
+    /// chip updates immediately without waiting for the next turn.
+    last_quotas: Option<agy::Quotas>,
+    /// Tool calls finished during the current turn, to trigger periodic mid-turn quota refreshes.
+    turn_tools: usize,
 }
 
 /// A form of the agent's, asked in the window as Claude Code's questions are.
@@ -314,6 +320,8 @@ impl Translator {
             waiting: HashMap::new(),
             senders_let_in: BTreeSet::new(),
             forms: HashMap::new(),
+            last_quotas: None,
+            turn_tools: 0,
         }
     }
 
@@ -421,7 +429,7 @@ impl Translator {
         };
         let request = RequestId::from(self.local_id("form"));
         self.forms.insert(request.clone(), Form { id, questions });
-        vec![Effect::ToWindow(Message::ControlRequest {
+        vec![Effect::ToWindow(Event::ControlRequest {
             request_id: request,
             request: IncomingRequest::CanUseTool {
                 tool_name: ToolName::AskUserQuestion,
@@ -666,15 +674,27 @@ impl Translator {
                 if let Some(request) = self.initialize.take() {
                     effects.push(self.initialized(request));
                 }
-                for input in std::mem::take(&mut self.held) {
-                    effects.extend(self.window_input(input));
+                for command in std::mem::take(&mut self.held) {
+                    effects.extend(self.window_command(command));
                 }
                 effects.extend(self.subagents());
                 effects
             }
             Asked::Model { request, model } => {
                 self.model = Some(model);
-                request.map_or_default(|request| vec![success(request, Value::Object(Map::new()))])
+                let mut effects: Vec<Effect> = request
+                    .map(|request| success(request, Value::Object(Map::new())))
+                    .into_iter()
+                    .collect();
+                if let Some(quotas) = &self.last_quotas {
+                    let limits = plan_limits(quotas, self.active_model_name());
+                    effects.push(Effect::ToWindow(Event::RateLimits(wire::RateLimits {
+                        windows: limit_windows(&limits),
+                    })));
+                } else if self.agent.reports_quotas() {
+                    effects.push(Effect::Quotas { request: None });
+                }
+                effects
             }
             Asked::Mode { request, mode } => {
                 self.mode = Some(mode);
@@ -719,7 +739,7 @@ impl Translator {
     fn failed(&mut self, message: &str, sign_in: bool) -> Vec<Effect> {
         self.phase = Phase::Failed;
         let agent = self.agent;
-        let mut effects = vec![Effect::ToWindow(Message::Assistant {
+        let mut effects = vec![Effect::ToWindow(Event::Assistant {
             message: ApiMessage {
                 id: MessageId::from(format!("{agent}-failed")),
                 content: vec![ContentBlock::Text {
@@ -784,68 +804,68 @@ impl Translator {
         }
     }
 
-    /// A line from the window.
+    /// A serialized [`Command`] from the window.
     pub fn window_said(&mut self, line: &str) -> Vec<Effect> {
-        let input = match serde_json::from_str::<wire::Input>(line) {
-            Ok(input) => input,
+        let command = match serde_json::from_str::<Command>(line) {
+            Ok(command) => command,
             Err(error) => return unreadable_from_window(line, &error),
         };
         match &self.phase {
-            Phase::Ready(_) => self.window_input(input),
-            Phase::Failed => match input {
-                wire::Input::ControlRequest { request_id, .. } => vec![failure(
+            Phase::Ready(_) => self.window_command(command),
+            Phase::Failed => match command {
+                Command::ControlRequest { request_id, .. } => vec![failure(
                     request_id,
                     &format!("{} isn't running", self.agent),
                 )],
-                wire::Input::User { .. }
-                | wire::Input::ControlResponse { .. }
-                | wire::Input::BashCommand { .. } => Vec::new(),
+                Command::Prompt { .. }
+                | Command::ControlResponse { .. }
+                | Command::Shell { .. } => Vec::new(),
             },
             Phase::Connecting | Phase::Opening { .. } => {
-                match input {
-                    wire::Input::ControlRequest {
+                match command {
+                    Command::ControlRequest {
                         request_id,
                         request: wire::ControlRequest::Initialize { .. },
                     } => self.initialize = Some(request_id),
-                    held @ (wire::Input::ControlRequest { .. }
-                    | wire::Input::User { .. }
-                    | wire::Input::ControlResponse { .. }
-                    | wire::Input::BashCommand { .. }) => self.held.push(held),
+                    held @ (Command::ControlRequest { .. }
+                    | Command::Prompt { .. }
+                    | Command::ControlResponse { .. }
+                    | Command::Shell { .. }) => self.held.push(held),
                 }
                 Vec::new()
             }
         }
     }
 
-    /// A line the window has been read as: a prompt, a `!` command, a request or an answer.
-    fn window_input(&mut self, input: wire::Input) -> Vec<Effect> {
-        match input {
-            wire::Input::ControlRequest {
+    /// A parsed command from the window: a prompt, a `!` command, a request or an answer.
+    fn window_command(&mut self, command: Command) -> Vec<Effect> {
+        match command {
+            Command::ControlRequest {
                 request_id,
                 request,
             } => self.window_request(request_id, request),
-            wire::Input::ControlResponse { response } => self.window_answered(response),
-            wire::Input::User { message, .. } => {
-                let prompt = prompt_blocks(&message.content);
+            Command::ControlResponse { response } => self.window_answered(response),
+            Command::Prompt { images, text, .. } => {
+                let prompt = command_prompt_blocks(&images, &text);
                 if prompt.is_empty() {
                     return Vec::new();
                 }
                 self.queue.push_back(Queued::User {
                     prompt,
-                    kept: UserContent::from(message.content),
+                    kept: prompt_user_content(images, text),
                 });
                 self.next_turn()
             }
-            wire::Input::BashCommand { command, .. } => self.shell_refused(&command),
+            Command::Shell { command } => self.shell_refused(&command),
         }
     }
 
     /// A `!` command: the agent has no shell beside the conversation, so it is told as not run,
-    /// in the rows Claude Code replays for one (its echo, then what it printed).
+    /// in the rows shown for one (its echo, then what it printed).
     fn shell_refused(&self, command: &str) -> Vec<Effect> {
         let agent = self.agent;
         let row = |text: String| {
-            Effect::ToWindow(Message::User(UserLine::replayed(UserContent::Text(text))))
+            Effect::ToWindow(Event::User(UserLine::replayed(UserContent::Text(text))))
         };
         vec![
             row(format!("<bash-input>{}</bash-input>", escaped(command))),
@@ -1061,7 +1081,7 @@ impl Translator {
         };
         let request_id = RequestId::from(self.local_id("message"));
         self.waiting.insert(request_id.clone(), content);
-        vec![Effect::ToWindow(Message::ControlRequest {
+        vec![Effect::ToWindow(Event::ControlRequest {
             request_id,
             request,
         })]
@@ -1080,7 +1100,7 @@ impl Translator {
     fn came_in(&mut self, content: String) -> Vec<Effect> {
         let (name, body) = unwrapped(&content);
         let mut effects = vec![
-            Effect::ToWindow(Message::User(UserLine::from_peer(
+            Effect::ToWindow(Event::User(UserLine::from_peer(
                 content.clone(),
                 name.clone(),
                 Some(body.clone()),
@@ -1113,7 +1133,7 @@ impl Translator {
         let Some(queued) = self.queue.pop_front() else {
             return Vec::new();
         };
-        let mut effects = vec![Effect::ToWindow(Message::System(System::Init {
+        let mut effects = vec![Effect::ToWindow(Event::System(System::Init {
             session_id: self.id.clone(),
             model: self.model.clone().unwrap_or_default(),
             permission_mode: Mode::Unknown(self.mode.clone().unwrap_or_default()),
@@ -1132,6 +1152,7 @@ impl Translator {
             Queued::Peer(text) => vec![acp::PromptBlock::Text { text }],
         };
         self.busy = true;
+        self.turn_tools = 0;
         self.said.clear();
         effects.push(self.request(
             acp::ClientCall::Prompt(acp::PromptParams {
@@ -1144,7 +1165,7 @@ impl Translator {
     }
 
     fn stream_event(event: StreamEvent) -> Effect {
-        Effect::ToWindow(Message::StreamEvent {
+        Effect::ToWindow(Event::Stream {
             event,
             parent_tool_use_id: None,
         })
@@ -1250,7 +1271,7 @@ impl Translator {
         }
         let text = std::mem::take(&mut self.replay_user);
         vec![
-            Effect::ToWindow(Message::User(UserLine::replayed(UserContent::Text(
+            Effect::ToWindow(Event::User(UserLine::replayed(UserContent::Text(
                 text.clone(),
             )))),
             Effect::Transcript(TranscriptLine::User {
@@ -1271,7 +1292,7 @@ impl Translator {
             // while a loaded session replays its history.
             Change::UsageUpdate { used, size } => {
                 self.context = Some(ContextUsed { used, size });
-                return vec![Effect::ToWindow(Message::System(System::ContextUsed {
+                return vec![Effect::ToWindow(Event::System(System::ContextUsed {
                     used,
                     size,
                 }))];
@@ -1279,7 +1300,7 @@ impl Translator {
             Change::AvailableCommandsUpdate { available_commands } => {
                 self.commands = available_commands.into_iter().map(command_info).collect();
                 if matches!(self.phase, Phase::Ready(_)) {
-                    return vec![Effect::ToWindow(Message::System(System::Commands {
+                    return vec![Effect::ToWindow(Event::System(System::Commands {
                         commands: self.commands.clone(),
                     }))];
                 }
@@ -1290,7 +1311,7 @@ impl Translator {
                 return if matches!(self.phase, Phase::Ready(_))
                     && let Some(mode) = changed
                 {
-                    vec![Effect::ToWindow(Message::System(System::ProgramMode {
+                    vec![Effect::ToWindow(Event::System(System::ProgramMode {
                         mode: ModeId::from(mode),
                     }))]
                 } else {
@@ -1300,7 +1321,7 @@ impl Translator {
             Change::CurrentModeUpdate { current_mode_id } => {
                 self.mode = Some(current_mode_id.clone());
                 return if matches!(self.phase, Phase::Ready(_)) {
-                    vec![Effect::ToWindow(Message::System(System::ProgramMode {
+                    vec![Effect::ToWindow(Event::System(System::ProgramMode {
                         mode: ModeId::from(current_mode_id),
                     }))]
                 } else {
@@ -1494,7 +1515,7 @@ impl Translator {
             content,
             usage: Usage::default(),
         };
-        effects.push(Effect::ToWindow(Message::Assistant {
+        effects.push(Effect::ToWindow(Event::Assistant {
             message: message.clone(),
             parent_tool_use_id: None,
             error: None,
@@ -1599,7 +1620,7 @@ impl Translator {
                 content: vec![tool_use],
                 usage: Usage::default(),
             };
-            effects.push(Effect::ToWindow(Message::Assistant {
+            effects.push(Effect::ToWindow(Event::Assistant {
                 message: message.clone(),
                 parent_tool_use_id: None,
                 error: None,
@@ -1618,6 +1639,10 @@ impl Translator {
             is_error,
         ));
         effects.extend(self.subagents());
+        self.turn_tools += 1;
+        if self.agent.reports_quotas() && self.turn_tools.is_multiple_of(5) {
+            effects.push(Effect::Quotas { request: None });
+        }
         effects
     }
 
@@ -1676,7 +1701,7 @@ impl Translator {
                 tool: tool.clone(),
             },
         );
-        effects.push(Effect::ToWindow(Message::ControlRequest {
+        effects.push(Effect::ToWindow(Event::ControlRequest {
             request_id: request,
             request: IncomingRequest::CanUseTool {
                 tool_name: name,
@@ -1706,16 +1731,27 @@ impl Translator {
         let agent = self.agent;
         if let Some(Failure::Said(error)) = failure {
             let id = MessageId::from(self.local_id("message"));
-            effects.push(Effect::ToWindow(Message::Assistant {
+            let quota_hit = is_quota_exhausted(error);
+            let text = if quota_hit {
+                format!(
+                    "{agent}: {error}\n\nSwitch to another model in the model menu below, or wait \
+                     for the quota to reset."
+                )
+            } else {
+                format!("{agent}: {error}")
+            };
+            effects.push(Effect::ToWindow(Event::Assistant {
                 message: ApiMessage {
                     id,
-                    content: vec![ContentBlock::Text {
-                        text: format!("{agent}: {error}"),
-                    }],
+                    content: vec![ContentBlock::Text { text }],
                     usage: Usage::default(),
                 },
                 parent_tool_use_id: None,
-                error: Some(AssistantError::Other),
+                error: Some(if quota_hit {
+                    AssistantError::RateLimit
+                } else {
+                    AssistantError::Other
+                }),
             }));
         }
         // Calls the agent never answered for, or never gave arguments for, are done now.
@@ -1739,7 +1775,7 @@ impl Translator {
         }
         let failed = error.is_some() || cancelled;
         let model = self.model.clone().unwrap_or_else(|| agent.to_string());
-        effects.push(Effect::ToWindow(Message::Result(TurnResult {
+        effects.push(Effect::ToWindow(Event::Result(TurnResult {
             subtype: if failed {
                 ResultKind::ErrorDuringExecution
             } else {
@@ -1781,10 +1817,19 @@ impl Translator {
 }
 
 impl Translator {
+    fn active_model_name(&self) -> Option<&str> {
+        self.model.as_deref().and_then(|id| {
+            self.models
+                .iter()
+                .find(|model| model.model_id == id)
+                .map(|model| model.name.as_str())
+        })
+    }
+
     /// What the agent's plan said of its quotas: the answer to the window's `get_usage`, or the
-    /// sidebar's bars from the quotas the session's model draws on.
+    /// session's bars from the quotas the active model draws on.
     pub fn quotas_told(
-        &self,
+        &mut self,
         request: Option<RequestId>,
         told: Result<agy::Quotas, super::QuotaError>,
     ) -> Vec<Effect> {
@@ -1803,13 +1848,8 @@ impl Translator {
                     .collect();
             }
         };
-        let model = self.model.as_deref().and_then(|id| {
-            self.models
-                .iter()
-                .find(|model| model.model_id == id)
-                .map(|model| model.name.as_str())
-        });
-        let limits = plan_limits(&quotas, model);
+        let limits = plan_limits(&quotas, self.active_model_name());
+        self.last_quotas = Some(quotas);
         match request {
             Some(request) => vec![success_as(
                 request,
@@ -1818,13 +1858,16 @@ impl Translator {
                     ..wire::UsageReport::default()
                 },
             )],
-            None => vec![Effect::ToWindow(Message::RateLimitEvent {
-                rate_limit_info: wire::RateLimits {
-                    windows: limit_windows(&limits),
-                },
-            })],
+            None => vec![Effect::ToWindow(Event::RateLimits(wire::RateLimits {
+                windows: limit_windows(&limits),
+            }))],
         }
     }
+}
+
+fn is_quota_exhausted(error: &str) -> bool {
+    let lower = error.to_ascii_lowercase();
+    lower.contains("quota reached") || lower.contains("quota exceeded")
 }
 
 /// The questions a form asks: one for each field with options, or for text alone. agy 1.5.9
@@ -1948,28 +1991,30 @@ fn open_index(blocks: &[Block]) -> Option<u64> {
 
 /// A line from the window that isn't one of its lines as edualc reads them. A control request
 /// is answered with the reason, so the window doesn't wait on it; anything else is dropped.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CommandControlPeek {
+    #[serde(rename = "ControlRequest")]
+    control: CommandControlInner,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CommandControlInner {
+    request_id: RequestId,
+    #[serde(rename = "request")]
+    _request: Value,
+}
+
 fn unreadable_from_window(line: &str, error: &serde_json::Error) -> Vec<Effect> {
-    match serde_json::from_str::<wire::ControlPeek>(line) {
-        Ok(wire::ControlPeek {
-            kind: wire::PeekedKind::ControlRequest,
-            request_id: Some(request_id),
-            ..
-        }) => vec![failure(
-            RequestId::from(request_id),
+    if let Ok(CommandControlPeek { control }) = serde_json::from_str(line) {
+        return vec![failure(
+            control.request_id,
             &format!("edualc can't read this request: {error}"),
-        )],
-        Ok(wire::ControlPeek {
-            kind: wire::PeekedKind::User,
-            ..
-        }) => {
-            tracing::warn!(%error, "a prompt from the window that can't be read: dropped");
-            Vec::new()
-        }
-        Ok(wire::ControlPeek { .. }) | Err(_) => {
-            tracing::warn!(%error, "a line from the window that can't be read: dropped");
-            Vec::new()
-        }
+        )];
     }
+    tracing::warn!(%error, "a command from the window that can't be read: dropped");
+    Vec::new()
 }
 
 /// What the window answered a permission request with, as edualc acts on it.
@@ -2016,7 +2061,7 @@ fn tool_result_effects(tool_use_id: String, text: String, is_error: bool) -> Vec
         is_error,
     }]);
     vec![
-        Effect::ToWindow(Message::User(UserLine::of_session(content.clone()))),
+        Effect::ToWindow(Event::User(UserLine::of_session(content.clone()))),
         Effect::Transcript(TranscriptLine::User {
             message: UserMessage { content },
             is_meta: false,
@@ -2106,39 +2151,42 @@ fn success_as(request: RequestId, response: &impl serde::Serialize) -> Effect {
 }
 
 fn success(request: RequestId, response: Value) -> Effect {
-    Effect::ToWindow(Message::ControlResponse {
-        response: ControlResponse::Success {
-            request_id: request,
-            response,
-        },
-    })
+    Effect::ToWindow(Event::ControlAnswered(ControlResponse::Success {
+        request_id: request,
+        response,
+    }))
 }
 
 fn failure(request: RequestId, error: &str) -> Effect {
-    Effect::ToWindow(Message::ControlResponse {
-        response: ControlResponse::Error {
-            request_id: request,
-            error: error.to_owned(),
-        },
-    })
+    Effect::ToWindow(Event::ControlAnswered(ControlResponse::Error {
+        request_id: request,
+        error: error.to_owned(),
+    }))
 }
 
-/// A prompt as the window sent it (text, or blocks of text and images), as ACP takes it.
-fn prompt_blocks(content: &wire::Content) -> Vec<acp::PromptBlock> {
-    match content {
-        wire::Content::Text(text) => vec![acp::PromptBlock::Text { text: text.clone() }],
-        wire::Content::Blocks(blocks) => blocks.iter().map(prompt_block).collect(),
-    }
-}
-
-/// One block of the window's prompt, as ACP takes it.
-fn prompt_block(block: &wire::Block) -> acp::PromptBlock {
-    match block {
-        wire::Block::Text { text } => acp::PromptBlock::Text { text: text.clone() },
-        wire::Block::Image(image) => acp::PromptBlock::Image {
+/// Prompt parts from [`Command::Prompt`], formatted for ACP `session/prompt`.
+fn command_prompt_blocks(images: &[wire::ImageBlock], text: &str) -> Vec<acp::PromptBlock> {
+    let mut blocks: Vec<acp::PromptBlock> = images
+        .iter()
+        .map(|image| acp::PromptBlock::Image {
             mime_type: image.media_type(),
             data: image.data().to_owned(),
-        },
+        })
+        .collect();
+    if !text.is_empty() {
+        blocks.push(acp::PromptBlock::Text {
+            text: text.to_owned(),
+        });
+    }
+    blocks
+}
+
+fn prompt_user_content(images: Vec<wire::ImageBlock>, text: String) -> UserContent {
+    match wire::Input::prompt_with(&[], images, &text) {
+        wire::Input::User { message, .. } => UserContent::from(message.content),
+        wire::Input::ControlRequest { .. }
+        | wire::Input::ControlResponse { .. }
+        | wire::Input::BashCommand { .. } => UserContent::Text(text),
     }
 }
 
@@ -2667,27 +2715,95 @@ mod tests {
     use crate::app::PermissionMode;
     use crate::external::acp::Location;
     use crate::external::wire::{
-        ControlRequest, Input, MediaType, ModeId, PermissionResult, Reply, ToolInput,
+        ControlRequest, MediaType, ModeId, PermissionResult, Reply, ToolInput,
     };
 
     const ID: &str = "11111111-2222-4333-8444-555555555555";
 
-    /// A line the window writes, as it writes it.
-    fn said(input: &Input) -> String {
-        serde_json::to_string(input).expect("a line the window writes")
+    /// Serializes a window-bound command cleanly.
+    fn said(command: &Command) -> String {
+        command.encode().expect("a command the window writes")
     }
 
     /// A prompt of the window's, of text alone.
     fn prompt(text: &str) -> String {
-        said(&Input::prompt_with(&[], Vec::new(), text))
+        said(&Command::Prompt {
+            shell: Vec::new(),
+            images: Vec::new(),
+            text: text.to_owned(),
+        })
     }
 
     /// A control request of the window's.
     fn asks(request_id: &str, request: ControlRequest) -> String {
-        said(&Input::ControlRequest {
+        said(&Command::ControlRequest {
             request_id: RequestId::from(request_id.to_owned()),
             request,
         })
+    }
+
+    fn event_as_json(event: &Event) -> Value {
+        match event {
+            Event::Stream {
+                event,
+                parent_tool_use_id,
+            } => json!({
+                "type": "stream_event",
+                "event": event,
+                "parent_tool_use_id": parent_tool_use_id,
+            }),
+            Event::Assistant {
+                message,
+                parent_tool_use_id,
+                error,
+            } => json!({
+                "type": "assistant",
+                "message": message,
+                "parent_tool_use_id": parent_tool_use_id,
+                "error": error,
+            }),
+            Event::User(user) => {
+                let mut value = serde_json::to_value(user).expect("user");
+                if let Value::Object(map) = &mut value {
+                    map.insert("type".to_owned(), json!("user"));
+                }
+                value
+            }
+            Event::System(system) => {
+                let mut value = serde_json::to_value(system).expect("system");
+                if let Value::Object(map) = &mut value {
+                    map.insert("type".to_owned(), json!("system"));
+                }
+                value
+            }
+            Event::Result(result) => {
+                let mut value = serde_json::to_value(result).expect("result");
+                if let Value::Object(map) = &mut value {
+                    map.insert("type".to_owned(), json!("result"));
+                }
+                value
+            }
+            Event::RateLimits(rate_limit_info) => json!({
+                "type": "rate_limit_event",
+                "rate_limit_info": rate_limit_info,
+            }),
+            Event::ControlRequest {
+                request_id,
+                request,
+            } => json!({
+                "type": "control_request",
+                "request_id": request_id,
+                "request": request,
+            }),
+            Event::ControlAnswered(response) => json!({
+                "type": "control_response",
+                "response": response,
+            }),
+            Event::RequestCancelled { request_id } => json!({
+                "type": "control_cancel_request",
+                "request_id": request_id,
+            }),
+        }
     }
 
     fn translator(start: Start) -> Translator {
@@ -2713,9 +2829,7 @@ mod tests {
         effects
             .iter()
             .filter_map(|effect| match effect {
-                Effect::ToWindow(line) => {
-                    Some(serde_json::to_value(line).expect("a line for the window"))
-                }
+                Effect::ToWindow(event) => Some(event_as_json(event)),
                 Effect::ToAgent(_)
                 | Effect::Transcript(_)
                 | Effect::Send { .. }
@@ -2880,7 +2994,9 @@ mod tests {
             "<cross-session-message from=\"calm-heron\">hello</cross-session-message>".to_owned(),
             PeerMessages::LetAllIn,
         ));
-        effects.extend(translator.window_said(&said(&Input::bash_command("ls"))));
+        effects.extend(translator.window_said(&said(&Command::Shell {
+            command: "ls".to_owned(),
+        })));
         effects.extend(translator.agent_said(&format!(
             r#"{{"jsonrpc":"2.0","id":{first},"error":{{"code":-32603,"message":"overloaded"}}}}"#
         )));
@@ -2892,8 +3008,8 @@ mod tests {
         let mut transcript = std::collections::BTreeSet::new();
         for effect in &effects {
             match effect {
-                Effect::ToWindow(line) => {
-                    let line = serde_json::to_value(line).expect("a line for the window");
+                Effect::ToWindow(event) => {
+                    let line = event_as_json(event);
                     read_by_the_window(&line);
                     window.extend(kinds(&[line]));
                 }
@@ -3203,7 +3319,7 @@ mod tests {
             .get("request_id")
             .and_then(Value::as_str)
             .expect("an id");
-        let denied = translator.window_said(&said(&Input::ControlResponse {
+        let denied = translator.window_said(&said(&Command::ControlResponse {
             response: Reply::Success {
                 request_id: RequestId::from(request_id.to_owned()),
                 response: PermissionResult::Deny {
@@ -3235,7 +3351,11 @@ mod tests {
     fn a_prompt_is_sent_as_acp_names_it() {
         let mut translator = opened();
         let image = wire::ImageBlock::base64(MediaType::Png, "QUJD".to_owned());
-        let sent = translator.window_said(&said(&Input::prompt_with(&[], vec![image], "look")));
+        let sent = translator.window_said(&said(&Command::Prompt {
+            shell: Vec::new(),
+            images: vec![image],
+            text: "look".to_owned(),
+        }));
         let id = prompt_id(&sent);
         assert_eq!(
             agent_lines(&sent),
@@ -3272,7 +3392,7 @@ mod tests {
                     .map(str::to_owned)
             })
             .expect("the window asked");
-        let answered = translator.window_said(&said(&Input::ControlResponse {
+        let answered = translator.window_said(&said(&Command::ControlResponse {
             response: Reply::Success {
                 request_id: RequestId::from(request_id),
                 response: PermissionResult::Allow {
@@ -3447,8 +3567,9 @@ mod tests {
             .expect("letting the sender in, offered");
         let answer = |request: &Value, response: Value| {
             serde_json::to_string(&json!({
-                "type": "control_response",
-                "response": {"subtype": "success", "request_id": request, "response": response},
+                "ControlResponse": {
+                    "response": {"subtype": "success", "request_id": request, "response": response},
+                }
             }))
             .expect("a line")
         };
@@ -3505,8 +3626,9 @@ mod tests {
     fn agys_form_is_asked_as_questions() {
         let answer = |request: &Value, response: Value| {
             serde_json::to_string(&json!({
-                "type": "control_response",
-                "response": {"subtype": "success", "request_id": request, "response": response},
+                "ControlResponse": {
+                    "response": {"subtype": "success", "request_id": request, "response": response},
+                }
             }))
             .expect("a line")
         };
@@ -3889,7 +4011,9 @@ mod tests {
     #[test]
     fn shell_commands_are_refused() {
         let mut translator = opened();
-        let refused = translator.window_said(&said(&Input::bash_command("ls <dir>")));
+        let refused = translator.window_said(&said(&Command::Shell {
+            command: "ls <dir>".to_owned(),
+        }));
         assert!(agent_lines(&refused).is_empty());
         let window = window_lines(&refused);
         let rows: Vec<&str> = window
@@ -4058,7 +4182,7 @@ mod tests {
     /// Quotas agy couldn't say fail the window's `get_usage` with why, and leave the bars.
     #[test]
     fn quotas_that_cant_be_read_fail_the_request() {
-        let translator = opened();
+        let mut translator = opened();
         assert!(
             translator
                 .quotas_told(None, Err(super::super::QuotaError::TimedOut))
@@ -4084,7 +4208,7 @@ mod tests {
     fn a_control_request_edualc_cant_read_is_failed_under_its_id() {
         let mut translator = opened();
         let unreadable = translator.window_said(
-            r#"{"type":"control_request","request_id":"x1","request":{"subtype":"from_a_newer_edualc"}}"#,
+            r#"{"ControlRequest":{"request_id":"x1","request":{"subtype":"from_a_newer_edualc"}}}"#,
         );
         assert!(agent_lines(&unreadable).is_empty());
         let answers = window_lines(&unreadable);
@@ -4454,7 +4578,7 @@ mod tests {
             .get("request_id")
             .and_then(Value::as_str)
             .expect("request id");
-        let answered = translator.window_said(&said(&Input::ControlResponse {
+        let answered = translator.window_said(&said(&Command::ControlResponse {
             response: Reply::Success {
                 request_id: RequestId::from(request_id.to_owned()),
                 response: PermissionResult::Allow {
@@ -4499,7 +4623,7 @@ mod tests {
         );
         assert!(ready_cmds.iter().any(|effect| matches!(
             effect,
-            Effect::ToWindow(Message::System(System::Commands { commands }))
+            Effect::ToWindow(Event::System(System::Commands { commands }))
                 if commands.iter().any(|c| c.name == "review")
         )));
 
@@ -4525,6 +4649,68 @@ mod tests {
                 effect,
                 Effect::Transcript(TranscriptLine::Assistant { .. })
             ))
+        );
+    }
+
+    #[test]
+    fn model_switch_reprojects_cached_quotas_and_mid_turn_tools_refresh_quotas() {
+        let mut translator = opened();
+        translator.models.push(acp::Model {
+            model_id: "orchestrator-argon".to_owned(),
+            name: "Orchestrator (Argon)".to_owned(),
+        });
+        // Prime cached quotas while on Gemini Flash (both 5h and 7d).
+        drop(translator.quotas_told(None, Ok(quotas())));
+
+        // Switch to Orchestrator (Argon): weekly-only bucket (100% used in fixture) clears 5h.
+        let ask = translator.window_said(&asks(
+            "m1",
+            ControlRequest::SetModel {
+                model: "orchestrator-argon".to_owned(),
+            },
+        ));
+        let rpc_id = agent_lines(&ask)
+            .first()
+            .and_then(|line| line.get("id").and_then(Value::as_u64))
+            .expect("set_model rpc id");
+        let switched = translator.agent_said(&format!(
+            r#"{{"jsonrpc":"2.0","id":{rpc_id},"result":{{}}}}"#
+        ));
+        let rate_limits = window_lines(&switched)
+            .into_iter()
+            .find(|line| line.get("type") == Some(&json!("rate_limit_event")))
+            .expect("reprojected rate limits");
+        assert_eq!(
+            rate_limits.pointer("/rate_limit_info/unifiedWindows/five_hour"),
+            Some(&Value::Null)
+        );
+        assert_eq!(
+            rate_limits.pointer("/rate_limit_info/unifiedWindows/seven_day/utilization"),
+            Some(&json!(1.0))
+        );
+
+        // Completing 5 tool calls mid-turn triggers a quota refresh.
+        drop(translator.window_said(&prompt("research")));
+        let mut refreshed = false;
+        for i in 1..=5 {
+            let start = format!(
+                r#"{{"jsonrpc":"2.0","method":"session/update","params":{{"sessionId":"s","update":{{"sessionUpdate":"tool_call","toolCallId":"t{i}","name":"read_file","kind":"read","status":"in_progress","rawInput":{{"Path":"/work/a.rs"}}}}}}}}"#
+            );
+            drop(translator.agent_said(&start));
+            let done = format!(
+                r#"{{"jsonrpc":"2.0","method":"session/update","params":{{"sessionId":"s","update":{{"sessionUpdate":"tool_call_update","toolCallId":"t{i}","status":"completed","content":[]}}}}}}"#
+            );
+            let effects = translator.agent_said(&done);
+            if effects
+                .iter()
+                .any(|effect| matches!(effect, Effect::Quotas { request: None }))
+            {
+                refreshed = true;
+            }
+        }
+        assert!(
+            refreshed,
+            "5 completed tools should trigger mid-turn quota refresh"
         );
     }
 }

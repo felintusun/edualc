@@ -30,7 +30,7 @@ pub async fn run(line: Line) {
                 let session = Session::start(key, Sink::Line(outbox.clone()), &launch);
                 sessions.insert(key, session);
             }
-            ToDaemon::Input { key, text, last } => {
+            ToDaemon::Command { key, text, last } => {
                 if let Some(session) = sessions.get_mut(&key)
                     && let Some(task) = session.take(&text, last)
                 {

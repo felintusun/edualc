@@ -136,7 +136,9 @@ pub(crate) fn step_lines(lines: &[String]) -> Vec<TranscriptLine> {
             | StepKind::Generic
             | StepKind::Checkpoint
             | StepKind::Other => {
-                if step.kind == StepKind::PlannerResponse {
+                if step.kind == StepKind::UserInput {
+                    pending_tools.clear();
+                } else if step.kind == StepKind::PlannerResponse {
                     for n in 0..step.tool_calls.len() {
                         pending_tools
                             .push_back(ToolUseId::from(format!("agy-{}-{n}", step.step_index)));

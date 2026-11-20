@@ -21,7 +21,7 @@ use crate::changes::{
     ChangeSet, ContentId, FileChange, Hunk, Kind, LARGEST_FILE, LeftOut, MOST_FILES, Review, Scope,
     Summary, Who,
 };
-use crate::external::wire::{self, ContentBlock, SessionId, ToolKind};
+use crate::external::wire::{ContentBlock, SessionId, ToolKind};
 use crate::tools;
 
 /// A session whose changes nobody looked at for this long is forgotten.
@@ -551,16 +551,9 @@ fn write_json<T: Serialize>(path: &Path, value: &T) -> Result<(), Error> {
     crate::files::write_atomically(folder, name, &bytes).map_err(io(path))
 }
 
-/// The files Claude's editing tools name in a line of a session's output.
-pub fn edited(line: &str) -> Vec<PathBuf> {
-    if !line.contains("\"tool_use\"") {
-        return Vec::new();
-    }
-    let Ok(wire::Message::Assistant { message, .. }) = serde_json::from_str(line) else {
-        return Vec::new();
-    };
-    message
-        .content
+/// The files an editing tool call names inside an assistant message's blocks.
+pub fn edited_in(blocks: &[ContentBlock]) -> Vec<PathBuf> {
+    blocks
         .iter()
         .filter_map(|block| match block {
             ContentBlock::ToolUse { name, input, .. } => match name.kind() {
@@ -953,6 +946,18 @@ mod tests {
 
     #[test]
     fn claudes_editing_tools_name_the_files_they_change() {
+        let edited = |line: &str| match crate::claude::output_of_line(line.to_owned()) {
+            crate::agent::Output::Event(crate::agent::Event::Assistant { message, .. }) => {
+                edited_in(&message.content)
+            }
+            crate::agent::Output::Started { .. }
+            | crate::agent::Output::Failed(_)
+            | crate::agent::Output::Event(_)
+            | crate::agent::Output::Unreadable { .. }
+            | crate::agent::Output::Log(_)
+            | crate::agent::Output::TurnChanged(_)
+            | crate::agent::Output::Ended(_) => Vec::new(),
+        };
         let line = r#"{"type":"assistant","parent_tool_use_id":null,"message":{"content":[
             {"type":"tool_use","id":"t1","name":"Edit","input":{"file_path":"/p/a.rs","old_string":"a","new_string":"b"}},
             {"type":"tool_use","id":"t2","name":"Bash","input":{"command":"cargo fmt"}},

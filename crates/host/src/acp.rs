@@ -31,6 +31,7 @@ use tokio::process::{Child, ChildStdin, ChildStdout, Command};
 use tokio::signal::unix::{Signal, SignalKind, signal};
 use tokio::sync::mpsc;
 
+use crate::agent;
 use crate::external::acp::{
     AgyArguments, AgyQuestion, ClientCall, ClientCapabilities, ClientInfo, ElicitationCapabilities,
     FileCapabilities, FormCapabilities, Incoming, InitializeParams, JsonRpc, ListSessionsParams,
@@ -42,7 +43,7 @@ use crate::external::tool_input::{
     WriteInput,
 };
 use crate::external::wire::{
-    BackgroundTask, Message, Question, QuestionOption, Questions, RequestId, SessionId, System,
+    BackgroundTask, Question, QuestionOption, Questions, RequestId, SessionId, System,
     TranscriptEntry, TranscriptLine,
 };
 use crate::sessions::{self, MessagingName};
@@ -112,10 +113,7 @@ impl Agent {
 
     /// Whether the agent supports ACP `session/fork`.
     fn can_fork(self) -> bool {
-        match self {
-            Self::Agy => false,
-            Self::Opencode => true,
-        }
+        self.backend().can_fork()
     }
 
     fn backend(self) -> crate::claude::Backend {
@@ -636,16 +634,19 @@ async fn list_sessions_inner(agent: Agent, cwd: &Path) -> Vec<ExternalSession> {
     collected
 }
 
-/// Writes an initial shadow transcript line (and optional title or agy brain history) when none
-/// exists yet.
-fn append_shadow_line(path: &Path, id: &SessionId, cwd: &Path, line: &TranscriptLine) {
+fn encode_shadow_line(id: &SessionId, cwd: &Path, line: &TranscriptLine) -> Option<String> {
     let entry = TranscriptEntry {
         line,
         session_id: id,
         cwd,
         timestamp: jiff::Timestamp::now(),
     };
-    let Ok(serialized) = serde_json::to_string(&entry) else {
+    serde_json::to_string(&entry).ok()
+}
+
+/// Writes a shadow transcript line (for new sessions or appending live turns).
+fn append_shadow_line(path: &Path, id: &SessionId, cwd: &Path, line: &TranscriptLine) {
+    let Some(serialized) = encode_shadow_line(id, cwd, line) else {
         return;
     };
     let written = path
@@ -680,25 +681,35 @@ fn seed_shadow_transcript(
     if shadow.exists() {
         return;
     }
-    append_shadow_line(
-        shadow,
+    let Some((parent, name)) = shadow.parent().zip(shadow.file_name()) else {
+        return;
+    };
+    if let Err(error) = std::fs::DirBuilder::new()
+        .recursive(true)
+        .mode(0o700)
+        .create(parent)
+    {
+        tracing::warn!(%error, "couldn't prepare shadow transcript folder");
+        return;
+    }
+    let mut lines = Vec::new();
+    lines.extend(encode_shadow_line(
         id,
         cwd,
         &TranscriptLine::AgySession {
             agent_session_id: conversation.to_owned(),
         },
-    );
+    ));
     if let Some(title) = title
         && !title.is_empty()
     {
-        append_shadow_line(
-            shadow,
+        lines.extend(encode_shadow_line(
             id,
             cwd,
             &TranscriptLine::AiTitle {
                 ai_title: title.to_owned(),
             },
-        );
+        ));
     }
     if agent == Agent::Agy
         && let Some(brain) = agy::brain()
@@ -707,9 +718,17 @@ fn seed_shadow_transcript(
         if let Ok(text) = std::fs::read_to_string(&log) {
             let raw_lines: Vec<String> = text.lines().map(str::to_owned).collect();
             for line in brain::step_lines(&raw_lines) {
-                append_shadow_line(shadow, id, cwd, &line);
+                lines.extend(encode_shadow_line(id, cwd, &line));
             }
         }
+    }
+    if lines.is_empty() {
+        return;
+    }
+    let mut body = lines.join("\n");
+    body.push('\n');
+    if let Err(error) = crate::files::write_atomically(parent, name, body.as_bytes()) {
+        tracing::warn!(%error, "couldn't seed shadow transcript");
     }
 }
 
@@ -1172,7 +1191,7 @@ impl Out {
                         tracing::warn!(%error, "a line for the agent that can't be written: not sent");
                     }
                 },
-                Effect::ToWindow(message) => self.tell(&message).await,
+                Effect::ToWindow(event) => self.tell(&event).await,
                 Effect::Transcript(line) => self.keep(&line),
                 Effect::Send { call, to, message } => {
                     let told = self.carried(Job::Send(SendArguments { to, message })).await;
@@ -1204,16 +1223,16 @@ impl Out {
         });
     }
 
-    /// A line to the window.
-    async fn tell(&mut self, message: &Message) {
-        match serde_json::to_string(message) {
+    /// An event to the window (via `edualcd`'s ACP driver).
+    async fn tell(&mut self, event: &agent::Event) {
+        match serde_json::to_string(event) {
             Ok(line) => {
                 if write_line(&mut self.window, &line).await.is_err() {
                     tracing::debug!("the window's side closed");
                 }
             }
             Err(error) => {
-                tracing::warn!(%error, "a line for the window that can't be written: not sent");
+                tracing::warn!(%error, "an event for the window that can't be written: not sent");
             }
         }
     }
@@ -1227,8 +1246,10 @@ impl Out {
         let tasks = brain::tasks(&conversation);
         if tasks != self.tasks {
             self.tasks.clone_from(&tasks);
-            self.tell(&Message::System(System::BackgroundTasksChanged { tasks }))
-                .await;
+            self.tell(&agent::Event::System(System::BackgroundTasksChanged {
+                tasks,
+            }))
+            .await;
         }
     }
 

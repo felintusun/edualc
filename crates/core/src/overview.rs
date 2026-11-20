@@ -7,9 +7,9 @@ use std::time::Duration;
 
 use web_time::SystemTime;
 
-use crate::claude::{Program, SignInWith};
 use crate::external::wire::SessionId;
 use crate::ipc::{Hosted, HostedId, HostedState, ProjectOverview};
+use crate::provider::{Program, SignInWith};
 use crate::sessions::{self, LiveSession, LiveStatus, SessionInfo};
 use crate::settings::{ProjectSort, RecentProject};
 

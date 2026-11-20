@@ -4,11 +4,11 @@
 use serde::Deserialize;
 
 use super::{App, Doing, LimitUse, ModelChoice, Modes, Refusal, Request, SignIn, TaskProgress};
+use crate::agent::{self, Lost, Output};
 use crate::chat::{Origin, UserText};
-use crate::claude::{Lost, Output};
 use crate::external::wire::{
     self, Activity, AssistantError, CommandInfo, ContentBlock, ControlRequest, ControlResponse,
-    HoldCause, HoldOutcome, HoldState, IncomingRequest, Initialized, Message, Progress, RateLimits,
+    HoldCause, HoldOutcome, HoldState, IncomingRequest, Initialized, Progress, RateLimits,
     ResultKind, Sender, StreamEvent, System, TurnResult, UserContent,
 };
 use crate::ipc::Generation;
@@ -21,12 +21,12 @@ impl<F: Frontend> App<F> {
             return;
         }
         match output {
-            Output::Message(message) => {
+            Output::Event(event) => {
                 self.heard = web_time::Instant::now();
                 if matches!(self.status.doing, Doing::Silent(_)) {
                     self.status.doing = Doing::Working;
                 }
-                self.message(message);
+                self.agent_event(event);
             }
             Output::Unreadable {
                 lost: Lost::Result,
@@ -36,7 +36,8 @@ impl<F: Frontend> App<F> {
                 is_error: true,
                 result: None,
                 errors: vec![serde_json::Value::String(format!(
-                    "Claude Code ended the turn with a line edualc can't read: {error}"
+                    "{} ended the turn with a line edualc can't read: {error}",
+                    self.status.backend.program()
                 ))],
                 total_cost_usd: None,
                 model_usage: std::collections::HashMap::new(),
@@ -50,7 +51,8 @@ impl<F: Frontend> App<F> {
             } => {
                 self.write(|process| process.refuse(&request, "edualc can't read this request"));
                 self.chat.error(format!(
-                    "Claude Code asked something edualc can't read, and was told so: {error}"
+                    "{} asked something edualc can't read, and was told so: {error}",
+                    self.status.backend.program()
                 ));
             }
             Output::Log(line) => {
@@ -86,9 +88,9 @@ impl<F: Frontend> App<F> {
         }
     }
 
-    fn message(&mut self, message: Message) {
-        match message {
-            Message::StreamEvent {
+    fn agent_event(&mut self, event: agent::Event) {
+        match event {
+            agent::Event::Stream {
                 event,
                 parent_tool_use_id,
             } => {
@@ -99,7 +101,7 @@ impl<F: Frontend> App<F> {
             }
             // "Please run /login", which Claude Code offers no way to do behind a pipe (or an ACP
             // session whose open/initialize failed auth).
-            Message::Assistant {
+            agent::Event::Assistant {
                 message,
                 parent_tool_use_id,
                 error: Some(AssistantError::AuthenticationFailed),
@@ -119,7 +121,7 @@ impl<F: Frontend> App<F> {
                     }
                 }
             }
-            Message::Assistant {
+            agent::Event::Assistant {
                 message,
                 parent_tool_use_id,
                 error,
@@ -149,7 +151,7 @@ impl<F: Frontend> App<F> {
                     self.status.doing = Doing::Running(name.clone());
                 }
             }
-            Message::User(line) => match line.sender() {
+            agent::Event::User(line) => match line.sender() {
                 Sender::Peer { name, body } => self.chat.peer_message(&line.message, name, body),
                 Sender::Replayed => {}
                 Sender::Session => {
@@ -164,10 +166,10 @@ impl<F: Frontend> App<F> {
                     self.chat.user_message(&line.message, Origin::Live);
                 }
             },
-            Message::System(system) => self.system(system),
-            Message::Result(result) => self.result(&result),
-            Message::RateLimitEvent { rate_limit_info } => self.take_limits(&rate_limit_info),
-            Message::ControlRequest {
+            agent::Event::System(system) => self.system(system),
+            agent::Event::Result(result) => self.result(&result),
+            agent::Event::RateLimits(rate_limit_info) => self.take_limits(&rate_limit_info),
+            agent::Event::ControlRequest {
                 request_id,
                 request,
             } => match request {
@@ -191,9 +193,8 @@ impl<F: Frontend> App<F> {
                     });
                 }
             },
-            Message::ControlResponse { response } => self.control_response(response),
-            Message::ControlCancelRequest { request_id } => self.cancel(&request_id),
-            Message::Other => {}
+            agent::Event::ControlAnswered(response) => self.control_response(response),
+            agent::Event::RequestCancelled { request_id } => self.cancel(&request_id),
         }
     }
 
@@ -426,14 +427,22 @@ impl<F: Frontend> App<F> {
             })
         };
         let windows = &limits.windows;
+        let is_acp = self.status.backend.is_acp();
         let Some(kept) = self.status.limits_mut() else {
             return;
         };
-        if let Some(used) = used(&windows.five_hour) {
-            kept.five_hour = Some(used);
-        }
-        if let Some(used) = used(&windows.seven_day) {
-            kept.seven_day = Some(used);
+        if is_acp {
+            // ACP adapters always report the active model's complete quota windows together, so
+            // switching to a weekly-only model clears any stale 5h reading from an earlier model.
+            kept.five_hour = used(&windows.five_hour);
+            kept.seven_day = used(&windows.seven_day);
+        } else {
+            if let Some(used) = used(&windows.five_hour) {
+                kept.five_hour = Some(used);
+            }
+            if let Some(used) = used(&windows.seven_day) {
+                kept.seven_day = Some(used);
+            }
         }
         self.set_limit_reset();
     }
@@ -504,7 +513,7 @@ impl<F: Frontend> App<F> {
     }
 
     fn set_commands(&mut self, mut commands: Vec<CommandInfo>) {
-        if self.status.backend == crate::claude::Backend::Claude {
+        if self.status.capabilities().claude_extras {
             // The terminal's own; this window answers it in the side panel.
             commands.push(CommandInfo {
                 name: "btw".into(),
@@ -534,7 +543,7 @@ impl<F: Frontend> App<F> {
         if !initialized.account.email.is_empty() && self.status.sign_in == SignIn::Unknown {
             self.status.sign_in = SignIn::SignedIn;
         }
-        if self.status.backend == crate::claude::Backend::Claude
+        if self.status.capabilities().claude_extras
             && !initialized.account.subscription_type.is_empty()
         {
             self.status

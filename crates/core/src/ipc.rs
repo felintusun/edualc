@@ -36,10 +36,10 @@ mod token;
 pub mod ws;
 pub use token::{Auth, Token};
 
-use crate::claude::Launch;
 use crate::decode::{Picture, Refusal};
 use crate::desktop::{Opener, Program};
 use crate::external::wire::{SessionId, TaskId};
+use crate::provider::Launch;
 use crate::sessions::{LiveSession, ProjectInfo, Saved, SessionInfo, Worktree};
 use crate::settings::Settings;
 
@@ -153,7 +153,7 @@ pub fn chunks(text: &str) -> impl Iterator<Item = &str> {
 
 /// Bumped with any change to the messages below, or to their framing: postcard isn't
 /// self-describing, so both ends must agree on every type.
-pub const PROTOCOL: u32 = 28;
+pub const PROTOCOL: u32 = 29;
 
 /// A window's key for a process it shows, new for each one: what an earlier one still says is
 /// dropped.
@@ -220,8 +220,8 @@ pub enum ToDaemon {
         key: Generation,
         launch: Launch,
     },
-    /// A piece of a line for the session's input; the last piece ends the line.
-    Input {
+    /// A piece of a serialized [`crate::agent::Command`] for the session; the last piece ends it.
+    Command {
         key: Generation,
         text: String,
         last: bool,
@@ -355,7 +355,7 @@ pub enum Read {
     },
     /// Usage and plan limits for a coding agent provider on demand: `Answer::ProviderUsage`.
     ProviderUsage {
-        backend: crate::claude::Backend,
+        backend: crate::provider::Backend,
         cwd: Option<PathBuf>,
     },
     /// Where a session's transcript is kept, and the folder it was started in: `Answer::Saved`.
@@ -441,7 +441,7 @@ pub enum FromDaemon {
         /// Other programs' windows can be found (niri runs).
         finds_windows: bool,
         /// Coding agent backends available on PATH when the window connected.
-        backends: Vec<crate::claude::Backend>,
+        backends: Vec<crate::provider::Backend>,
         /// The window is on the daemon's machine, by its Unix socket: the daemon does what the
         /// desktop is asked for it (links, notifications, the clipboard, editors, the folder
         /// picker, finding windows). A line over the network is no such window's: what the
@@ -638,9 +638,9 @@ pub struct Hosted {
     pub session: SessionId,
     pub cwd: PathBuf,
     /// The coding agent backend running this hosted session.
-    pub backend: crate::claude::Backend,
+    pub backend: crate::provider::Backend,
     /// What it was started signed in with.
-    pub sign_in: crate::claude::SignInWith,
+    pub sign_in: crate::provider::SignInWith,
     /// Shown in a window now.
     pub attached: bool,
     pub state: HostedState,
