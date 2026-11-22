@@ -404,14 +404,12 @@ async fn query_catalog(catalog: &Catalog, cached_only: bool) -> Vec<ExternalSess
 }
 
 fn agy_brain_transcript(id: &SessionId) -> Option<PathBuf> {
-    let brain = agy::brain()?;
-    let log = agy::generated(&brain, id).join("logs/transcript.jsonl");
+    let log = agy::steps(&agy::brain()?, id);
     log.is_file().then_some(log)
 }
 
 fn is_agy_brain_log(path: &Path) -> bool {
-    agy::brain().is_some_and(|brain| path.starts_with(&brain))
-        && path.ends_with("logs/transcript.jsonl")
+    agy::brain().is_some_and(|brain| agy::is_steps(&brain, path))
 }
 
 fn is_agy_board(path: &Path) -> bool {
@@ -442,9 +440,9 @@ pub fn resolve(place: &Place) -> Source {
             }
         }
         Place::Subagent { cwd, id, task } => match (AgyTask::of(task), agy::brain()) {
-            (Some(AgyTask::Conversation(conversation)), Some(brain)) => Source::AgySteps(
-                agy::generated(&brain, &conversation).join("logs/transcript.jsonl"),
-            ),
+            (Some(AgyTask::Conversation(conversation)), Some(brain)) => {
+                Source::AgySteps(agy::steps(&brain, &conversation))
+            }
             (Some(AgyTask::Board(conversation)), Some(brain)) => {
                 Source::AgyBoard(agy::generated(&brain, &conversation).join("swarm/board.jsonl"))
             }
@@ -514,18 +512,12 @@ fn read_for(request: ActId, read: Read, pieces: &Outbox, external: &[ExternalSes
         Read::Live => Answer::Live(merge_live(sessions::live(), external)),
         Read::Projects => Answer::Projects(merge_projects(sessions::projects(), external)),
         Read::Overview => {
-            let recorded_ids = sessions::recorded_agent_ids();
             let overviews: Vec<ProjectOverview> = merge_projects(sessions::projects(), external)
                 .into_iter()
                 .map(|project| {
                     let local = sessions::list(&project.path, OVERVIEW_SESSIONS, Vec::new());
-                    let sessions = merge_sessions(
-                        local,
-                        external,
-                        &recorded_ids,
-                        &project.path,
-                        OVERVIEW_SESSIONS,
-                    );
+                    let sessions =
+                        merge_sessions(local, external, &project.path, OVERVIEW_SESSIONS);
                     ProjectOverview {
                         path: project.path,
                         modified: project.modified,
@@ -538,8 +530,7 @@ fn read_for(request: ActId, read: Read, pieces: &Outbox, external: &[ExternalSes
         Read::Sessions { cwd, limit, known } => {
             let limit = limit.min(MOST_SESSIONS);
             let local = sessions::list(&cwd, limit, known);
-            let recorded_ids = sessions::recorded_agent_ids();
-            Answer::Sessions(merge_sessions(local, external, &recorded_ids, &cwd, limit))
+            Answer::Sessions(merge_sessions(local, external, &cwd, limit))
         }
         Read::Transcript { place, from } => {
             let source = resolve(&place);
@@ -653,12 +644,10 @@ fn agy_brain_is_running(id: &SessionId, now: SystemTime) -> bool {
 
 fn merge_live(mut live: Vec<LiveSession>, external: &[ExternalSession]) -> Vec<LiveSession> {
     let now = SystemTime::now();
-    let recorded_ids = sessions::recorded_agent_ids();
     for ext in external {
         if ext.backend != Backend::Agy
             || !ext.cwd.is_dir()
             || live.iter().any(|session| session.id == ext.id)
-            || recorded_ids.contains(&ext.raw_id)
         {
             continue;
         }
@@ -726,17 +715,13 @@ fn merge_projects(local: Vec<ProjectInfo>, external: &[ExternalSession]) -> Vec<
 fn merge_sessions(
     local: Vec<SessionInfo>,
     external: &[ExternalSession],
-    recorded_ids: &HashSet<String>,
     cwd: &Path,
     limit: usize,
 ) -> Vec<SessionInfo> {
     let mut seen_ids: HashSet<SessionId> = local.iter().map(|session| session.id.clone()).collect();
     let mut merged = local;
     for ext in external {
-        if !sessions::belongs_to_project(&ext.cwd, cwd)
-            || seen_ids.contains(&ext.id)
-            || recorded_ids.contains(&ext.raw_id)
-        {
+        if !sessions::belongs_to_project(&ext.cwd, cwd) || seen_ids.contains(&ext.id) {
             continue;
         }
         seen_ids.insert(ext.id.clone());
@@ -1699,7 +1684,6 @@ mod tests {
         let now = SystemTime::now();
         let earlier = now - Duration::from_secs(60);
         let local_id = SessionId::new_random();
-        let dup_ext_id = SessionId::new_random();
         let new_ext_id = SessionId::for_external(Backend::Opencode, "ses_new1");
         let other_dir = dir.join("other");
         std::fs::create_dir_all(&other_dir).expect("other dir");
@@ -1713,10 +1697,11 @@ mod tests {
             last_said: None,
         }];
         let external = vec![
+            // The same session as the local one, listed by agy too: listed once.
             ExternalSession {
                 backend: Backend::Agy,
-                raw_id: "agy-shadowed".to_owned(),
-                id: dup_ext_id,
+                raw_id: local_id.as_str().to_owned(),
+                id: local_id.clone(),
                 cwd: dir.clone(),
                 title: "Duplicate".to_owned(),
                 modified: now,
@@ -1738,8 +1723,7 @@ mod tests {
                 modified: now,
             },
         ];
-        let recorded = HashSet::from(["agy-shadowed".to_owned()]);
-        let merged = merge_sessions(local, &external, &recorded, &dir, 10);
+        let merged = merge_sessions(local, &external, &dir, 10);
         let ids: Vec<(SessionId, Backend)> = merged
             .iter()
             .map(|session| (session.id.clone(), session.backend))

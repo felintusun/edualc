@@ -376,8 +376,8 @@ program starts with that program's default.
 
 - **Messaging:** Claude Code sessions can message an agy session by its name. An agy session can
   message other sessions too; agy itself asks your permission before it sends.
-- **Continuing:** agy sessions are listed on their project page and continue like Claude Code's. Their
-  transcripts are kept in `~/.local/state/edualc/agy/`.
+- **Continuing:** agy sessions are listed on their project page, as agy lists them, and continue
+  like Claude Code's. edualc reads their history from agy's own records and keeps no copy.
 - **Modes:** the mode menu lists agy's own modes, by agy's names, with the one agy is in ticked.
   agy takes a mode as a turn starts. Switch during a turn, and the window says that agy uses the
   new mode from your next prompt. `--permission-mode` takes Claude Code's modes, so agy refuses it.
@@ -401,8 +401,9 @@ program starts with that program's default.
 ### opencode
 
 edualc runs `opencode acp` in the project. Its sessions list, continue and fork like Claude
-Code's, with the models and modes opencode offers. It doesn't report usage limits, and it has no
-shell commands (`!`) or side questions (`/btw`).
+Code's, with the models and modes opencode offers. A session's history is shown as opencode
+replays it when the session opens; edualc keeps no copy. opencode doesn't report usage limits, and
+it has no shell commands (`!`) or side questions (`/btw`).
 
 ## Look
 

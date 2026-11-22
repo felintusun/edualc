@@ -5,9 +5,8 @@
 //! A turn of the agent's becomes what a turn of Claude Code's looks like: an `init`, streamed
 //! text and thinking (`stream_event`s), an assistant message for each stretch of it with the
 //! tool calls that end it, a tool result for each call, and a `result`. Permission requests
-//! become `can_use_tool` requests, and the window's answers the agent's options. Each line also
-//! goes to the session's transcript, in Claude Code's transcript format, for the session to be
-//! listed and shown again.
+//! become `can_use_tool` requests, and the window's answers the agent's options. Nothing is
+//! kept: the agent keeps its sessions, and lists and loads them again.
 
 use std::collections::{BTreeSet, HashMap, VecDeque};
 use std::path::PathBuf;
@@ -31,10 +30,10 @@ use crate::external::tool_input::{
 };
 use crate::external::wire::{
     self, Account, ApiMessage, AssistantError, CommandInfo, ContentBlock, ControlResponse, DENIED,
-    Delta, IncomingRequest, Initialized, LimitKind, MessageId, MessageOrigin, MessageStart, ModeId,
-    ModelInfo, ModelUsage, ProgramMode, ProgramModes, Question, QuestionOption, Questions,
-    RequestId, ResultKind, Rule, RuleDestination, SessionId, StreamEvent, Suggestion, System,
-    ToolName, ToolUseId, TranscriptLine, TurnResult, Usage, UserContent, UserLine, UserMessage,
+    Delta, IncomingRequest, Initialized, LimitKind, MessageId, MessageStart, ModeId, ModelInfo,
+    ModelUsage, ProgramMode, ProgramModes, Question, QuestionOption, Questions, RequestId,
+    ResultKind, Rule, RuleDestination, SessionId, StreamEvent, Suggestion, System, ToolName,
+    ToolUseId, TurnResult, Usage, UserContent, UserLine,
 };
 use crate::settings::PeerMessages;
 
@@ -52,10 +51,10 @@ pub struct CallId(pub u64);
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Start {
     New,
-    /// The agent's id for the conversation, as the transcript keeps it.
+    /// The agent's id for the conversation; the window reads its history itself (agy's records).
     Resume(String),
-    /// Resumes an external session that has no local shadow transcript yet, replaying `session/load`
-    /// history into the window and transcript.
+    /// The agent's id for a conversation whose history the window can't read itself
+    /// (opencode's): `session/load`'s replay of it is shown.
     ResumeReplay(String),
     /// Forks an existing conversation of the agent's via ACP `session/fork`.
     Fork(String),
@@ -76,8 +75,9 @@ pub enum Effect {
     ToAgent(acp::ToAgent),
     /// An event to the window, through the daemon.
     ToWindow(Event),
-    /// A line for the transcript; the session, folder and time are added as it is written.
-    Transcript(TranscriptLine),
+    /// The session is known by this id from now on, the agent's own conversation's: the
+    /// session's record names it, for other sessions and the running list.
+    Named(SessionId),
     /// A message: carry it out (see [`super::outbox`]) and answer the call.
     Send {
         call: CallId,
@@ -99,8 +99,8 @@ pub enum Effect {
 enum Phase {
     /// `initialize` is asked.
     Connecting,
-    /// The session is asked for; a session loaded first replays its history, which the
-    /// transcript already holds.
+    /// The session is asked for; a session loaded first replays its history, which the window
+    /// reads from the agent's records unless it is shown from the replay.
     Opening { loading: bool },
     /// The agent's id for the session.
     Ready(String),
@@ -138,11 +138,8 @@ enum Asked {
 /// Something to be prompted with once the agent is free.
 #[derive(Debug, Clone)]
 enum Queued {
-    /// The user's prompt, as ACP takes it, and as the transcript keeps it.
-    User {
-        prompt: Vec<acp::PromptBlock>,
-        kept: UserContent,
-    },
+    /// The user's prompt, as ACP takes it.
+    User(Vec<acp::PromptBlock>),
     /// Another session's message, in its envelope.
     Peer(String),
 }
@@ -193,6 +190,8 @@ struct Permission {
 #[derive(Debug)]
 pub struct Translator {
     agent: Agent,
+    /// The session's id: as the window started it, then the agent's own conversation's once it
+    /// is open, as the agent keeps it to list and load it again.
     id: SessionId,
     cwd: PathBuf,
     start: Start,
@@ -649,10 +648,10 @@ impl Translator {
                     effects.extend(self.flush_replay_user());
                     effects.extend(self.message_done(None));
                 }
-                if matches!(self.start, Start::New | Start::Fork(_)) {
-                    effects.push(Effect::Transcript(TranscriptLine::AgySession {
-                        agent_session_id: session.clone(),
-                    }));
+                let named = SessionId::for_external(self.agent.backend(), &session);
+                if named != self.id {
+                    self.id = named.clone();
+                    effects.push(Effect::Named(named));
                 }
                 if let Some(models) = opened.models {
                     self.models = models.available_models;
@@ -850,10 +849,7 @@ impl Translator {
                 if prompt.is_empty() {
                     return Vec::new();
                 }
-                self.queue.push_back(Queued::User {
-                    prompt,
-                    kept: prompt_user_content(images, text),
-                });
+                self.queue.push_back(Queued::User(prompt));
                 self.next_turn()
             }
             Command::Shell { command } => self.shell_refused(&command),
@@ -1099,24 +1095,11 @@ impl Translator {
     /// once it is free.
     fn came_in(&mut self, content: String) -> Vec<Effect> {
         let (name, body) = unwrapped(&content);
-        let mut effects = vec![
-            Effect::ToWindow(Event::User(UserLine::from_peer(
-                content.clone(),
-                name.clone(),
-                Some(body.clone()),
-            ))),
-            Effect::Transcript(TranscriptLine::User {
-                message: UserMessage {
-                    content: UserContent::Text(content.clone()),
-                },
-                is_meta: true,
-                is_sidechain: false,
-                origin: Some(MessageOrigin::Peer {
-                    name,
-                    body: Some(body),
-                }),
-            }),
-        ];
+        let mut effects = vec![Effect::ToWindow(Event::User(UserLine::from_peer(
+            content.clone(),
+            name,
+            Some(body),
+        )))];
         self.queue.push_back(Queued::Peer(content));
         effects.extend(self.next_turn());
         effects
@@ -1140,15 +1123,7 @@ impl Translator {
             cwd: self.cwd.clone(),
         }))];
         let prompt = match queued {
-            Queued::User { prompt, kept } => {
-                effects.push(Effect::Transcript(TranscriptLine::User {
-                    message: UserMessage { content: kept },
-                    is_meta: false,
-                    is_sidechain: false,
-                    origin: None,
-                }));
-                prompt
-            }
+            Queued::User(prompt) => prompt,
             Queued::Peer(text) => vec![acp::PromptBlock::Text { text }],
         };
         self.busy = true;
@@ -1270,19 +1245,9 @@ impl Translator {
             return Vec::new();
         }
         let text = std::mem::take(&mut self.replay_user);
-        vec![
-            Effect::ToWindow(Event::User(UserLine::replayed(UserContent::Text(
-                text.clone(),
-            )))),
-            Effect::Transcript(TranscriptLine::User {
-                message: wire::UserMessage {
-                    content: UserContent::Text(text),
-                },
-                is_meta: false,
-                is_sidechain: false,
-                origin: None,
-            }),
-        ]
+        vec![Effect::ToWindow(Event::User(UserLine::replayed(
+            UserContent::Text(text),
+        )))]
     }
 
     /// What changed in the session.
@@ -1328,12 +1293,8 @@ impl Translator {
                     Vec::new()
                 };
             }
-            Change::SessionInfoUpdate { title: Some(title) } => {
-                return vec![Effect::Transcript(TranscriptLine::AiTitle {
-                    ai_title: title,
-                })];
-            }
-            Change::SessionInfoUpdate { title: None } => return Vec::new(),
+            // The agent keeps the title; `session/list` gives it.
+            Change::SessionInfoUpdate { .. } => return Vec::new(),
             Change::AgentMessageChunk { .. }
             | Change::AgentThoughtChunk { .. }
             | Change::UserMessageChunk { .. }
@@ -1344,7 +1305,7 @@ impl Translator {
         }
         let replaying = matches!(self.phase, Phase::Opening { loading: true });
         if replaying && !matches!(self.start, Start::ResumeReplay(_)) {
-            // A loaded session's history: the transcript already has it.
+            // A loaded session's history: the window reads it from the agent's records.
             return Vec::new();
         }
         match update {
@@ -1516,13 +1477,9 @@ impl Translator {
             usage: Usage::default(),
         };
         effects.push(Effect::ToWindow(Event::Assistant {
-            message: message.clone(),
+            message,
             parent_tool_use_id: None,
             error: None,
-        }));
-        effects.push(Effect::Transcript(TranscriptLine::Assistant {
-            message,
-            is_sidechain: false,
         }));
         effects
     }
@@ -1621,13 +1578,9 @@ impl Translator {
                 usage: Usage::default(),
             };
             effects.push(Effect::ToWindow(Event::Assistant {
-                message: message.clone(),
+                message,
                 parent_tool_use_id: None,
                 error: None,
-            }));
-            effects.push(Effect::Transcript(TranscriptLine::Assistant {
-                message,
-                is_sidechain: false,
             }));
         }
         let Some((text, is_error)) = finished else {
@@ -2060,15 +2013,7 @@ fn tool_result_effects(tool_use_id: String, text: String, is_error: bool) -> Vec
         content: Some(UserContent::Text(text)),
         is_error,
     }]);
-    vec![
-        Effect::ToWindow(Event::User(UserLine::of_session(content.clone()))),
-        Effect::Transcript(TranscriptLine::User {
-            message: UserMessage { content },
-            is_meta: false,
-            is_sidechain: false,
-            origin: None,
-        }),
-    ]
+    vec![Effect::ToWindow(Event::User(UserLine::of_session(content)))]
 }
 
 /// The context's use as `get_context_usage` answers it: the conversation, and what is free.
@@ -2179,15 +2124,6 @@ fn command_prompt_blocks(images: &[wire::ImageBlock], text: &str) -> Vec<acp::Pr
         });
     }
     blocks
-}
-
-fn prompt_user_content(images: Vec<wire::ImageBlock>, text: String) -> UserContent {
-    match wire::Input::prompt_with(&[], images, &text) {
-        wire::Input::User { message, .. } => UserContent::from(message.content),
-        wire::Input::ControlRequest { .. }
-        | wire::Input::ControlResponse { .. }
-        | wire::Input::BashCommand { .. } => UserContent::Text(text),
-    }
 }
 
 /// The outcome of a permission request: the first option of `wanted`'s kind, or none.
@@ -2831,7 +2767,7 @@ mod tests {
             .filter_map(|effect| match effect {
                 Effect::ToWindow(event) => Some(event_as_json(event)),
                 Effect::ToAgent(_)
-                | Effect::Transcript(_)
+                | Effect::Named(_)
                 | Effect::Send { .. }
                 | Effect::List(_)
                 | Effect::Subagents { .. }
@@ -2847,7 +2783,7 @@ mod tests {
             .filter_map(|effect| match effect {
                 Effect::ToAgent(line) => Some(line.to_line().expect("a line for the agent")),
                 Effect::ToWindow(_)
-                | Effect::Transcript(_)
+                | Effect::Named(_)
                 | Effect::Send { .. }
                 | Effect::List(_)
                 | Effect::Subagents { .. }
@@ -2939,24 +2875,11 @@ mod tests {
         }
     }
 
-    /// Panics unless the transcript's reader knows `line`. The session, folder and time a line
-    /// is kept with are added as it is written (`wire::TranscriptEntry`, tested there).
-    fn read_from_the_transcript(line: &Value) {
-        use crate::external::wire::TranscriptLine;
-        let read: TranscriptLine = serde_json::from_value(line.clone())
-            .unwrap_or_else(|error| panic!("the transcript can't be read: {line}: {error}"));
-        assert!(
-            !matches!(read, TranscriptLine::Other),
-            "a transcript line its reader doesn't know: {line}"
-        );
-    }
-
-    /// Every line the adapter writes for the window reads as a line of Claude Code's, and every
-    /// line it keeps as a transcript line: through a turn with streamed thinking and text, a
-    /// tool call asked about and answered, a mode and a title, another session's message, a `!`
-    /// command, a failed turn and one that went well.
+    /// Every line the adapter writes for the window reads as a line of Claude Code's: through a
+    /// turn with streamed thinking and text, a tool call asked about and answered, a mode and a
+    /// title, another session's message, a `!` command, a failed turn and one that went well.
     #[test]
-    fn the_window_and_the_transcript_read_every_line() {
+    fn the_window_reads_every_line() {
         let mut translator = translator_for(Agent::Agy, Start::New);
         let mut effects = translator.start();
         effects.extend(translator.window_said(&asks(
@@ -3005,25 +2928,9 @@ mod tests {
             r#"{{"jsonrpc":"2.0","id":{second},"result":{{"stopReason":"end_turn"}}}}"#
         )));
         let mut window = std::collections::BTreeSet::new();
-        let mut transcript = std::collections::BTreeSet::new();
-        for effect in &effects {
-            match effect {
-                Effect::ToWindow(event) => {
-                    let line = event_as_json(event);
-                    read_by_the_window(&line);
-                    window.extend(kinds(&[line]));
-                }
-                Effect::Transcript(line) => {
-                    let line = serde_json::to_value(line).expect("a line for the transcript");
-                    read_from_the_transcript(&line);
-                    transcript.extend(kinds(&[line]));
-                }
-                Effect::ToAgent(_)
-                | Effect::Send { .. }
-                | Effect::List(_)
-                | Effect::Subagents { .. }
-                | Effect::Quotas { .. } => {}
-            }
+        for line in window_lines(&effects) {
+            read_by_the_window(&line);
+            window.extend(kinds(&[line]));
         }
         let expected = |names: &[&str]| -> std::collections::BTreeSet<String> {
             names.iter().map(|name| (*name).to_owned()).collect()
@@ -3043,10 +2950,6 @@ mod tests {
                 "user",
             ])
         );
-        assert_eq!(
-            transcript,
-            expected(&["agy-session", "ai-title", "assistant", "user"])
-        );
     }
 
     /// A translator past `initialize` and `session/new`, its session `s`.
@@ -3065,7 +2968,7 @@ mod tests {
     }
 
     /// The window's `initialize`, sent before the session is open, is answered once it is,
-    /// with agy's models; a new session's transcript starts with agy's id for it.
+    /// with agy's models; from then on the session goes by agy's id for it.
     #[test]
     fn initialize_waits_for_the_session() {
         let mut translator = translator(Start::New);
@@ -3101,21 +3004,19 @@ mod tests {
             answer.pointer("/response/response/models/0/value"),
             Some(&json!("m1"))
         );
-        let first = opened
+        // From now on the session is known by agy's id for it, which agy lists and loads.
+        let agys = SessionId::for_external(crate::provider::Backend::Agy, "s");
+        assert!(
+            opened
+                .iter()
+                .any(|effect| matches!(effect, Effect::Named(id) if *id == agys))
+        );
+        let turn = window_lines(&translator.window_said(&prompt("go")));
+        let init = turn
             .iter()
-            .find_map(|effect| match effect {
-                Effect::Transcript(line) => {
-                    Some(serde_json::to_value(line).expect("a line for the transcript"))
-                }
-                Effect::ToAgent(_)
-                | Effect::ToWindow(_)
-                | Effect::Send { .. }
-                | Effect::List(_)
-                | Effect::Subagents { .. }
-                | Effect::Quotas { .. } => None,
-            })
-            .expect("a transcript line");
-        assert_eq!(first.get("agySessionId"), Some(&json!("s")));
+            .find(|line| line.get("subtype") == Some(&json!("init")))
+            .expect("the turn tells the window the session");
+        assert_eq!(init.get("session_id"), Some(&json!(agys.as_str())));
     }
 
     /// A turn reads as Claude Code's: init, streamed text, the assistant message ending in the
@@ -3896,7 +3797,7 @@ mod tests {
                     Effect::Subagents { conversation } => Some(conversation),
                     Effect::ToAgent(_)
                     | Effect::ToWindow(_)
-                    | Effect::Transcript(_)
+                    | Effect::Named(_)
                     | Effect::Send { .. }
                     | Effect::List(_)
                     | Effect::Quotas { .. } => None,
@@ -4225,7 +4126,8 @@ mod tests {
         );
     }
 
-    /// A loaded session's replayed history isn't shown again: the transcript has it.
+    /// A loaded session's replayed history isn't shown again: the window read it from agy's
+    /// records.
     #[test]
     fn a_loaded_sessions_history_isnt_repeated() {
         let mut translator = translator(Start::Resume("s".to_owned()));
@@ -4599,7 +4501,7 @@ mod tests {
 
     #[test]
     fn fork_and_resume_replay_and_ready_commands_emit_expected_effects() {
-        // Fork sends session/fork and records the returned session id.
+        // Fork sends session/fork, and the session goes by the id it answers with.
         let mut forking = translator_for(Agent::Opencode, Start::Fork("ses_old".to_owned()));
         forking.start();
         let ask_fork =
@@ -4612,10 +4514,12 @@ mod tests {
         );
         let forked =
             forking.agent_said(r#"{"jsonrpc":"2.0","result":{"sessionId":"ses_new"},"id":2}"#);
-        assert!(forked.iter().any(|effect| matches!(
-            effect,
-            Effect::Transcript(TranscriptLine::AgySession { agent_session_id }) if agent_session_id == "ses_new"
-        )));
+        let new = SessionId::for_external(crate::provider::Backend::Opencode, "ses_new");
+        assert!(
+            forked
+                .iter()
+                .any(|effect| matches!(effect, Effect::Named(id) if *id == new))
+        );
 
         // Ready available_commands_update emits System::Commands to the window.
         let ready_cmds = forking.agent_said(
@@ -4627,7 +4531,7 @@ mod tests {
                 if commands.iter().any(|c| c.name == "review")
         )));
 
-        // ResumeReplay preserves replayed user & assistant chunks during session/load.
+        // ResumeReplay shows the window the user's and the agent's turns session/load replays.
         let mut replaying =
             translator_for(Agent::Opencode, Start::ResumeReplay("ses_ext".to_owned()));
         replaying.start();
@@ -4641,14 +4545,13 @@ mod tests {
         );
         assert!(
             a.iter()
-                .any(|effect| matches!(effect, Effect::Transcript(TranscriptLine::User { .. })))
+                .any(|effect| matches!(effect, Effect::ToWindow(Event::User(_))))
         );
         let loaded = replaying.agent_said(r#"{"jsonrpc":"2.0","result":{},"id":2}"#);
         assert!(
-            loaded.iter().any(|effect| matches!(
-                effect,
-                Effect::Transcript(TranscriptLine::Assistant { .. })
-            ))
+            loaded
+                .iter()
+                .any(|effect| matches!(effect, Effect::ToWindow(Event::Assistant { .. })))
         );
     }
 

@@ -1,6 +1,6 @@
 //! What agy (Google's Antigravity CLI, 1.5.9) keeps of a conversation in its brain folder,
 //! `~/.gemini/antigravity-cli/brain/<conversation>/.system_generated/`, in the fields edualc reads:
-//! the conversation's steps (`logs/transcript.jsonl`, one a line, appended), the subagents it
+//! the conversation's steps (`logs/transcript.jsonl`, one a line, appended; see [`STEP_LOGS`]), the subagents it
 //! started (`subagents/<conversation>.json`), and a swarm's members (`swarm/members.json`) and
 //! board (`swarm/board.jsonl`, a post a line). A subagent, or a swarm's member, is a
 //! conversation of its own, with a brain folder of its own. Also what `agy -p /usage` says of
@@ -22,6 +22,30 @@ pub fn brain() -> Option<PathBuf> {
 /// Conversation `id`'s folder of what agy wrote for it.
 pub fn generated(brain: &std::path::Path, id: &SessionId) -> PathBuf {
     brain.join(id.as_str()).join(".system_generated")
+}
+
+/// The names agy gives a conversation's steps, in `logs/`: the first as it is read, the second
+/// with the same steps in full. While agy works on a conversation the first can be missing for
+/// a moment (seen as a session was loaded), and the second stands in.
+pub const STEP_LOGS: [&str; 2] = ["transcript.jsonl", "transcript_full.jsonl"];
+
+/// Conversation `id`'s steps: the first of [`STEP_LOGS`] that is there, else the first's path.
+pub fn steps(brain: &std::path::Path, id: &SessionId) -> PathBuf {
+    let logs = generated(brain, id).join("logs");
+    STEP_LOGS
+        .iter()
+        .map(|name| logs.join(name))
+        .find(|path| path.is_file())
+        .unwrap_or_else(|| logs.join(STEP_LOGS[0]))
+}
+
+/// Whether `path` names a conversation's steps under `brain`.
+pub fn is_steps(brain: &std::path::Path, path: &std::path::Path) -> bool {
+    path.starts_with(brain)
+        && path.parent().is_some_and(|logs| logs.ends_with("logs"))
+        && path
+            .file_name()
+            .is_some_and(|name| STEP_LOGS.iter().any(|log| name == *log))
 }
 
 /// One step of a conversation: the model's answer (its thinking, text and tool calls), a tool
@@ -261,6 +285,34 @@ mod tests {
     use super::*;
 
     const WORKER: &str = "1e16b130-ab24-45b6-8ebf-b573ab82eb7f";
+
+    /// A conversation's steps are its `transcript.jsonl`, or its `transcript_full.jsonl` while
+    /// that is missing; both are told apart from agy's other files.
+    #[test]
+    fn steps_are_read_from_either_log() {
+        let brain = std::env::temp_dir().join(format!("edualc-agy-steps-{}", std::process::id()));
+        let id = SessionId::try_from(WORKER.to_owned()).expect("an id");
+        let logs = generated(&brain, &id).join("logs");
+        std::fs::create_dir_all(&logs).expect("a scratch brain");
+        let [plain, full] = STEP_LOGS.map(|name| logs.join(name));
+
+        assert_eq!(steps(&brain, &id), plain, "neither yet: the first's path");
+        std::fs::write(&full, "").expect("written");
+        assert_eq!(steps(&brain, &id), full);
+        std::fs::write(&plain, "").expect("written");
+        assert_eq!(steps(&brain, &id), plain);
+
+        assert!(is_steps(&brain, &plain) && is_steps(&brain, &full));
+        assert!(!is_steps(
+            &brain,
+            &generated(&brain, &id).join("swarm/board.jsonl")
+        ));
+        assert!(!is_steps(
+            &brain,
+            std::path::Path::new("/elsewhere/logs/transcript.jsonl")
+        ));
+        std::fs::remove_dir_all(&brain).expect("cleaned up");
+    }
 
     /// `/usage`'s answer as agy 1.5.9 prints it (descriptions shortened); a model draws on the
     /// group that lists it or is named after it, whatever its effort.

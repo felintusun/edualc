@@ -181,7 +181,7 @@ In `crates/host/src`:
 | | |
 |---|---|
 | `daemon.rs`, `spawn.rs` | the daemon's actors, starting `claude` or agy's adapter, and acting on the desktop |
-| `files.rs` | what the daemon reads and watches for windows (with inotify), and saving the settings; an agy subagent's steps and a swarm's board, translated into transcript lines as they are read |
+| `files.rs` | what the daemon reads and watches for windows (with inotify), and saving the settings; an agy session's or subagent's steps and a swarm's board, translated into transcript lines as they are read |
 | `snapshots.rs` | the snapshots of a session's folder before and after each turn, the contents they name kept once each by hash (`~/.local/state/edualc/changes/`), and the keeper task that alone writes them |
 | `net/` | the daemon's network side: its certificate and token (`state`), the TLS listener, and the route a connection comes in by (`line`), which lets it in by its first frame |
 | `acp.rs`, `acp/` | a session of an agent spoken to over the Agent Client Protocol (agy, opencode): the adapter (`edualcd --agy-adapter`) that speaks ACP to the agent and Claude Code's stream-json to the daemon; its inbox; the messages it sends to other sessions; agy's records of its subagents and swarm (`brain.rs`) |

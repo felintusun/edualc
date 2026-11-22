@@ -86,7 +86,7 @@ fn manual() -> String {
     entry(
         &mut roff,
         "$XDG_STATE_HOME/edualc/",
-        "What edualc keeps for itself (state.json), transcripts of agy sessions (agy/), and folders left by the sandbox and agy's data folders (agy-homes/) of earlier versions (~/.local/state if unset).",
+        "What edualc keeps for itself (state.json) and what each turn changed (changes/), and what earlier versions left: the sandbox's folders, agy's data folders (agy-homes/) and copies of agy's and opencode's transcripts (agy/, opencode/), which edualc no longer reads (~/.local/state if unset).",
     );
     entry(
         &mut roff,

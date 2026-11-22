@@ -1424,12 +1424,6 @@ pub enum TranscriptLine {
         #[serde(rename = "worktreeSession")]
         worktree: Option<WorktreeSession>,
     },
-    /// edualcd's ACP adapter's own first line: the agent's id for the conversation, to load it
-    /// again. Named for agy, the adapter's first agent.
-    AgySession {
-        #[serde(rename = "agySessionId")]
-        agent_session_id: String,
-    },
     #[serde(other)]
     Other,
 }

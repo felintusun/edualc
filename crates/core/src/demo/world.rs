@@ -233,7 +233,6 @@ fn last_said(transcript: &str) -> Option<String> {
             | TranscriptLine::AiTitle { .. }
             | TranscriptLine::Summary { .. }
             | TranscriptLine::WorktreeState { .. }
-            | TranscriptLine::AgySession { .. }
             | TranscriptLine::Other => None,
         })
 }

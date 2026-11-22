@@ -272,11 +272,10 @@ fn project_dir(cwd: &Path) -> PathBuf {
     projects_dir().join(project_name(cwd))
 }
 
-/// The folders a project's transcripts are in: the user's own home's, and edualc's for agy's
-/// sessions, which edualcd's agy adapter writes.
+/// The folders a project's transcripts are in, in each of [`transcript_homes`].
 fn project_dirs(cwd: &Path) -> Vec<PathBuf> {
     let name = project_name(cwd);
-    all_projects_dirs()
+    transcript_homes()
         .into_iter()
         .map(|projects| projects.join(&name))
         .collect()
@@ -302,34 +301,11 @@ fn session_dirs(homes: &[PathBuf], cwd: &Path) -> Vec<PathBuf> {
         .collect()
 }
 
-/// Every folder of transcripts' folders: the user's own home's, agy's, and opencode's sessions'.
-fn all_projects_dirs() -> Vec<PathBuf> {
-    std::iter::once(projects_dir())
-        .chain(agy_projects())
-        .chain(opencode_projects())
-        .collect()
-}
-
-fn state_projects(backend: crate::provider::Backend) -> Option<PathBuf> {
-    let folder = match backend {
-        crate::provider::Backend::Claude => return None,
-        crate::provider::Backend::Agy => "agy",
-        crate::provider::Backend::Opencode => "opencode",
-    };
-    dirs::state_dir().map(|state| state.join("edualc").join(folder))
-}
-
-/// Where edualc keeps the transcripts of agy's sessions, a folder per project as Claude Code
-/// keeps its own: agy keeps its conversations in a database of its own, which edualc doesn't
-/// read.
-pub fn agy_projects() -> Option<PathBuf> {
-    state_projects(crate::provider::Backend::Agy)
-}
-
-/// Where edualc keeps the shadow transcripts of opencode's sessions, a folder per project as
-/// Claude Code keeps its own.
-pub fn opencode_projects() -> Option<PathBuf> {
-    state_projects(crate::provider::Backend::Opencode)
+/// The folders of transcripts' folders a project's are read from as files: Claude Code's.
+/// agy's and opencode's sessions are the programs' own to list and load (see `edualcd`'s ACP
+/// adapter).
+fn transcript_homes() -> Vec<PathBuf> {
+    vec![projects_dir()]
 }
 
 /// Whether `path` lies inside agy's brain folder.
@@ -346,11 +322,8 @@ fn is_agy_brain_path(_transcript: &Path) -> bool {
 /// Whether `id` has an external agy brain transcript on disk.
 #[cfg(not(target_arch = "wasm32"))]
 pub fn is_agy_brain_session(id: &SessionId) -> bool {
-    crate::external::agy::brain().is_some_and(|brain| {
-        crate::external::agy::generated(&brain, id)
-            .join("logs/transcript.jsonl")
-            .is_file()
-    })
+    crate::external::agy::brain()
+        .is_some_and(|brain| crate::external::agy::steps(&brain, id).is_file())
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -360,12 +333,8 @@ pub fn is_agy_brain_session(_id: &SessionId) -> bool {
 
 /// The program a session saved at `transcript` talks to, as where its transcript is says.
 pub fn backend_of(transcript: &Path) -> crate::provider::Backend {
-    if agy_projects().is_some_and(|agy| transcript.starts_with(&agy))
-        || is_agy_brain_path(transcript)
-    {
+    if is_agy_brain_path(transcript) {
         crate::provider::Backend::Agy
-    } else if opencode_projects().is_some_and(|oc| transcript.starts_with(&oc)) {
-        crate::provider::Backend::Opencode
     } else {
         crate::provider::Backend::Claude
     }
@@ -394,52 +363,6 @@ pub fn belongs_to_project(session_cwd: &Path, project_cwd: &Path) -> bool {
     gitdir.starts_with(project_cwd.join(".git"))
 }
 
-/// The backend's own conversation ids recorded in shadow transcripts under `agy` and
-/// `opencode` state folders, so external listings don't list them twice.
-#[cfg(not(target_arch = "wasm32"))]
-pub fn recorded_agent_ids() -> std::collections::HashSet<String> {
-    let mut ids = std::collections::HashSet::new();
-    for root in agy_projects().into_iter().chain(opencode_projects()) {
-        let Ok(projects) = std::fs::read_dir(root) else {
-            continue;
-        };
-        for project in projects.filter_map(Result::ok) {
-            let Ok(entries) = std::fs::read_dir(project.path()) else {
-                continue;
-            };
-            for entry in entries.filter_map(Result::ok) {
-                let path = entry.path();
-                if path.extension().is_some_and(|ext| ext == "jsonl")
-                    && summary(&path).is_some()
-                    && let Some(agent_id) = first_agent_session_id(&path)
-                {
-                    ids.insert(agent_id);
-                }
-            }
-        }
-    }
-    ids
-}
-
-/// The agent's conversation id from the first lines of a shadow transcript, if recorded.
-#[cfg(not(target_arch = "wasm32"))]
-pub fn first_agent_session_id(transcript: &Path) -> Option<String> {
-    let file = File::open(transcript).ok()?;
-    head_lines(file)
-        .filter(|line| line.contains("agySessionId"))
-        .find_map(|line| match serde_json::from_str(&line).ok()? {
-            TranscriptLine::AgySession { agent_session_id } => Some(agent_session_id),
-            TranscriptLine::User { .. }
-            | TranscriptLine::Assistant { .. }
-            | TranscriptLine::System(_)
-            | TranscriptLine::CustomTitle { .. }
-            | TranscriptLine::AiTitle { .. }
-            | TranscriptLine::Summary { .. }
-            | TranscriptLine::WorktreeState { .. }
-            | TranscriptLine::Other => None,
-        })
-}
-
 /// Where a Claude Code session in `cwd` keeps its transcript.
 pub fn transcript_path(cwd: &Path, id: &SessionId) -> PathBuf {
     project_dir(cwd).join(format!("{}.jsonl", id.as_str()))
@@ -451,7 +374,7 @@ pub fn transcript_path(cwd: &Path, id: &SessionId) -> PathBuf {
 pub fn find_transcript(cwd: &Path, id: &SessionId) -> Option<PathBuf> {
     let name = format!("{}.jsonl", id.as_str());
     newest(project_dirs(cwd).into_iter().map(|dir| dir.join(&name)))
-        .or_else(|| transcript_in_any(&all_projects_dirs(), id))
+        .or_else(|| transcript_in_any(&transcript_homes(), id))
 }
 
 /// Session `id`'s transcript in any project of the folders of projects `homes`; the newest,
@@ -480,7 +403,7 @@ pub enum Saved {
 
 /// Session `id` as its transcript says, whichever home and project keep it.
 pub fn saved(id: &SessionId) -> Saved {
-    saved_in(&all_projects_dirs(), id)
+    saved_in(&transcript_homes(), id)
 }
 
 fn saved_in(homes: &[PathBuf], id: &SessionId) -> Saved {
@@ -572,7 +495,7 @@ pub fn list(cwd: &Path, limit: usize, known: Vec<SessionInfo>) -> Vec<SessionInf
         .into_iter()
         .map(|session| (session.id.clone(), session))
         .collect();
-    let mut files: Vec<(PathBuf, SystemTime)> = session_dirs(&all_projects_dirs(), cwd)
+    let mut files: Vec<(PathBuf, SystemTime)> = session_dirs(&transcript_homes(), cwd)
         .iter()
         .flat_map(|dir| transcripts(dir))
         .collect();
@@ -607,7 +530,7 @@ pub fn list(cwd: &Path, limit: usize, known: Vec<SessionInfo>) -> Vec<SessionInf
 /// Every working directory Claude Code was used in that still exists, most recent first.
 #[cfg(not(target_arch = "wasm32"))]
 pub fn projects() -> Vec<ProjectInfo> {
-    let mut projects: Vec<_> = all_projects_dirs()
+    let mut projects: Vec<_> = transcript_homes()
         .iter()
         .flat_map(|projects| match std::fs::read_dir(projects) {
             Ok(entries) => entries.filter_map(Result::ok).collect(),
@@ -1480,7 +1403,7 @@ mod tests {
     }
 
     #[test]
-    fn external_ids_map_deterministically_and_backends_identify_state_dirs() {
+    fn external_ids_map_deterministically_and_agys_records_tell_its_sessions() {
         let uuid = "e4cd185b-4679-4fa9-8245-69f15bdbbbe1";
         assert_eq!(
             SessionId::for_external(crate::provider::Backend::Agy, uuid).as_str(),
@@ -1491,12 +1414,6 @@ mod tests {
         let ses_c = SessionId::for_external(crate::provider::Backend::Opencode, "ses_xyz789");
         assert_eq!(ses_a, ses_b);
         assert_ne!(ses_a, ses_c);
-        if let Some(oc) = opencode_projects() {
-            assert_eq!(
-                backend_of(&oc.join("-w-app/x.jsonl")),
-                crate::provider::Backend::Opencode
-            );
-        }
         if let Some(brain) = crate::external::agy::brain() {
             assert_eq!(
                 backend_of(

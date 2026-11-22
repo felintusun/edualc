@@ -45,6 +45,8 @@ pub struct Inbox {
     listener: UnixListener,
     token: Token,
     published: Published,
+    /// What the record says, to say it again under another id.
+    record: SessionRecord,
 }
 
 /// The token peers authenticate with. Not `Debug`.
@@ -136,8 +138,6 @@ impl Inbox {
             updated_at: Some(now_ms),
             status_updated_at: Some(now_ms),
         };
-        let record_text =
-            serde_json::to_vec(&record).map_err(|error| Error::Publish(error.into()))?;
         let published = Published {
             socket,
             record: sessions.join(format!("{pid}.json")),
@@ -145,13 +145,37 @@ impl Inbox {
         };
         crate::files::write_atomically(&sessions, key_name.as_ref(), key_text.as_bytes())
             .map_err(Error::Publish)?;
-        crate::files::write_atomically(&sessions, format!("{pid}.json").as_ref(), &record_text)
-            .map_err(Error::Publish)?;
-        Ok(Self {
+        let inbox = Self {
             listener,
             token,
             published,
-        })
+            record,
+        };
+        inbox.publish()?;
+        Ok(inbox)
+    }
+
+    /// The session goes by `id` and `name` from now on, as the agent named its conversation:
+    /// the record says so again.
+    pub fn rename(&mut self, id: &SessionId, name: &MessagingName) -> Result<(), Error> {
+        let now_ms = now_ms();
+        self.record.session_id = id.clone();
+        self.record.name = Some(name.to_string());
+        self.record.name_since = Some(now_ms);
+        self.record.updated_at = Some(now_ms);
+        self.publish()
+    }
+
+    /// The record written where other sessions look for it.
+    fn publish(&self) -> Result<(), Error> {
+        let text =
+            serde_json::to_vec(&self.record).map_err(|error| Error::Publish(error.into()))?;
+        let path = &self.published.record;
+        let (folder, file) = path
+            .parent()
+            .zip(path.file_name())
+            .ok_or_else(|| Error::Publish(std::io::ErrorKind::InvalidInput.into()))?;
+        crate::files::write_atomically(folder, file, &text).map_err(Error::Publish)
     }
 
     /// Takes the next peer's connection and reads what it posts, in a task of its own: each

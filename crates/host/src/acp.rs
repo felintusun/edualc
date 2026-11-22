@@ -7,10 +7,10 @@
 //! The agent runs as it would in a terminal. The adapter, the daemon's child, serves the
 //! session's inbox and publishes its record (see [`inbox`]), so other sessions message it as
 //! they message each other, and carries the messages the agent sends with edualc's tool (see
-//! [`tool`] and [`outbox`]). For agy it keeps the session's transcript, in Claude Code's format,
-//! under edualc's state folder (see [`crate::sessions::agy_projects`]), for the session to be
-//! listed and continued: agy's own history is a database of its own. opencode keeps its sessions
-//! itself, so no transcript is kept for it, and they can't be continued yet.
+//! [`tool`] and [`outbox`]). Nothing of the session is kept: the agent keeps its sessions, lists
+//! them (`session/list`) and loads them again (`session/load`), and the session goes by the
+//! agent's id for it once it is open. agy's history is read from its own records (see
+//! [`brain`]); opencode's is shown as `session/load` replays it.
 
 pub(crate) mod brain;
 mod inbox;
@@ -18,9 +18,8 @@ mod outbox;
 mod tool;
 pub(crate) mod translate;
 
-use std::collections::{BTreeMap, HashMap, HashSet};
-use std::io::Write as _;
-use std::os::unix::fs::{DirBuilderExt as _, OpenOptionsExt as _};
+use std::collections::{HashMap, HashSet};
+use std::os::unix::fs::DirBuilderExt as _;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 
@@ -44,7 +43,6 @@ use crate::external::tool_input::{
 };
 use crate::external::wire::{
     BackgroundTask, Question, QuestionOption, Questions, RequestId, SessionId, System,
-    TranscriptEntry, TranscriptLine,
 };
 use crate::sessions::{self, MessagingName};
 use crate::settings::{self, PeerMessages};
@@ -104,8 +102,9 @@ impl Agent {
         }
     }
 
-    /// Whether the adapter keeps the session's transcript for edualc to list and continue it.
-    fn keeps_transcript(self) -> bool {
+    /// Whether the agent loads a session of its own again (ACP `session/load`), so edualc can
+    /// continue it.
+    fn loads_sessions(self) -> bool {
         match self {
             Self::Agy | Self::Opencode => true,
         }
@@ -296,7 +295,7 @@ enum Error {
     Arguments(#[from] clap::Error),
     #[error("the adapter needs --session-id or --resume")]
     NoSession,
-    #[error("no transcript of session {1} says which conversation of {0}'s it is")]
+    #[error("{0} has no session {1}")]
     NoConversation(Agent, SessionId),
     #[error("continuing {0} sessions isn't supported yet")]
     ResumeNotSupported(Agent),
@@ -377,24 +376,6 @@ impl Drop for Own {
     }
 }
 
-/// Where session `id` working in `cwd` keeps its transcript.
-fn transcript_path(agent: Agent, cwd: &Path, id: &SessionId) -> Option<PathBuf> {
-    let projects = match agent {
-        Agent::Agy => sessions::agy_projects(),
-        Agent::Opencode => sessions::opencode_projects(),
-    }?;
-    Some(
-        projects
-            .join(sessions::project_name(cwd))
-            .join(format!("{}.jsonl", id.as_str())),
-    )
-}
-
-/// The agent's id for the conversation session `id` continues, as its shadow transcript keeps it.
-fn acp_session_id(transcript: &Path) -> Option<String> {
-    sessions::first_agent_session_id(transcript)
-}
-
 /// An external session discovered via ACP `session/list`.
 #[derive(Debug, Clone)]
 pub(crate) struct ExternalSession {
@@ -404,78 +385,6 @@ pub(crate) struct ExternalSession {
     pub cwd: PathBuf,
     pub title: String,
     pub modified: std::time::SystemTime,
-}
-
-#[derive(Debug, Default, serde::Serialize, serde::Deserialize)]
-#[serde(deny_unknown_fields)]
-struct ExternalIdMap {
-    sessions: BTreeMap<String, ExternalIdEntry>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-#[serde(deny_unknown_fields)]
-struct ExternalIdEntry {
-    raw_id: String,
-    #[serde(default)]
-    title: String,
-}
-
-fn external_ids_path(agent: Agent) -> Option<PathBuf> {
-    match agent {
-        Agent::Agy => None,
-        Agent::Opencode => sessions::opencode_projects().map(|dir| dir.join("external-ids.json")),
-    }
-}
-
-fn read_external_ids(path: &Path) -> ExternalIdMap {
-    std::fs::read_to_string(path)
-        .ok()
-        .and_then(|text| serde_json::from_str(&text).ok())
-        .unwrap_or_default()
-}
-
-fn record_external_ids(agent: Agent, found: &[ExternalSession]) {
-    let Some(path) = external_ids_path(agent) else {
-        return;
-    };
-    let Some(parent) = path.parent() else {
-        return;
-    };
-    let mut map = read_external_ids(&path);
-    let mut changed = false;
-    for session in found {
-        let entry = ExternalIdEntry {
-            raw_id: session.raw_id.clone(),
-            title: session.title.clone(),
-        };
-        let key = session.id.as_str();
-        if map.sessions.get(key) != Some(&entry) {
-            map.sessions.insert(key.to_owned(), entry);
-            changed = true;
-        }
-    }
-    if !changed {
-        return;
-    }
-    if std::fs::DirBuilder::new()
-        .recursive(true)
-        .mode(0o700)
-        .create(parent)
-        .is_err()
-    {
-        return;
-    }
-    if let Ok(bytes) = serde_json::to_vec(&map)
-        && let Some(name) = path.file_name()
-        && let Err(error) = crate::files::write_atomically(parent, name, &bytes)
-    {
-        tracing::debug!(%error, "couldn't write external session id map");
-    }
-}
-
-fn lookup_external_entry(agent: Agent, id: &SessionId) -> Option<ExternalIdEntry> {
-    let path = external_ids_path(agent)?;
-    read_external_ids(&path).sessions.remove(id.as_str())
 }
 
 fn parse_rfc3339(text: Option<&str>) -> std::time::SystemTime {
@@ -556,10 +465,7 @@ pub(crate) async fn list_sessions(agent: Agent) -> Vec<ExternalSession> {
     let cwd = dirs::home_dir().unwrap_or_else(|| PathBuf::from("/tmp"));
     let result = tokio::time::timeout(PROBE_WAIT, list_sessions_inner(agent, &cwd)).await;
     match result {
-        Ok(sessions) => {
-            record_external_ids(agent, &sessions);
-            sessions
-        }
+        Ok(sessions) => sessions,
         Err(_late) => {
             tracing::debug!(%agent, "acp session/list timed out");
             Vec::new()
@@ -634,146 +540,19 @@ async fn list_sessions_inner(agent: Agent, cwd: &Path) -> Vec<ExternalSession> {
     collected
 }
 
-fn encode_shadow_line(id: &SessionId, cwd: &Path, line: &TranscriptLine) -> Option<String> {
-    let entry = TranscriptEntry {
-        line,
-        session_id: id,
-        cwd,
-        timestamp: jiff::Timestamp::now(),
-    };
-    serde_json::to_string(&entry).ok()
-}
-
-/// Writes a shadow transcript line (for new sessions or appending live turns).
-fn append_shadow_line(path: &Path, id: &SessionId, cwd: &Path, line: &TranscriptLine) {
-    let Some(serialized) = encode_shadow_line(id, cwd, line) else {
-        return;
-    };
-    let written = path
-        .parent()
-        .map_or(Ok(()), |folder| {
-            std::fs::DirBuilder::new()
-                .recursive(true)
-                .mode(0o700)
-                .create(folder)
-        })
-        .and_then(|()| {
-            std::fs::OpenOptions::new()
-                .create(true)
-                .append(true)
-                .mode(0o600)
-                .open(path)
-        })
-        .and_then(|mut file| writeln!(file, "{serialized}"));
-    if let Err(error) = written {
-        tracing::warn!(%error, "couldn't seed shadow transcript");
-    }
-}
-
-fn seed_shadow_transcript(
-    agent: Agent,
-    shadow: &Path,
-    cwd: &Path,
-    id: &SessionId,
-    conversation: &str,
-    title: Option<&str>,
-) {
-    if shadow.exists() {
-        return;
-    }
-    let Some((parent, name)) = shadow.parent().zip(shadow.file_name()) else {
-        return;
-    };
-    if let Err(error) = std::fs::DirBuilder::new()
-        .recursive(true)
-        .mode(0o700)
-        .create(parent)
-    {
-        tracing::warn!(%error, "couldn't prepare shadow transcript folder");
-        return;
-    }
-    let mut lines = Vec::new();
-    lines.extend(encode_shadow_line(
-        id,
-        cwd,
-        &TranscriptLine::AgySession {
-            agent_session_id: conversation.to_owned(),
-        },
-    ));
-    if let Some(title) = title
-        && !title.is_empty()
-    {
-        lines.extend(encode_shadow_line(
-            id,
-            cwd,
-            &TranscriptLine::AiTitle {
-                ai_title: title.to_owned(),
-            },
-        ));
-    }
-    if agent == Agent::Agy
-        && let Some(brain) = agy::brain()
-    {
-        let log = agy::generated(&brain, id).join("logs/transcript.jsonl");
-        if let Ok(text) = std::fs::read_to_string(&log) {
-            let raw_lines: Vec<String> = text.lines().map(str::to_owned).collect();
-            for line in brain::step_lines(&raw_lines) {
-                lines.extend(encode_shadow_line(id, cwd, &line));
-            }
-        }
-    }
-    if lines.is_empty() {
-        return;
-    }
-    let mut body = lines.join("\n");
-    body.push('\n');
-    if let Err(error) = crate::files::write_atomically(parent, name, body.as_bytes()) {
-        tracing::warn!(%error, "couldn't seed shadow transcript");
-    }
-}
-
-fn has_conversation_turns(transcript: &Path) -> bool {
-    let Ok(text) = std::fs::read_to_string(transcript) else {
-        return false;
-    };
-    text.lines().any(|line| {
-        matches!(
-            serde_json::from_str::<TranscriptLine>(line),
-            Ok(TranscriptLine::User { .. } | TranscriptLine::Assistant { .. })
-        )
-    })
-}
-
-async fn resolve_conversation(
-    agent: Agent,
-    cwd: &Path,
-    id: &SessionId,
-) -> Option<(String, Option<String>)> {
-    if let Some(found) =
-        sessions::find_transcript(cwd, id).or_else(|| transcript_path(agent, cwd, id))
-        && let Some(conversation) = acp_session_id(&found)
-    {
-        return Some((conversation, None));
-    }
+/// The agent's own id for the conversation session `id` is: agy's is the same id, which its
+/// records are kept under; opencode's is the one `session/list` gives whose window id it is.
+async fn resolve_conversation(agent: Agent, id: &SessionId) -> Option<String> {
     match agent {
-        Agent::Agy => {
-            let brain = agy::brain()?;
-            let exists = agy::generated(&brain, id)
-                .join("logs/transcript.jsonl")
-                .is_file()
-                || brain.join(id.as_str()).is_dir();
-            exists.then(|| (id.as_str().to_owned(), None))
-        }
-        Agent::Opencode => {
-            if let Some(entry) = lookup_external_entry(agent, id) {
-                return Some((entry.raw_id, Some(entry.title)));
-            }
-            list_sessions(agent)
-                .await
-                .into_iter()
-                .find(|session| &session.id == id)
-                .map(|session| (session.raw_id, Some(session.title)))
-        }
+        Agent::Agy => agy::brain()?
+            .join(id.as_str())
+            .is_dir()
+            .then(|| id.as_str().to_owned()),
+        Agent::Opencode => list_sessions(agent)
+            .await
+            .into_iter()
+            .find(|session| &session.id == id)
+            .map(|session| session.raw_id),
     }
 }
 
@@ -927,38 +706,25 @@ async fn adapt(args: Args) -> Result<(), Error> {
             if !agent.can_fork() {
                 return Err(Error::ForkNotSupported(agent));
             }
-            let (conversation, _) = resolve_conversation(agent, &cwd, &of)
+            let conversation = resolve_conversation(agent, &of)
                 .await
                 .ok_or(Error::NoConversation(agent, of))?;
             (id, Start::Fork(conversation))
         }
         (None, Some(id), None) => {
-            if !agent.keeps_transcript() {
+            if !agent.loads_sessions() {
                 return Err(Error::ResumeNotSupported(agent));
             }
-            let (conversation, title) = resolve_conversation(agent, &cwd, &id)
+            let conversation = resolve_conversation(agent, &id)
                 .await
                 .ok_or_else(|| Error::NoConversation(agent, id.clone()))?;
-            let existing =
-                sessions::find_transcript(&cwd, &id).or_else(|| transcript_path(agent, &cwd, &id));
-            if let Some(path) = &existing {
-                seed_shadow_transcript(agent, path, &cwd, &id, &conversation, title.as_deref());
-            }
-            let replay = agent == Agent::Opencode
-                && !existing.as_deref().is_some_and(has_conversation_turns);
-            let start = if replay {
-                Start::ResumeReplay(conversation)
-            } else {
-                Start::Resume(conversation)
+            let start = match agent {
+                Agent::Agy => Start::Resume(conversation),
+                Agent::Opencode => Start::ResumeReplay(conversation),
             };
             (id, start)
         }
         _ => return Err(Error::NoSession),
-    };
-    let transcript = if agent.keeps_transcript() {
-        sessions::find_transcript(&cwd, &id).or_else(|| transcript_path(agent, &cwd, &id))
-    } else {
-        None
     };
     // The name the daemon knows the session by, as it names Claude Code's (see `spawn`).
     let name = MessagingName::of(&id, &cwd);
@@ -1066,8 +832,7 @@ async fn adapt(args: Args) -> Result<(), Error> {
         window: tokio::io::stdout(),
         agent: agent_in.take(),
         program: agent,
-        transcript,
-        id,
+        inbox,
         cwd,
         calls: HashMap::new(),
         name,
@@ -1081,7 +846,7 @@ async fn adapt(args: Args) -> Result<(), Error> {
     loop {
         let effects = tokio::select! {
             () = ending.told() => break,
-            () = inbox.take(&posted) => continue,
+            () = out.inbox.take(&posted) => continue,
             said = hearing.recv() => match said {
                 Some(Heard::Window(Some(line))) => translator.window_said(&line),
                 Some(Heard::Window(None)) => {
@@ -1122,7 +887,6 @@ async fn adapt(args: Args) -> Result<(), Error> {
         }
     };
     tracing::info!(?ended, %agent, "the agent ended");
-    drop(inbox);
     drop(own);
     Ok(())
 }
@@ -1160,12 +924,13 @@ struct Out {
     agent: Option<ChildStdin>,
     /// Which agent it is.
     program: Agent,
-    transcript: Option<PathBuf>,
-    /// The session and the folder it works in, which each transcript line is kept with.
-    id: SessionId,
+    /// Where other sessions post to this one, under the session's id and name.
+    inbox: inbox::Inbox,
+    /// The folder the session works in.
     cwd: PathBuf,
     /// The tool's calls waiting for their answer.
     calls: HashMap<CallId, OwnedWriteHalf>,
+    /// The session's name for messaging, which the messages it sends come from.
     name: MessagingName,
     /// The subagents last told to the window.
     tasks: Vec<BackgroundTask>,
@@ -1192,7 +957,7 @@ impl Out {
                     }
                 },
                 Effect::ToWindow(event) => self.tell(&event).await,
-                Effect::Transcript(line) => self.keep(&line),
+                Effect::Named(id) => self.named(&id),
                 Effect::Send { call, to, message } => {
                     let told = self.carried(Job::Send(SendArguments { to, message })).await;
                     translator.tool_told(call, &told);
@@ -1276,10 +1041,12 @@ impl Out {
         }
     }
 
-    /// A line for the transcript, appended.
-    fn keep(&self, line: &TranscriptLine) {
-        if let Some(path) = &self.transcript {
-            append_shadow_line(path, &self.id, &self.cwd, line);
+    /// The session goes by the agent's id from now on: its record says so, with the name that
+    /// id gives it, for other sessions and the running list.
+    fn named(&mut self, id: &SessionId) {
+        self.name = MessagingName::of(id, &self.cwd);
+        if let Err(error) = self.inbox.rename(id, &self.name) {
+            tracing::warn!(%error, "couldn't publish the session under the agent's id");
         }
     }
 }
@@ -1297,40 +1064,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn external_opencode_sessions_keep_transcripts_and_can_fork() {
-        assert!(Agent::Opencode.keeps_transcript());
+    fn both_agents_load_their_sessions_and_opencode_forks() {
+        assert!(Agent::Opencode.loads_sessions());
         assert!(Agent::Opencode.can_fork());
-        assert!(Agent::Agy.keeps_transcript());
+        assert!(Agent::Agy.loads_sessions());
         assert!(!Agent::Agy.can_fork());
-    }
-
-    #[test]
-    fn seed_shadow_transcript_writes_agent_session_and_title_once() {
-        let dir = std::env::temp_dir().join(format!("edualc-acp-seed-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).expect("scratch dir");
-        let shadow = dir.join("shadow.jsonl");
-        let id = SessionId::for_external(crate::provider::Backend::Opencode, "ses_123");
-        seed_shadow_transcript(
-            Agent::Opencode,
-            &shadow,
-            &dir,
-            &id,
-            "ses_123",
-            Some("External Opencode"),
-        );
-        assert_eq!(acp_session_id(&shadow).as_deref(), Some("ses_123"));
-        let before = std::fs::read_to_string(&shadow).expect("shadow read");
-        assert!(before.contains("External Opencode"));
-        // Calling again when shadow already exists is a no-op.
-        seed_shadow_transcript(
-            Agent::Opencode,
-            &shadow,
-            &dir,
-            &id,
-            "ses_other",
-            Some("Overwritten"),
-        );
-        assert_eq!(std::fs::read_to_string(&shadow).expect("read"), before);
-        std::fs::remove_dir_all(&dir).expect("scratch cleaned");
     }
 }
