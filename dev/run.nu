@@ -7,6 +7,7 @@ const root = path self ..
 # Where `try` keeps what is its own: settings under the checkout, and a runtime folder of its own
 # (under the user's) for its daemon's socket and log.
 const apart_config = "target/apart/config"
+const apart_state = "target/apart/state"
 const apart_runtime = "edualc-apart"
 
 def main []: nothing -> nothing {
@@ -60,6 +61,8 @@ def apart []: nothing -> record {
     ^chmod 700 $runtime
     let config = $root | path join $apart_config
     mkdir ($config | path join edualc)
+    let state = $root | path join $apart_state
+    mkdir ($state | path join edualc)
     # Fonts as you have them set up.
     let fonts = $env.HOME | path join .config fontconfig
     let linked = $config | path join fontconfig
@@ -76,6 +79,7 @@ def apart []: nothing -> record {
     {
         XDG_RUNTIME_DIR: $runtime
         XDG_CONFIG_HOME: $config
+        XDG_STATE_HOME: $state
         WAYLAND_DISPLAY: $display
         DBUS_SESSION_BUS_ADDRESS: $bus
     }

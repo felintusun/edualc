@@ -241,6 +241,15 @@ component ProjectCardView inherits Rectangle {
                     label: root.card.hidden ? "Unhide " + root.card.name : "Hide " + root.card.name;
                     clicked => { Nav.toggle-hide-project(root.card.path); }
                 }
+                IconButton {
+                    width: Theme.chip;
+                    height: Theme.chip;
+                    icon-size: Theme.icon-small;
+                    icon: @image-url("@lucide/folder-x.svg");
+                    tint: Theme.text-tertiary;
+                    label: "Remove " + root.card.name + " from edualc (keeps files on disk)";
+                    clicked => { Nav.remove-project(root.card.path); }
+                }
             }
         }
 

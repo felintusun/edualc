@@ -268,28 +268,39 @@ fn Waiting(item: WaitingItem) -> Element {
 fn Card(card: ProjectCard) -> Element {
     let view = use_context::<View>();
     let path = card.path.clone();
+    let remove_path = card.path.clone();
     rsx! {
         article { class: "card",
-            button {
-                class: "card-head",
-                r#type: "button",
-                "aria-label": "Open project {card.name}",
-                title: "{card.path}",
-                onclick: move |_| view.act(Action::EnterProject(path.clone().into())),
-                span { class: "card-texts",
-                    span { class: "card-name trimmed", "{card.name}" }
-                    span { class: "caption trimmed", "{card.shown}" }
+            div { class: "card-head-row",
+                button {
+                    class: "card-head",
+                    r#type: "button",
+                    "aria-label": "Open project {card.name}",
+                    title: "{card.path}",
+                    onclick: move |_| view.act(Action::EnterProject(path.clone().into())),
+                    span { class: "card-texts",
+                        span { class: "card-name trimmed", "{card.name}" }
+                        span { class: "caption trimmed", "{card.shown}" }
+                    }
+                    span { class: "card-marks",
+                        if card.needs_you > 0 {
+                            span { class: "card-chip waiting", "{card.needs_you} waiting" }
+                        }
+                        if card.running > 0 {
+                            span { class: "card-chip", "{card.running} running" }
+                        }
+                        if !card.age.is_empty() {
+                            span { class: "caption", "{card.age}" }
+                        }
+                    }
                 }
-                span { class: "card-marks",
-                    if card.needs_you > 0 {
-                        span { class: "card-chip waiting", "{card.needs_you} waiting" }
-                    }
-                    if card.running > 0 {
-                        span { class: "card-chip", "{card.running} running" }
-                    }
-                    if !card.age.is_empty() {
-                        span { class: "caption", "{card.age}" }
-                    }
+                button {
+                    class: "icon-button card-remove",
+                    r#type: "button",
+                    "aria-label": "Remove {card.name} from edualc (keeps files on disk)",
+                    title: "Remove {card.name} from edualc (keeps files on disk)",
+                    onclick: move |_| view.act(Action::RemoveProject(remove_path.clone().into())),
+                    Icon { icon: Lucide::FolderX, class: "small" }
                 }
             }
             if !card.last_said.is_empty() {

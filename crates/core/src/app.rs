@@ -731,6 +731,7 @@ pub enum Action {
     HideUsage,
     TogglePinProject(PathBuf),
     ToggleHideProject(PathBuf),
+    RemoveProject(PathBuf),
     SetProjectSort(settings::ProjectSort),
     ToggleShowHiddenProjects,
     ToggleShowAllProjects,
@@ -1665,7 +1666,13 @@ impl<F: Frontend> App<F> {
             Event::Action(action) => return self.act(action),
             Event::Agent { generation, output } => self.take(generation, output),
             Event::SessionsListed { cwd, sessions } => self.sessions_listed(&cwd, sessions),
-            Event::ProjectsListed(projects) => self.view.render_projects(&projects),
+            Event::ProjectsListed(projects) => {
+                let shown: Vec<_> = projects
+                    .into_iter()
+                    .filter(|project| !self.settings.is_removed(&project.path))
+                    .collect();
+                self.view.render_projects(&shown);
+            }
             Event::SessionLoaded { id, path, result } => self.session_loaded(&id, path, result),
             Event::TranscriptGrew { id, result } => self.transcript_grew(&id, result),
             Event::PeekGrew { task, result } => self.peek_grew(&task, result),
@@ -1932,6 +1939,10 @@ impl<F: Frontend> App<F> {
             }
             Action::ToggleHideProject(path) => {
                 self.change_settings(settings::Change::ToggleHideProject(path));
+                self.refresh_overview();
+            }
+            Action::RemoveProject(path) => {
+                self.change_settings(settings::Change::RemoveProject(path));
                 self.refresh_overview();
             }
             Action::SetProjectSort(sort) => {
@@ -3245,8 +3256,7 @@ impl<F: Frontend> App<F> {
     fn refresh_overview(&mut self) {
         let home = dirs::home_dir();
         let options = overview::Options {
-            pinned: &self.settings.pinned_projects,
-            hidden: &self.settings.hidden_projects,
+            marks: &self.settings.project_marks,
             recent: &self.settings.recent_projects,
             sort: self.settings.project_sort,
         };

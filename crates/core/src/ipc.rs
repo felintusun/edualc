@@ -153,7 +153,7 @@ pub fn chunks(text: &str) -> impl Iterator<Item = &str> {
 
 /// Bumped with any change to the messages below, or to their framing: postcard isn't
 /// self-describing, so both ends must agree on every type.
-pub const PROTOCOL: u32 = 29;
+pub const PROTOCOL: u32 = 30;
 
 /// A window's key for a process it shows, new for each one: what an earlier one still says is
 /// dropped.
@@ -260,7 +260,8 @@ pub enum ToDaemon {
         request: ActId,
         read: Read,
     },
-    /// Makes one change to the kept settings (`~/.config/edualc/settings.json`), as they are
+    /// Makes one change to the kept config (`~/.config/edualc/config.toml`) or state
+    /// (`~/.local/state/edualc/state.json`), as they are on disk.
     /// now; answered by `SettingsNotKept` only if it couldn't be kept.
     ChangeSettings(crate::settings::Change),
     /// Tells the window, as `Changed`, when what `target` names changes, until `Unwatch`.

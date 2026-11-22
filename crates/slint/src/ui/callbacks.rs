@@ -353,6 +353,7 @@ pub(crate) fn wire(window: &AppWindow, events: &Sender<Event>) {
     nav.on_toggle_hide_project(
         actions.on_text(|path| Action::ToggleHideProject(PathBuf::from(path))),
     );
+    nav.on_remove_project(actions.on_text(|path| Action::RemoveProject(PathBuf::from(path))));
     nav.on_set_project_sort({
         let actions = actions.clone();
         move |sort| {

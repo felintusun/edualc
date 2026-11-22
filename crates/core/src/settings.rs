@@ -1,7 +1,14 @@
-//! What the user set in the window and wants kept between runs: the text zoom, the folders
-//! trusted to run Claude Code in, the look. Kept in `$XDG_CONFIG_HOME/edualc/settings.json`.
+//! What the user set and wants kept between runs: the text zoom, the look, the folders trusted
+//! to run Claude Code in, the projects pinned or removed.
+//!
+//! What you might set by hand is in `$XDG_CONFIG_HOME/edualc/config.toml`, changed a key at a
+//! time so your comments and order stay. What edualc keeps for itself (folders opened, pinned,
+//! hidden, removed or trusted, the composer's height) is in `$XDG_STATE_HOME/edualc/state.json`.
+//! A `settings.json` of an earlier version, kept where `config.toml` is now, is read while
+//! neither is there, and moved into both by the first change.
 
-use std::path::PathBuf;
+use std::collections::BTreeMap;
+use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
@@ -11,55 +18,35 @@ use crate::cjk::CjkLanguage;
 #[serde(deny_unknown_fields)]
 pub struct Settings {
     /// The text size relative to the desktop's, in percent.
-    #[serde(default = "Settings::full_size")]
     pub zoom_percent: u16,
     /// Trusted here (see [`crate::trust`]), with what is under them.
-    #[serde(default)]
     pub trusted_folders: Vec<PathBuf>,
     /// The composer's height as dragged, in logical pixels; fitted to its text if none.
-    #[serde(default)]
     pub composer_height_px: Option<u16>,
-    /// Kept so older settings files continue to load; no longer used.
-    #[serde(default)]
-    pub sidebar_width_px: Option<u16>,
-    /// Where new projects are placed when created; defaults to `~/code` if it exists, else `~`.
-    #[serde(default)]
+    /// Where new projects are made; `~/code` if it exists, else `~`, if none.
     pub new_projects_in: Option<PathBuf>,
     /// Folders trusted here that you chose not to trust for Claude Code too: not asked again.
-    #[serde(default)]
     pub not_for_claude_code: Vec<PathBuf>,
     /// The window's colours (dark or light as the desktop asks).
-    #[serde(default)]
     pub look: Look,
     /// The key that sends what is written in the composer.
-    #[serde(default)]
     pub send_with: SendKey,
     /// The language of text with Han characters alone (see [`crate::cjk`]); none for the desktop's,
     /// or Japanese if that isn't a CJK one.
-    #[serde(default)]
     pub han_text: Option<CjkLanguage>,
     /// Whether a message from another session comes in at once, or only once you let its
     /// sender in. Messages edualc doesn't carry follow the receiving program's own rules.
-    #[serde(default)]
     pub peer_messages: PeerMessages,
-    /// Project folders pinned to the top of the start page.
-    #[serde(default)]
-    pub pinned_projects: Vec<PathBuf>,
-    /// Project folders hidden from the default start page list.
-    #[serde(default)]
-    pub hidden_projects: Vec<PathBuf>,
+    /// Project folders pinned, hidden or removed on the start page.
+    pub project_marks: BTreeMap<PathBuf, ProjectMark>,
     /// How project cards on the start page are sorted.
-    #[serde(default)]
     pub project_sort: ProjectSort,
     /// Whether hidden projects are shown on the start page.
-    #[serde(default)]
     pub show_hidden_projects: bool,
     /// Whether all recent projects are shown instead of the compact start-page list.
-    #[serde(default)]
     pub show_all_projects: bool,
-    /// Recently created or explicitly opened project folders, so they stay on the start page
+    /// Project folders created or opened here, newest first, so they stay on the start page
     /// even before a first turn writes a transcript.
-    #[serde(default)]
     pub recent_projects: Vec<RecentProject>,
 }
 
@@ -70,6 +57,18 @@ pub enum ProjectSort {
     #[default]
     PinnedFirst,
     Recent,
+}
+
+/// What you made of a project folder on the start page; a folder has one of these at most.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ProjectMark {
+    /// At the top of the list.
+    Pinned,
+    /// Left out of the list unless hidden projects are shown.
+    Hidden,
+    /// Left out of edualc, its files and transcripts kept, until you open it again.
+    Removed,
 }
 
 /// A project folder explicitly opened or created, with when it was last opened.
@@ -126,15 +125,13 @@ impl Default for Settings {
             zoom_percent: Self::full_size(),
             trusted_folders: Vec::new(),
             composer_height_px: None,
-            sidebar_width_px: None,
             new_projects_in: None,
             not_for_claude_code: Vec::new(),
             look: Look::default(),
             send_with: SendKey::default(),
             han_text: None,
             peer_messages: PeerMessages::default(),
-            pinned_projects: Vec::new(),
-            hidden_projects: Vec::new(),
+            project_marks: BTreeMap::new(),
             project_sort: ProjectSort::default(),
             show_hidden_projects: false,
             show_all_projects: false,
@@ -189,76 +186,23 @@ impl Settings {
             .or_else(CjkLanguage::of_desktop)
             .unwrap_or(CjkLanguage::Japanese)
     }
-}
 
-/// The keys of edualc's sandbox, which went on 2026-11-13: a file that has them still loads,
-/// without them, and is written without them.
-#[derive(Debug, Clone, Copy, strum::IntoStaticStr, strum::EnumIter)]
-#[strum(serialize_all = "snake_case")]
-enum Retired {
-    Sandbox,
-    SandboxDesktop,
-    SandboxHardware,
-    SandboxMessagesUnasked,
-    SandboxRead,
-    SandboxWrite,
-}
+    pub fn project_mark(&self, folder: &Path) -> Option<ProjectMark> {
+        self.project_marks.get(folder).copied()
+    }
 
-/// The settings in `text`, as a file holds them; retired keys are left out.
-fn parse(text: &str) -> Result<Settings, serde_json::Error> {
-    let mut value: serde_json::Value = serde_json::from_str(text)?;
-    if let Some(keys) = value.as_object_mut() {
-        for retired in <Retired as strum::IntoEnumIterator>::iter() {
-            keys.remove(<&str>::from(retired));
+    pub fn is_removed(&self, folder: &Path) -> bool {
+        self.project_mark(folder) == Some(ProjectMark::Removed)
+    }
+
+    /// Marks `folder` so, or takes the mark off if it has it already.
+    fn toggle_mark(&mut self, folder: PathBuf, mark: ProjectMark) {
+        if self.project_marks.get(&folder) == Some(&mark) {
+            self.project_marks.remove(&folder);
+        } else {
+            self.project_marks.insert(folder, mark);
         }
     }
-    serde_json::from_value(value)
-}
-
-#[derive(Debug, thiserror::Error)]
-pub enum Error {
-    #[error("no configuration directory to keep settings in")]
-    NoConfigDir,
-    #[error("couldn't read {path}: {source}")]
-    Read {
-        path: PathBuf,
-        #[source]
-        source: std::io::Error,
-    },
-    #[error("{path} isn't settings this version reads: {source}")]
-    Parse {
-        path: PathBuf,
-        #[source]
-        source: serde_json::Error,
-    },
-    #[error("couldn't put the settings into JSON: {0}")]
-    Encode(#[source] serde_json::Error),
-    #[error("couldn't write {path}: {source}")]
-    Write {
-        path: PathBuf,
-        #[source]
-        source: std::io::Error,
-    },
-}
-
-fn path() -> Result<PathBuf, Error> {
-    Ok(dirs::config_dir()
-        .ok_or(Error::NoConfigDir)?
-        .join("edualc")
-        .join("settings.json"))
-}
-
-/// The kept settings; the defaults if none were kept yet.
-pub fn load() -> Result<Settings, Error> {
-    let path = path()?;
-    let text = match std::fs::read_to_string(&path) {
-        Ok(text) => text,
-        Err(source) if source.kind() == std::io::ErrorKind::NotFound => {
-            return Ok(Settings::default());
-        }
-        Err(source) => return Err(Error::Read { path, source }),
-    };
-    parse(&text).map_err(|source| Error::Parse { path, source })
 }
 
 /// One thing the user changed. A window sends the change, not its whole copy of the settings,
@@ -280,6 +224,9 @@ pub enum Change {
     PeerMessages(PeerMessages),
     TogglePinProject(PathBuf),
     ToggleHideProject(PathBuf),
+    /// Takes a folder off the start page, its files and transcripts kept, until it is opened
+    /// again.
+    RemoveProject(PathBuf),
     ProjectSort(ProjectSort),
     ShowHiddenProjects(bool),
     ShowAllProjects(bool),
@@ -289,7 +236,7 @@ pub enum Change {
     },
 }
 
-/// Most recent opened/created projects kept in settings when they have no transcript yet.
+/// How many folders opened or created are kept; the oldest go first.
 const MAX_RECENT_PROJECTS: usize = 50;
 
 impl Settings {
@@ -314,26 +261,19 @@ impl Settings {
                 }
             }
             Change::PeerMessages(peer_messages) => self.peer_messages = peer_messages,
-            Change::TogglePinProject(folder) => {
-                if let Some(at) = self.pinned_projects.iter().position(|p| p == &folder) {
-                    self.pinned_projects.remove(at);
-                } else {
-                    self.pinned_projects.push(folder.clone());
-                    self.hidden_projects.retain(|p| p != &folder);
-                }
-            }
-            Change::ToggleHideProject(folder) => {
-                if let Some(at) = self.hidden_projects.iter().position(|p| p == &folder) {
-                    self.hidden_projects.remove(at);
-                } else {
-                    self.hidden_projects.push(folder.clone());
-                    self.pinned_projects.retain(|p| p != &folder);
-                }
+            Change::TogglePinProject(folder) => self.toggle_mark(folder, ProjectMark::Pinned),
+            Change::ToggleHideProject(folder) => self.toggle_mark(folder, ProjectMark::Hidden),
+            Change::RemoveProject(folder) => {
+                self.recent_projects.retain(|recent| recent.path != folder);
+                self.project_marks.insert(folder, ProjectMark::Removed);
             }
             Change::ProjectSort(sort) => self.project_sort = sort,
             Change::ShowHiddenProjects(show) => self.show_hidden_projects = show,
             Change::ShowAllProjects(show) => self.show_all_projects = show,
             Change::TouchProject { path, opened_secs } => {
+                if self.is_removed(&path) {
+                    self.project_marks.remove(&path);
+                }
                 self.recent_projects.retain(|recent| recent.path != path);
                 self.recent_projects
                     .insert(0, RecentProject { path, opened_secs });
@@ -343,44 +283,451 @@ impl Settings {
     }
 }
 
-/// Applies `change` to the settings as the file holds them now and writes them back, unless
-/// the file doesn't parse: what it holds (a hand edit with a typo, a later version's keys)
-/// would be lost, and it stays until it is put right. Changes are to be applied one at a time,
-/// by one owner (edualcd).
-pub fn change(change: Change) -> Result<Settings, Error> {
-    change_at(path()?, change)
+/// What `config.toml` holds: what you might set by hand.
+#[cfg(not(target_arch = "wasm32"))]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+struct Config {
+    zoom_percent: u16,
+    look: Look,
+    send_with: SendKey,
+    han_text: Option<CjkLanguage>,
+    new_projects_in: Option<PathBuf>,
+    peer_messages: PeerMessages,
+    project_sort: ProjectSort,
 }
 
-fn change_at(path: PathBuf, change: Change) -> Result<Settings, Error> {
-    let mut settings = match std::fs::read_to_string(&path) {
-        Ok(text) => parse(&text).map_err(|source| Error::Parse {
-            path: path.clone(),
+#[cfg(not(target_arch = "wasm32"))]
+impl Default for Config {
+    fn default() -> Self {
+        Self::from(&Settings::default())
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl From<&Settings> for Config {
+    fn from(settings: &Settings) -> Self {
+        Self {
+            zoom_percent: settings.zoom_percent,
+            look: settings.look,
+            send_with: settings.send_with,
+            han_text: settings.han_text,
+            new_projects_in: settings.new_projects_in.clone(),
+            peer_messages: settings.peer_messages,
+            project_sort: settings.project_sort,
+        }
+    }
+}
+
+/// A key of `config.toml`, named as [`Config`]'s field is.
+#[cfg(not(target_arch = "wasm32"))]
+#[derive(Debug, Clone, Copy, strum::IntoStaticStr)]
+#[strum(serialize_all = "snake_case")]
+enum ConfigKey {
+    ZoomPercent,
+    Look,
+    SendWith,
+    HanText,
+    NewProjectsIn,
+    PeerMessages,
+    ProjectSort,
+}
+
+/// What `state.json` holds: what edualc keeps for itself.
+#[cfg(not(target_arch = "wasm32"))]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+struct State {
+    trusted_folders: Vec<PathBuf>,
+    composer_height_px: Option<u16>,
+    not_for_claude_code: Vec<PathBuf>,
+    project_marks: BTreeMap<PathBuf, ProjectMark>,
+    show_hidden_projects: bool,
+    show_all_projects: bool,
+    recent_projects: Vec<RecentProject>,
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl From<&Settings> for State {
+    fn from(settings: &Settings) -> Self {
+        Self {
+            trusted_folders: settings.trusted_folders.clone(),
+            composer_height_px: settings.composer_height_px,
+            not_for_claude_code: settings.not_for_claude_code.clone(),
+            project_marks: settings.project_marks.clone(),
+            show_hidden_projects: settings.show_hidden_projects,
+            show_all_projects: settings.show_all_projects,
+            recent_projects: settings.recent_projects.clone(),
+        }
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl Settings {
+    fn from_parts(config: Config, state: State) -> Self {
+        Self {
+            zoom_percent: config.zoom_percent,
+            trusted_folders: state.trusted_folders,
+            composer_height_px: state.composer_height_px,
+            new_projects_in: config.new_projects_in,
+            not_for_claude_code: state.not_for_claude_code,
+            look: config.look,
+            send_with: config.send_with,
+            han_text: config.han_text,
+            peer_messages: config.peer_messages,
+            project_marks: state.project_marks,
+            project_sort: config.project_sort,
+            show_hidden_projects: state.show_hidden_projects,
+            show_all_projects: state.show_all_projects,
+            recent_projects: state.recent_projects,
+        }
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl Change {
+    /// The key of `config.toml` this changes; none for what `state.json` keeps.
+    fn config_key(&self) -> Option<ConfigKey> {
+        match self {
+            Self::ZoomPercent(_) => Some(ConfigKey::ZoomPercent),
+            Self::Look(_) => Some(ConfigKey::Look),
+            Self::SendWith(_) => Some(ConfigKey::SendWith),
+            Self::HanText(_) => Some(ConfigKey::HanText),
+            Self::NewProjectsIn(_) => Some(ConfigKey::NewProjectsIn),
+            Self::PeerMessages(_) => Some(ConfigKey::PeerMessages),
+            Self::ProjectSort(_) => Some(ConfigKey::ProjectSort),
+            Self::ComposerHeight(_)
+            | Self::Trust(_)
+            | Self::NotForClaudeCode(_)
+            | Self::TogglePinProject(_)
+            | Self::ToggleHideProject(_)
+            | Self::RemoveProject(_)
+            | Self::ShowHiddenProjects(_)
+            | Self::ShowAllProjects(_)
+            | Self::TouchProject { .. } => None,
+        }
+    }
+}
+
+/// The `settings.json` of earlier versions, read only to move what it holds. The keys it has no
+/// place for any more (the sandbox's, gone on 2026-11-13; the sidebar's width) are read and
+/// passed over.
+#[cfg(not(target_arch = "wasm32"))]
+#[derive(Debug, Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+struct Legacy {
+    #[serde(rename = "sidebar_width_px")]
+    _sidebar_width_px: serde::de::IgnoredAny,
+    #[serde(rename = "sandbox")]
+    _sandbox: serde::de::IgnoredAny,
+    #[serde(rename = "sandbox_desktop")]
+    _sandbox_desktop: serde::de::IgnoredAny,
+    #[serde(rename = "sandbox_hardware")]
+    _sandbox_hardware: serde::de::IgnoredAny,
+    #[serde(rename = "sandbox_messages_unasked")]
+    _sandbox_messages_unasked: serde::de::IgnoredAny,
+    #[serde(rename = "sandbox_read")]
+    _sandbox_read: serde::de::IgnoredAny,
+    #[serde(rename = "sandbox_write")]
+    _sandbox_write: serde::de::IgnoredAny,
+    #[serde(default = "Settings::full_size")]
+    zoom_percent: u16,
+    trusted_folders: Vec<PathBuf>,
+    composer_height_px: Option<u16>,
+    new_projects_in: Option<PathBuf>,
+    not_for_claude_code: Vec<PathBuf>,
+    look: Look,
+    send_with: SendKey,
+    han_text: Option<CjkLanguage>,
+    peer_messages: PeerMessages,
+    pinned_projects: Vec<PathBuf>,
+    hidden_projects: Vec<PathBuf>,
+    project_sort: ProjectSort,
+    show_hidden_projects: bool,
+    show_all_projects: bool,
+    recent_projects: Vec<RecentProject>,
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl From<Legacy> for Settings {
+    fn from(legacy: Legacy) -> Self {
+        // Pinning a folder unhid it, and hiding one unpinned it: a folder was in one list at most.
+        let project_marks = legacy
+            .hidden_projects
+            .into_iter()
+            .map(|folder| (folder, ProjectMark::Hidden))
+            .chain(
+                legacy
+                    .pinned_projects
+                    .into_iter()
+                    .map(|folder| (folder, ProjectMark::Pinned)),
+            )
+            .collect();
+        Self {
+            zoom_percent: legacy.zoom_percent,
+            trusted_folders: legacy.trusted_folders,
+            composer_height_px: legacy.composer_height_px,
+            new_projects_in: legacy.new_projects_in,
+            not_for_claude_code: legacy.not_for_claude_code,
+            look: legacy.look,
+            send_with: legacy.send_with,
+            han_text: legacy.han_text,
+            peer_messages: legacy.peer_messages,
+            project_marks,
+            project_sort: legacy.project_sort,
+            show_hidden_projects: legacy.show_hidden_projects,
+            show_all_projects: legacy.show_all_projects,
+            recent_projects: legacy.recent_projects,
+        }
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[derive(Debug, thiserror::Error)]
+pub enum Error {
+    #[error("no configuration folder to keep settings in")]
+    NoConfigDir,
+    #[error("no state folder to keep edualc's state in")]
+    NoStateDir,
+    #[error("couldn't read {path}: {source}")]
+    Read {
+        path: PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
+    #[error("{path} isn't TOML: {source}")]
+    NotToml {
+        path: PathBuf,
+        #[source]
+        source: toml_edit::TomlError,
+    },
+    #[error("{path} isn't configuration this version reads: {source}")]
+    Config {
+        path: PathBuf,
+        #[source]
+        source: toml_edit::de::Error,
+    },
+    #[error("{path} isn't what this version reads: {source}")]
+    Json {
+        path: PathBuf,
+        #[source]
+        source: serde_json::Error,
+    },
+    #[error("couldn't put the configuration into TOML: {0}")]
+    EncodeToml(#[source] toml_edit::ser::Error),
+    #[error("couldn't put the state into JSON: {0}")]
+    EncodeJson(#[source] serde_json::Error),
+    #[error("couldn't write {path}: {source}")]
+    Write {
+        path: PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
+}
+
+/// Where the settings are kept.
+#[cfg(not(target_arch = "wasm32"))]
+#[derive(Debug, Clone)]
+struct Paths {
+    config: PathBuf,
+    state: PathBuf,
+    legacy: PathBuf,
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl Paths {
+    fn of_user() -> Result<Self, Error> {
+        let config = dirs::config_dir().ok_or(Error::NoConfigDir)?.join("edualc");
+        // macOS has no state folder: its application support folder, as for data.
+        let state = dirs::state_dir()
+            .or_else(dirs::data_local_dir)
+            .ok_or(Error::NoStateDir)?
+            .join("edualc");
+        Ok(Self {
+            config: config.join("config.toml"),
+            state: state.join("state.json"),
+            legacy: config.join("settings.json"),
+        })
+    }
+}
+
+/// The settings as kept, with what `config.toml` holds as written, to change a key of.
+#[cfg(not(target_arch = "wasm32"))]
+enum Kept {
+    /// In `config.toml` and `state.json`, or in neither.
+    Split {
+        settings: Settings,
+        config: Option<toml_edit::DocumentMut>,
+    },
+    /// In the `settings.json` of an earlier version.
+    Legacy(Settings),
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl Kept {
+    fn into_settings(self) -> Settings {
+        match self {
+            Self::Split { settings, .. } | Self::Legacy(settings) => settings,
+        }
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn read_optional(path: &Path) -> Result<Option<String>, Error> {
+    match std::fs::read_to_string(path) {
+        Ok(text) => Ok(Some(text)),
+        Err(source) if source.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(source) => Err(Error::Read {
+            path: path.to_path_buf(),
+            source,
+        }),
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn load_at(paths: &Paths) -> Result<Kept, Error> {
+    let config_text = read_optional(&paths.config)?;
+    let state_text = read_optional(&paths.state)?;
+    if config_text.is_none()
+        && state_text.is_none()
+        && let Some(legacy) = read_optional(&paths.legacy)?
+    {
+        let legacy: Legacy = serde_json::from_str(&legacy).map_err(|source| Error::Json {
+            path: paths.legacy.clone(),
+            source,
+        })?;
+        return Ok(Kept::Legacy(legacy.into()));
+    }
+    let config_doc = config_text
+        .map(|text| {
+            text.parse::<toml_edit::DocumentMut>()
+                .map_err(|source| Error::NotToml {
+                    path: paths.config.clone(),
+                    source,
+                })
+        })
+        .transpose()?;
+    let config = match &config_doc {
+        Some(doc) => toml_edit::de::from_document(doc.clone()).map_err(|source| Error::Config {
+            path: paths.config.clone(),
             source,
         })?,
-        Err(source) if source.kind() == std::io::ErrorKind::NotFound => Settings::default(),
-        Err(source) => return Err(Error::Read { path, source }),
+        None => Config::default(),
     };
-    settings.apply(change);
+    let state = match state_text {
+        Some(text) => serde_json::from_str(&text).map_err(|source| Error::Json {
+            path: paths.state.clone(),
+            source,
+        })?,
+        None => State::default(),
+    };
+    Ok(Kept::Split {
+        settings: Settings::from_parts(config, state),
+        config: config_doc,
+    })
+}
+
+/// The kept settings; the defaults if none were kept yet.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn load() -> Result<Settings, Error> {
+    Ok(load_at(&Paths::of_user()?)?.into_settings())
+}
+
+/// Makes `change` to the kept settings and writes back the file it is in, unless a file
+/// doesn't parse: what it holds (a hand edit with a typo, a later version's keys) would be
+/// lost, and it stays until it is put right. Changes are made one at a time, by one owner
+/// (edualcd).
+#[cfg(not(target_arch = "wasm32"))]
+pub fn change(change: Change) -> Result<Settings, Error> {
+    change_at(&Paths::of_user()?, change)
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn change_at(paths: &Paths, change: Change) -> Result<Settings, Error> {
+    let key = change.config_key();
+    match load_at(paths)? {
+        Kept::Legacy(mut settings) => {
+            settings.apply(change);
+            // Both, so neither the configuration nor the state is lost once one is there.
+            let config =
+                toml_edit::ser::to_document(&Config::from(&settings)).map_err(Error::EncodeToml)?;
+            write_atomically(&paths.config, config.to_string().as_bytes())?;
+            write_state(paths, &settings)?;
+            Ok(settings)
+        }
+        Kept::Split {
+            mut settings,
+            config,
+        } => {
+            settings.apply(change);
+            match key {
+                Some(key) => {
+                    let mut doc = config.unwrap_or_default();
+                    set_key(&mut doc, key, &Config::from(&settings))?;
+                    write_atomically(&paths.config, doc.to_string().as_bytes())?;
+                }
+                None => write_state(paths, &settings)?,
+            }
+            Ok(settings)
+        }
+    }
+}
+
+/// Puts `key` in `doc` as `config` has it, or takes it out if `config` has none, keeping the
+/// comments around it.
+#[cfg(not(target_arch = "wasm32"))]
+fn set_key(doc: &mut toml_edit::DocumentMut, key: ConfigKey, config: &Config) -> Result<(), Error> {
+    let name: &'static str = key.into();
+    let mut fresh = toml_edit::ser::to_document(config).map_err(Error::EncodeToml)?;
+    match fresh.remove(name).and_then(|item| item.into_value().ok()) {
+        Some(mut value) => match doc.get_mut(name).and_then(toml_edit::Item::as_value_mut) {
+            Some(written) => {
+                *value.decor_mut() = written.decor().clone();
+                *written = value;
+            }
+            None => {
+                doc.insert(name, toml_edit::Item::Value(value));
+            }
+        },
+        None => {
+            doc.remove(name);
+        }
+    }
+    Ok(())
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn write_state(paths: &Paths, settings: &Settings) -> Result<(), Error> {
+    let text = serde_json::to_string_pretty(&State::from(settings)).map_err(Error::EncodeJson)?;
+    write_atomically(&paths.state, text.as_bytes())
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn write_atomically(path: &Path, bytes: &[u8]) -> Result<(), Error> {
     if let Some(dir) = path.parent() {
         private_folder(dir).map_err(|source| Error::Write {
             path: dir.to_owned(),
             source,
         })?;
     }
-    let text = serde_json::to_string_pretty(&settings).map_err(Error::Encode)?;
     // Written beside the file and renamed over it, so a crash leaves the old file or the new
     // one, never half of one that no longer parses.
-    let fresh = path.with_extension("json.new");
-    private_file(&fresh, text.as_bytes()).map_err(|source| Error::Write {
+    let mut fresh_name = path.as_os_str().to_os_string();
+    fresh_name.push(".new");
+    let fresh = PathBuf::from(fresh_name);
+    private_file(&fresh, bytes).map_err(|source| Error::Write {
         path: fresh.clone(),
         source,
     })?;
-    std::fs::rename(&fresh, &path).map_err(|source| Error::Write { path, source })?;
-    Ok(settings)
+    std::fs::rename(&fresh, path).map_err(|source| Error::Write {
+        path: path.to_path_buf(),
+        source,
+    })
 }
 
 /// `dir` and the folders above it that aren't there yet, made readable by the user alone.
-fn private_folder(dir: &std::path::Path) -> std::io::Result<()> {
+#[cfg(not(target_arch = "wasm32"))]
+fn private_folder(dir: &Path) -> std::io::Result<()> {
     let mut builder = std::fs::DirBuilder::new();
     builder.recursive(true);
     #[cfg(unix)]
@@ -389,7 +736,8 @@ fn private_folder(dir: &std::path::Path) -> std::io::Result<()> {
 }
 
 /// `path` written anew with `bytes`, readable by the user alone.
-fn private_file(path: &std::path::Path, bytes: &[u8]) -> std::io::Result<()> {
+#[cfg(not(target_arch = "wasm32"))]
+fn private_file(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     let mut options = std::fs::OpenOptions::new();
     options.write(true).create(true).truncate(true);
     #[cfg(unix)]
@@ -397,9 +745,26 @@ fn private_file(path: &std::path::Path, bytes: &[u8]) -> std::io::Result<()> {
     std::io::Write::write_all(&mut options.open(path)?, bytes)
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
     use super::*;
+
+    /// A folder of the test's own, with where the settings would be kept in it.
+    fn scratch(label: &str) -> (PathBuf, Paths) {
+        let dir = std::env::temp_dir().join(format!("edualc-{label}-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("a scratch folder");
+        let paths = Paths {
+            config: dir.join("config").join("config.toml"),
+            state: dir.join("state").join("state.json"),
+            legacy: dir.join("config").join("settings.json"),
+        };
+        (dir, paths)
+    }
+
+    fn mode(path: &Path) -> u32 {
+        let metadata = std::fs::metadata(path).expect("the file is there");
+        std::os::unix::fs::PermissionsExt::mode(&metadata.permissions()) & 0o777
+    }
 
     #[test]
     fn zoom_steps_within_its_range() {
@@ -418,160 +783,237 @@ mod tests {
     }
 
     #[test]
-    fn older_files_without_a_zoom_read_as_full_size() {
-        let settings: Settings = serde_json::from_str("{}").expect("parses");
-        assert_eq!(settings, Settings::default());
+    fn nothing_kept_reads_as_the_defaults() {
+        let (dir, paths) = scratch("nothing-kept");
+        let kept = load_at(&paths).expect("loads").into_settings();
+        assert_eq!(kept, Settings::default());
+        let config: Config = toml_edit::de::from_str("").expect("an empty file parses");
+        assert_eq!(config, Config::default());
+        std::fs::remove_dir_all(&dir).expect("cleaned up");
     }
 
-    /// A file written while edualc had its sandbox loads, the sandbox's keys dropped and the
-    /// rest kept; saved, it holds none of them.
+    /// An earlier version's `settings.json`, with the sandbox's keys, is read as it was, and
+    /// the first change, of the state alone, moves all of it into `config.toml` and
+    /// `state.json`.
     #[test]
-    fn an_older_file_with_the_sandboxs_keys_loads() {
-        let older = r#"{
+    fn an_earlier_settings_json_moves_into_both_files() {
+        let (dir, paths) = scratch("earlier-settings");
+        let earlier = r#"{
             "zoom_percent": 120,
             "trusted_folders": ["/work/app"],
+            "sidebar_width_px": 300,
             "sandbox": false,
-            "sandbox_desktop": true,
-            "sandbox_hardware": ["/work/firmware"],
-            "sandbox_messages_unasked": true,
-            "sandbox_read": ["/opt/toolchain"],
             "sandbox_write": ["/srv/shared"],
-            "look": "plain"
+            "look": "plain",
+            "pinned_projects": ["/work/app"],
+            "hidden_projects": ["/work/old"]
         }"#;
-        let read = parse(older).expect("an older file loads");
-        assert_eq!(read.zoom_percent, 120);
-        assert_eq!(read.trusted_folders, [PathBuf::from("/work/app")]);
-        assert_eq!(read.look, Look::Plain);
+        std::fs::create_dir_all(paths.legacy.parent().expect("a parent")).expect("made");
+        std::fs::write(&paths.legacy, earlier).expect("written");
 
-        let dir = std::env::temp_dir().join(format!("edualc-older-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).expect("a scratch folder");
-        let path = dir.join("settings.json");
-        std::fs::write(&path, older).expect("written");
-        change_at(path.clone(), Change::Look(Look::Plain)).expect("an older file is written over");
-        let saved = std::fs::read_to_string(&path).expect("read back");
-        assert!(!saved.contains("sandbox"), "{saved}");
-        assert_eq!(parse(&saved).expect("parses"), read);
+        let read = load_at(&paths).expect("loads").into_settings();
+        assert_eq!(read.zoom_percent, 120);
+        assert_eq!(read.look, Look::Plain);
+        assert_eq!(read.trusted_folders, [PathBuf::from("/work/app")]);
+        assert_eq!(
+            read.project_mark(Path::new("/work/app")),
+            Some(ProjectMark::Pinned)
+        );
+        assert_eq!(
+            read.project_mark(Path::new("/work/old")),
+            Some(ProjectMark::Hidden)
+        );
+
+        let changed = change_at(&paths, Change::ShowAllProjects(true)).expect("moved");
+        assert!(changed.show_all_projects);
+        let config = std::fs::read_to_string(&paths.config).expect("config.toml written");
+        assert!(config.contains("zoom_percent = 120"), "{config}");
+        assert!(config.contains("look = \"plain\""), "{config}");
+        assert!(!config.contains("sandbox"), "{config}");
+        assert!(
+            std::fs::read_to_string(&paths.state).is_ok_and(|state| !state.contains("sandbox"))
+        );
+        assert_eq!(load_at(&paths).expect("reloads").into_settings(), changed);
         std::fs::remove_dir_all(&dir).expect("cleaned up");
     }
 
-    /// Enter sends unless the file says Ctrl+Enter, as it is written.
+    /// A change of what `config.toml` holds keeps its comments, those after a value too, and a
+    /// change of the state leaves `config.toml` as it was.
     #[test]
-    fn the_key_that_sends_is_kept() {
-        let older: Settings = serde_json::from_str(r#"{ "look": "plain" }"#).expect("parses");
-        assert_eq!(older.send_with, SendKey::Enter);
-        let chosen = Settings {
-            send_with: SendKey::CtrlEnter,
-            ..Settings::default()
-        };
-        let written = serde_json::to_string(&chosen).expect("written");
-        assert!(written.contains(r#""send_with":"ctrl_enter""#), "{written}");
-        let read: Settings = serde_json::from_str(&written).expect("read back");
-        assert_eq!(read.send_with, SendKey::CtrlEnter);
+    fn config_toml_keeps_its_comments() {
+        let (dir, paths) = scratch("toml-comments");
+        std::fs::create_dir_all(paths.config.parent().expect("a parent")).expect("made");
+        let written = "\
+# Mine
+look = \"gruvbox\" # warm
+
+# Enter for new lines
+send_with = \"ctrl_enter\"
+";
+        std::fs::write(&paths.config, written).expect("written");
+
+        change_at(&paths, Change::Trust(PathBuf::from("/work/app"))).expect("trusted");
+        assert_eq!(
+            std::fs::read_to_string(&paths.config).expect("read"),
+            written
+        );
+
+        change_at(&paths, Change::Look(Look::Plain)).expect("changed");
+        change_at(&paths, Change::NewProjectsIn(Some(PathBuf::from("/work")))).expect("set");
+        assert_eq!(
+            std::fs::read_to_string(&paths.config).expect("read"),
+            "\
+# Mine
+look = \"plain\" # warm
+
+# Enter for new lines
+send_with = \"ctrl_enter\"
+new_projects_in = \"/work\"
+"
+        );
+        change_at(&paths, Change::NewProjectsIn(None)).expect("unset");
+        assert!(
+            std::fs::read_to_string(&paths.config).is_ok_and(|config| !config.contains("/work"))
+        );
+        std::fs::remove_dir_all(&dir).expect("cleaned up");
     }
 
-    /// A file that doesn't parse stays as it is; one that does is written over, as is a missing
-    /// one.
+    /// Each change of `config.toml` writes the key its field reads, so it reads back the same.
+    #[test]
+    fn every_config_key_reads_back() {
+        let (dir, paths) = scratch("config-keys");
+        let changes = [
+            Change::ZoomPercent(130),
+            Change::Look(Look::Plain),
+            Change::SendWith(SendKey::CtrlEnter),
+            Change::HanText(CjkLanguage::Korean),
+            Change::NewProjectsIn(Some(PathBuf::from("/work"))),
+            Change::PeerMessages(PeerMessages::AskEachSender),
+            Change::ProjectSort(ProjectSort::Recent),
+        ];
+        let mut expected = Settings::default();
+        for change in changes {
+            assert!(change.config_key().is_some(), "{change:?}");
+            expected.apply(change.clone());
+            change_at(&paths, change).expect("changed");
+        }
+        assert!(!paths.state.exists(), "only config.toml is written");
+        assert_eq!(load_at(&paths).expect("reloads").into_settings(), expected);
+        std::fs::remove_dir_all(&dir).expect("cleaned up");
+    }
+
+    /// A file that doesn't parse stays as it is; a missing one is written.
     #[test]
     fn a_file_that_doesnt_parse_isnt_written_over() {
-        let dir = std::env::temp_dir().join(format!("edualc-settings-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).expect("a scratch folder");
-        let path = dir.join("settings.json");
-        let typo = r#"{"trusted_folders": ["/kept"], "trusted_foldres": []}"#;
-        std::fs::write(&path, typo).expect("written");
+        let (dir, paths) = scratch("bad-toml");
+        std::fs::create_dir_all(paths.config.parent().expect("a parent")).expect("made");
+        let typo = "look = \"plain\"\nzooom_percent = 120\n";
+        std::fs::write(&paths.config, typo).expect("written");
         assert!(matches!(
-            change_at(path.clone(), Change::Look(Look::Plain)),
-            Err(Error::Parse { .. })
+            change_at(&paths, Change::Look(Look::Gruvbox)),
+            Err(Error::Config { .. })
         ));
-        assert_eq!(std::fs::read_to_string(&path).ok().as_deref(), Some(typo));
-        std::fs::remove_file(&path).expect("removed");
-        change_at(path.clone(), Change::Look(Look::Plain)).expect("a missing file is written");
-        change_at(path, Change::Look(Look::Gruvbox)).expect("a file that parses is written over");
+        let broken = "look = \"plain\n";
+        std::fs::write(&paths.config, broken).expect("written");
+        assert!(matches!(
+            change_at(&paths, Change::Look(Look::Gruvbox)),
+            Err(Error::NotToml { .. })
+        ));
+        assert_eq!(
+            std::fs::read_to_string(&paths.config).ok().as_deref(),
+            Some(broken)
+        );
+        std::fs::remove_file(&paths.config).expect("removed");
+        change_at(&paths, Change::Look(Look::Plain)).expect("a missing file is written");
         std::fs::remove_dir_all(&dir).expect("cleaned up");
     }
 
-    /// A change is made to the file as it is now: one window's trusted folder stays when
-    /// another changes the zoom, and a folder trusted twice is listed once.
+    /// Changes from two windows both stick, nothing is left beside the files, and only the
+    /// user can read them.
     #[test]
     fn changes_from_two_windows_are_both_kept() {
-        let dir = std::env::temp_dir().join(format!("edualc-change-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).expect("a scratch folder");
-        let path = dir.join("settings.json");
-        change_at(path.clone(), Change::Trust(PathBuf::from("/work/app"))).expect("trusted");
-        change_at(path.clone(), Change::ZoomPercent(120)).expect("zoomed");
-        change_at(path.clone(), Change::Trust(PathBuf::from("/work/app"))).expect("again");
-        let kept = parse(&std::fs::read_to_string(&path).expect("read back")).expect("parses");
+        let (dir, paths) = scratch("two-windows");
+        change_at(&paths, Change::Trust(PathBuf::from("/work/app"))).expect("trusted");
+        change_at(&paths, Change::ZoomPercent(120)).expect("zoomed");
+        change_at(&paths, Change::Trust(PathBuf::from("/work/app"))).expect("again");
+        let kept = load_at(&paths).expect("reloads").into_settings();
         assert_eq!(kept.trusted_folders, [PathBuf::from("/work/app")]);
         assert_eq!(kept.zoom_percent, 120);
-        assert!(!dir.join("settings.json.new").exists());
-        let mode = std::os::unix::fs::PermissionsExt::mode(
-            &std::fs::metadata(&path).expect("the file").permissions(),
-        );
-        assert_eq!(mode & 0o777, 0o600, "readable by the user alone");
+        assert!(!paths.config.with_extension("toml.new").exists());
+        assert!(!paths.state.with_extension("json.new").exists());
+        assert_eq!(mode(&paths.config), 0o600);
+        assert_eq!(mode(&paths.state), 0o600);
         std::fs::remove_dir_all(&dir).expect("cleaned up");
     }
 
-    /// A key written by hand with a typo would otherwise be dropped, and its setting quietly
-    /// left at the default.
     #[test]
     fn a_misspelled_key_is_refused() {
-        assert!(parse(r#"{"trusted_foldres": ["/tmp"]}"#).is_err());
-        assert!(parse(r#"{"trusted_folders": ["/tmp"]}"#).is_ok());
+        assert!(toml_edit::de::from_str::<Config>("send_wit = \"enter\"").is_err());
+        assert!(toml_edit::de::from_str::<Config>("send_with = \"ctrl_enter\"").is_ok());
+        assert!(serde_json::from_str::<State>(r#"{"trusted_foldres": ["/tmp"]}"#).is_err());
+        assert!(serde_json::from_str::<State>(r#"{"trusted_folders": ["/tmp"]}"#).is_ok());
     }
 
     #[test]
-    fn start_project_management_settings_roundtrip_and_apply() {
-        let mut settings = parse("{}").expect("empty object uses defaults");
-        assert_eq!(settings.project_sort, ProjectSort::PinnedFirst);
-        assert!(!settings.show_hidden_projects);
-        assert!(!settings.show_all_projects);
-        assert!(settings.pinned_projects.is_empty());
-        assert!(settings.hidden_projects.is_empty());
-        assert!(settings.recent_projects.is_empty());
+    fn a_folder_has_one_mark_at_most() {
+        let mut settings = Settings::default();
+        let alpha = PathBuf::from("/work/alpha");
+        settings.apply(Change::TogglePinProject(alpha.clone()));
+        assert_eq!(settings.project_mark(&alpha), Some(ProjectMark::Pinned));
+        settings.apply(Change::ToggleHideProject(alpha.clone()));
+        assert_eq!(settings.project_mark(&alpha), Some(ProjectMark::Hidden));
+        settings.apply(Change::ToggleHideProject(alpha.clone()));
+        assert_eq!(settings.project_mark(&alpha), None);
+        settings.apply(Change::TogglePinProject(alpha.clone()));
+        settings.apply(Change::RemoveProject(alpha.clone()));
+        assert_eq!(settings.project_mark(&alpha), Some(ProjectMark::Removed));
+        settings.apply(Change::TogglePinProject(alpha.clone()));
+        assert_eq!(settings.project_mark(&alpha), Some(ProjectMark::Pinned));
+    }
 
+    /// Opening folders keeps them newest first; removing one takes it off the list until it
+    /// is opened again.
+    #[test]
+    fn a_removed_folder_comes_back_when_opened() {
+        let mut settings = Settings::default();
         let alpha = PathBuf::from("/work/alpha");
         let beta = PathBuf::from("/work/beta");
-        settings.apply(Change::TogglePinProject(alpha.clone()));
-        assert_eq!(settings.pinned_projects, vec![alpha.clone()]);
-        settings.apply(Change::TogglePinProject(alpha.clone()));
-        assert!(settings.pinned_projects.is_empty());
+        for (path, opened_secs) in [(&alpha, 10), (&beta, 20), (&alpha, 30)] {
+            settings.apply(Change::TouchProject {
+                path: path.clone(),
+                opened_secs,
+            });
+        }
+        let opened = |settings: &Settings| -> Vec<(PathBuf, u64)> {
+            settings
+                .recent_projects
+                .iter()
+                .map(|recent| (recent.path.clone(), recent.opened_secs))
+                .collect()
+        };
+        assert_eq!(opened(&settings), [(alpha.clone(), 30), (beta.clone(), 20)]);
 
-        settings.apply(Change::ToggleHideProject(beta.clone()));
-        assert_eq!(settings.hidden_projects, vec![beta.clone()]);
-        settings.apply(Change::TogglePinProject(beta.clone()));
-        assert_eq!(settings.pinned_projects, vec![beta.clone()]);
-        assert!(settings.hidden_projects.is_empty());
+        settings.apply(Change::RemoveProject(beta.clone()));
+        assert!(settings.is_removed(&beta));
+        assert_eq!(opened(&settings), [(alpha.clone(), 30)]);
 
-        settings.apply(Change::ProjectSort(ProjectSort::Recent));
-        settings.apply(Change::ShowHiddenProjects(true));
-        settings.apply(Change::ShowAllProjects(true));
+        settings.apply(Change::TouchProject {
+            path: beta.clone(),
+            opened_secs: 40,
+        });
+        assert_eq!(settings.project_mark(&beta), None);
+        assert_eq!(opened(&settings), [(beta, 40), (alpha, 30)]);
+    }
+
+    #[test]
+    fn opening_a_pinned_folder_keeps_it_pinned() {
+        let mut settings = Settings::default();
+        let alpha = PathBuf::from("/work/alpha");
+        settings.apply(Change::TogglePinProject(alpha.clone()));
         settings.apply(Change::TouchProject {
             path: alpha.clone(),
             opened_secs: 10,
         });
-        settings.apply(Change::TouchProject {
-            path: beta.clone(),
-            opened_secs: 20,
-        });
-        settings.apply(Change::TouchProject {
-            path: alpha.clone(),
-            opened_secs: 30,
-        });
-        assert_eq!(
-            settings.recent_projects,
-            [
-                RecentProject {
-                    path: alpha,
-                    opened_secs: 30,
-                },
-                RecentProject {
-                    path: beta,
-                    opened_secs: 20,
-                },
-            ]
-        );
-
-        let saved = serde_json::to_string(&settings).expect("serializes");
-        let reloaded = parse(&saved).expect("reloads");
-        assert_eq!(reloaded, settings);
+        assert_eq!(settings.project_mark(&alpha), Some(ProjectMark::Pinned));
     }
 }

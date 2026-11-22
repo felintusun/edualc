@@ -69,6 +69,8 @@ rustls.workspace = true
 # A native window's line over the network (`line`, `ipc::ws`): the Android app's.
 tokio-tungstenite.workspace = true
 futures-util.workspace = true
+# `config.toml`, changed a key at a time so what you wrote around it stays.
+toml_edit.workspace = true
 
 # A page: its clock, random numbers and timers.
 [target.'cfg(target_arch = "wasm32")'.dependencies]

@@ -68,13 +68,16 @@
     border: 1px solid var(--divider); border-radius: var(--radius-l); background: var(--card);
     overflow: hidden;
 }
+.card-head-row { display: flex; align-items: flex-start; min-width: 0; }
 .card-head {
+    flex: 1; min-width: 0;
     display: flex; align-items: flex-start; gap: var(--space-m); text-align: left;
     padding: var(--space-m) var(--space-l); border: none; background: transparent; color: var(--text);
     cursor: pointer;
 }
 .card-head:hover { background: var(--hover); }
 .card-head:active { background: var(--pressed); }
+.card-remove { flex: none; margin: var(--space-s) var(--space-s) 0 0; }
 .card-texts { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .card-name { font-size: var(--title); font-weight: 600; }
 .card-marks { flex: none; display: flex; align-items: center; gap: var(--space-s); white-space: nowrap; }

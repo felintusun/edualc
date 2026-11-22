@@ -11,16 +11,21 @@ use crate::external::wire::SessionId;
 use crate::ipc::{Hosted, HostedId, HostedState, ProjectOverview};
 use crate::provider::{Program, SignInWith};
 use crate::sessions::{self, LiveSession, LiveStatus, SessionInfo};
-use crate::settings::{ProjectSort, RecentProject};
+use crate::settings::{ProjectMark, ProjectSort, RecentProject};
 
 const CARD_SESSIONS: usize = 5;
 
-#[derive(Debug, Default, Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 pub struct Options<'a> {
-    pub pinned: &'a [PathBuf],
-    pub hidden: &'a [PathBuf],
+    pub marks: &'a BTreeMap<PathBuf, ProjectMark>,
     pub recent: &'a [RecentProject],
     pub sort: ProjectSort,
+}
+
+impl Options<'_> {
+    fn is_removed(&self, folder: &Path) -> bool {
+        self.marks.get(folder) == Some(&ProjectMark::Removed)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -114,7 +119,12 @@ pub fn build(
     hosted: &[Hosted],
     home: Option<&Path>,
 ) -> Built {
-    build_with(projects, live, hosted, home, &Options::default())
+    let options = Options {
+        marks: &BTreeMap::new(),
+        recent: &[],
+        sort: ProjectSort::default(),
+    };
+    build_with(projects, live, hosted, home, &options)
 }
 
 pub fn build_with(
@@ -124,7 +134,7 @@ pub fn build_with(
     home: Option<&Path>,
     options: &Options<'_>,
 ) -> Built {
-    let entries = collect_projects(projects, live, hosted, home, options.recent);
+    let entries = collect_projects(projects, live, hosted, home, options);
     let paths: Vec<&Path> = entries.iter().map(|entry| entry.path.as_path()).collect();
     let names = distinct_names(&paths);
 
@@ -134,8 +144,9 @@ pub fn build_with(
     let mut matched_live: HashSet<SessionId> = HashSet::new();
 
     for (entry, name) in entries.into_iter().zip(names) {
-        let pinned = options.pinned.contains(&entry.path);
-        let hidden = options.hidden.contains(&entry.path);
+        let mark = options.marks.get(&entry.path);
+        let pinned = mark == Some(&ProjectMark::Pinned);
+        let hidden = mark == Some(&ProjectMark::Hidden);
         let card = build_card(
             &entry,
             &name,
@@ -251,12 +262,12 @@ fn collect_projects(
     live: &[LiveSession],
     hosted: &[Hosted],
     home: Option<&Path>,
-    recent: &[RecentProject],
+    options: &Options<'_>,
 ) -> Vec<ProjectOverview> {
     let mut seen: BTreeMap<PathBuf, usize> = BTreeMap::new();
     let mut entries: Vec<ProjectOverview> = Vec::new();
     for project in projects {
-        if home == Some(project.path.as_path()) {
+        if home == Some(project.path.as_path()) || options.is_removed(&project.path) {
             continue;
         }
         if let std::collections::btree_map::Entry::Vacant(slot) = seen.entry(project.path.clone()) {
@@ -264,8 +275,8 @@ fn collect_projects(
             entries.push(project.clone());
         }
     }
-    for item in recent {
-        if home == Some(item.path.as_path()) {
+    for item in options.recent {
+        if home == Some(item.path.as_path()) || options.is_removed(&item.path) {
             continue;
         }
         let opened = SystemTime::UNIX_EPOCH + Duration::from_secs(item.opened_secs);
@@ -284,7 +295,10 @@ fn collect_projects(
     }
     let now = SystemTime::now();
     for item in hosted {
-        if home == Some(item.cwd.as_path()) || matches_known_project(projects, item) {
+        if home == Some(item.cwd.as_path())
+            || options.is_removed(&item.cwd)
+            || matches_known_project(projects, item)
+        {
             continue;
         }
         if let std::collections::btree_map::Entry::Vacant(slot) = seen.entry(item.cwd.clone()) {
@@ -297,7 +311,7 @@ fn collect_projects(
         }
     }
     for item in live {
-        if home == Some(item.cwd.as_path()) {
+        if home == Some(item.cwd.as_path()) || options.is_removed(&item.cwd) {
             continue;
         }
         if let std::collections::btree_map::Entry::Vacant(slot) = seen.entry(item.cwd.clone()) {
@@ -839,13 +853,24 @@ mod tests {
             project("/code/older", 100, vec![saved(1, "Older", 100, None)]),
             project("/code/newer", 300, vec![saved(2, "Newer", 300, None)]),
             project("/code/hidden", 250, vec![saved(3, "Hidden", 250, None)]),
+            project("/code/removed", 400, vec![saved(4, "Removed", 400, None)]),
         ];
-        let pinned = [PathBuf::from("/code/older")];
-        let hidden = [PathBuf::from("/code/hidden")];
-        let recent = [RecentProject {
-            path: PathBuf::from("/code/brand-new"),
-            opened_secs: 200,
-        }];
+        let marks = BTreeMap::from([
+            (PathBuf::from("/code/older"), ProjectMark::Pinned),
+            (PathBuf::from("/code/hidden"), ProjectMark::Hidden),
+            (PathBuf::from("/code/removed"), ProjectMark::Removed),
+            (PathBuf::from("/code/removed-recent"), ProjectMark::Removed),
+        ]);
+        let recent = [
+            RecentProject {
+                path: PathBuf::from("/code/brand-new"),
+                opened_secs: 200,
+            },
+            RecentProject {
+                path: PathBuf::from("/code/removed-recent"),
+                opened_secs: 500,
+            },
+        ];
 
         let pinned_first = build_with(
             &projects,
@@ -853,8 +878,7 @@ mod tests {
             &[],
             None,
             &Options {
-                pinned: &pinned,
-                hidden: &hidden,
+                marks: &marks,
                 recent: &recent,
                 sort: ProjectSort::PinnedFirst,
             },
@@ -880,8 +904,7 @@ mod tests {
             &[],
             None,
             &Options {
-                pinned: &pinned,
-                hidden: &hidden,
+                marks: &marks,
                 recent: &recent,
                 sort: ProjectSort::Recent,
             },
