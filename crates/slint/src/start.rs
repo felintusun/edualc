@@ -10,11 +10,11 @@ use crate::external::wire::SessionId;
 use crate::folder::{Folder, FolderError};
 use crate::{app, connect, decode, desktop, generated, sessions, ui};
 
-/// A native desktop window for Claude Code.
+/// A native desktop window for coding agents: Claude Code, agy and opencode.
 ///
 /// Its arguments work like claude's own: the folder to work in, the model, a session to
-/// continue, and a first prompt. It needs claude (Claude Code) on the PATH, or agy or opencode
-/// with --backend.
+/// continue, and a first prompt. It needs the program it runs on the PATH: claude (Claude Code)
+/// by default, agy or opencode with --backend.
 #[derive(Debug, clap::Parser)]
 #[command(name = "edualc", version, about)]
 struct Args {

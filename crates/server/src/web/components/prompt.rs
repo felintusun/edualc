@@ -140,6 +140,7 @@ pub fn PromptBar() -> Element {
 #[component]
 fn ToolPrompt(armed: bool, grab: Grab) -> Element {
     let view = use_context::<View>();
+    let agent = view.session.read().agent_name.clone();
     let mut feedback = use_signal(String::new);
     use_effect(move || {
         if grab.asked() {
@@ -209,8 +210,8 @@ fn ToolPrompt(armed: bool, grab: Grab) -> Element {
                 id: "prompt-feedback",
                 class: "field prompt-field",
                 r#type: "text",
-                placeholder: "Or tell Claude what to do instead",
-                "aria-label": "Or tell Claude what to do instead",
+                placeholder: "Or tell {agent} what to do instead",
+                "aria-label": "Or tell {agent} what to do instead",
                 value: "{feedback}",
                 oninput: move |event| feedback.set(event.value()),
                 onkeydown: move |event| {
@@ -363,6 +364,7 @@ fn QuestionEntry(
     grab: Grab,
 ) -> Element {
     let view = use_context::<View>();
+    let agent = view.session.read().agent_name.clone();
     // The option the arrow keys are on.
     let mut at = use_signal(|| 0_usize);
     // The option last pointed at, and last picked: the preview shows the one pointed at, else
@@ -505,8 +507,8 @@ fn QuestionEntry(
             input {
                 class: "field prompt-field",
                 r#type: "text",
-                placeholder: "Notes for Claude, with the answer (optional)",
-                "aria-label": "Notes for Claude, with the answer (optional)",
+                placeholder: "Notes for {agent}, with the answer (optional)",
+                "aria-label": "Notes for {agent}, with the answer (optional)",
                 oninput: move |event| {
                     view.act(Action::SetNotes {
                         question: q,
@@ -634,6 +636,7 @@ fn PlanPrompt(armed: bool, grab: Grab) -> Element {
 #[component]
 fn PlanReview() -> Element {
     let view = use_context::<View>();
+    let agent = view.session.read().agent_name.clone();
     let mut page = view.page;
     let prompt = view.prompt.read();
     rsx! {
@@ -641,7 +644,7 @@ fn PlanReview() -> Element {
             div { class: "plan-review-header",
                 Icon { icon: Lucide::ListChecks, class: "plan-review-icon" }
                 div { class: "plan-review-titles",
-                    h2 { id: "plan-review-title", class: "plan-review-title", "Claude's plan" }
+                    h2 { id: "plan-review-title", class: "plan-review-title", "{agent}'s plan" }
                     div { class: "caption plan-review-caption",
                         "Comment on any part with the button beside it. Your comments go back with what you choose below."
                     }

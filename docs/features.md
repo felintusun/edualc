@@ -2,17 +2,26 @@
 
 The README has the short version. This page describes everything the window does.
 
-## Claude Code, as in your terminal
+## The programs it runs
 
-edualc starts the same `claude` program you run in a terminal, with your rights, your
-`~/.claude` and `~/.claude.json`, and your settings. Claude Code's own sandbox for its commands
-(bubblewrap) and Remote Control work as they do there. edualc adds no sandbox of its own.
+A session runs Claude Code, agy (Google's Antigravity CLI) or opencode; **New session** asks
+which. Each is the same program you run in a terminal, with your rights, your sign-in and your
+settings (`~/.claude`, `~/.gemini`, opencode's own). edualc adds no sandbox of its own, and
+Claude Code's sandbox for its commands (bubblewrap) and Remote Control work as they do in a
+terminal. Some features need what only one program offers; [agy and opencode](#agy-and-opencode)
+lists what differs.
 
 edualc keeps its own parts private. Only you can read its daemon's socket and its state files,
-and it doesn't listen on the network. Images are decoded in a separate, locked-down
-process (see [Images](#images)).
+and it listens on the network only if you ask it to ([remote.md](remote.md)). Images are decoded
+in a separate, locked-down process (see [Images](#images)).
+
+Earlier versions ran Claude Code in a sandbox, and those sessions kept their memory, plans, todos
+and file history in `~/.local/state/edualc/claude/<project>/`. edualc doesn't touch that folder,
+so you can copy what you still need from it. Their transcripts are in `~/.claude` already.
 
 ## Trust before anything runs
+
+![A cloned folder's hook, environment and MCP server, listed before anything runs](screenshots/trust.webp)
 
 A folder's hooks and settings take effect the moment Claude Code starts there. In a terminal,
 Claude Code asks first whether you trust the folder, but the mode edualc runs it in (`claude -p`)
@@ -60,6 +69,10 @@ If a file can't be read, the window says so rather than leaving it out.
 
 ## Permissions and questions
 
+![An edit waiting for permission, its diff shown in full](screenshots/edit-permission.webp)
+
+![Claude's questions as choices, with a code preview beside the selected one](screenshots/questions.webp)
+
 - **Answering a request:** allow, deny, deny and say what to do instead, or "always allow". "Always
   allow" names the exact rule Claude Code suggests and where it is kept, for example "… in this
   project".
@@ -71,6 +84,8 @@ If a file can't be read, the window says so rather than leaving it out.
 
 ## Plans
 
+![A plan under review, with comments on two of its steps](screenshots/plan-review.webp)
+
 When Claude presents a plan, it opens section by section. You can comment on any heading,
 paragraph or single list item. Then choose:
 
@@ -80,6 +95,8 @@ paragraph or single list item. Then choose:
   it as an "Approved Plan (edited by user)".
 
 ## Changes
+
+![The changes view showing what the last turn edited, with per-line diffs and review marks](screenshots/changes.webp)
 
 Before and after each turn, edualc's daemon looks at the session's folder, or at the worktree the
 session works in. So it can show what the turn changed, whoever changed it. A line under each
@@ -104,6 +121,8 @@ counts as a turn from Claude's first words. The snapshots are kept in
 
 ## Start page
 
+![The start page with a pinned project, recent projects and a session waiting for you](screenshots/start.webp)
+
 Opening `edualc` without a folder opens the start page:
 
 - **Needs you:** any running session across your projects waiting for permission, an answer, or
@@ -111,6 +130,9 @@ Opening `edualc` without a folder opens the start page:
 - **Projects:** each project folder shows its name, path, active state, recent sessions, and the
   last sentence Claude wrote. Click a project to see all of its sessions, or click a recent
   session on the card to open it directly.
+- **Pin, hide, remove:** a card's buttons pin it to the top, hide it until you show hidden
+  projects, or remove it from edualc. Removing keeps the folder and its transcripts; it comes
+  back when you open the folder again.
 - **Filter:** type in the filter box, or press **Ctrl+K**, to narrow projects by name, path, or
   recent output.
 - **New project…** (**Ctrl+N** on the start page) makes a new folder in your projects folder (you
@@ -192,6 +214,8 @@ Click an item to follow it in the side panel. For a subagent, the panel shows wh
 what it says, and each tool it calls. For a background command, it shows the end of the output.
 
 ## Side questions (`/btw`)
+
+![A side question answered in a panel beside the conversation](screenshots/side-question.webp)
 
 Type `/btw …`, or use the top bar's button, to ask a side question. Claude answers with the
 conversation's context, without adding to the conversation or running tools.
@@ -318,29 +342,37 @@ continue a Claude Code session while a key is kept, edualc asks which of the two
 ## Settings
 
 The gear in the top bar, or Ctrl+,, opens the settings over the workspace. Each change takes
-effect at once and is kept in `~/.config/edualc/settings.json`.
+effect at once and is kept in `~/.config/edualc/config.toml`, which you can also edit by hand:
+edualc changes only the key you changed and keeps your comments. What edualc keeps for itself
+(folders opened, pinned, hidden or trusted, the composer's height) is in
+`~/.local/state/edualc/state.json`.
 
-- **New projects:** the folder **New project…** makes new projects in, unless you choose another.
-- **Sending:** Enter sends, or Ctrl+Enter does, if you'd rather Enter started a new line.
-- **Text in Han characters alone:** Chinese, Japanese and Korean draw many Han characters
-  differently. A message with kana is set as Japanese and one with Hangul as Korean. Here you
-  choose how a message in Han characters alone is set.
-- **Account & API key:** shows your Claude Code sign-in details and lets you store or remove an
-  Anthropic API key in your keyring.
-- **Messages from other sessions:** let every message in, as at first, or ask before letting each
-  new sender in (see [Messages that wait to be let in](#messages-that-wait-to-be-let-in)).
-- **Shut down edualc's daemon:** the daemon runs the sessions of every window, and a newly
+The settings are in four tabs:
+
+- **Input:** Enter sends, or Ctrl+Enter does, if you'd rather Enter started a new line. And the
+  language of text in Han characters alone: Chinese, Japanese and Korean draw many Han characters
+  differently, so a message with kana is set as Japanese and one with Hangul as Korean, and here
+  you choose how a message in Han characters alone is set.
+- **Sessions:** whether messages from other sessions come in at once or wait until you let each
+  new sender in (see [Messages that wait to be let in](#messages-that-wait-to-be-let-in)), and the
+  folder **New project…** makes new projects in.
+- **Account:** your Claude Code sign-in details, and an Anthropic API key to store in your
+  keyring or remove.
+- **Daemon:** shut down edualc's daemon. It runs the sessions of every window, and a newly
   installed edualc takes over only after it shuts down. Shutting it down ends every session in
   every window; you can continue them from their project in the next window you open.
 
-## agy (Google's Antigravity CLI)
+## agy and opencode
 
-`edualc --backend agy DIR` runs agy instead of Claude Code. In the window, **New session here**,
+`edualc --backend agy DIR` or `--backend opencode` runs that program instead of Claude Code. In
+the window, **New session here**,
 **New session**, or **Ctrl+N** inside a project or session asks whether to start Claude Code, agy
-or opencode (on the start page, **Ctrl+N** opens New project). The window shows an agy
-session like any other: streamed text and thinking, tool cards, permission requests, and the model
-menu from `agy models`. A model you pick stays with its program: a new session with the other
+or opencode (on the start page, **Ctrl+N** opens New project). The window shows their sessions
+like Claude Code's: streamed text and thinking, tool cards, permission requests, and the model
+menu from the program. A model you pick stays with its program: a new session with another
 program starts with that program's default.
+
+### agy
 
 - **Messaging:** Claude Code sessions can message an agy session by its name. An agy session can
   message other sessions too; agy itself asks your permission before it sends.
@@ -365,11 +397,16 @@ program starts with that program's default.
   Claude Code.
 - **Not available with agy:** shell commands (`!`), side questions (`/btw`), plan review comments,
   and the trust question.
-- **opencode:** edualc runs `opencode acp` in the project. Its sessions list, continue, and fork
-  alongside Claude Code and agy, with models and modes read from `configOptions`; opencode doesn't
-  report usage limits or run `!` / `/btw`.
+
+### opencode
+
+edualc runs `opencode acp` in the project. Its sessions list, continue and fork like Claude
+Code's, with the models and modes opencode offers. It doesn't report usage limits, and it has no
+shell commands (`!`) or side questions (`/btw`).
 
 ## Look
+
+![The same conversation in light Gruvbox](screenshots/light.webp)
 
 The window uses Gruvbox, dark or light as your desktop asks. A few colours are lifted to WCAG AA
 contrast where Gruvbox's fall short; `ui/theme.slint` says which and why. The top bar's palette

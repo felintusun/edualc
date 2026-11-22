@@ -1,11 +1,11 @@
 [Desktop Entry]
 Type=Application
 Name=edualc
-GenericName=Claude Code window
-Comment=Native desktop window for Claude Code
+GenericName=Coding agent window
+Comment=Native desktop window for coding agents: Claude Code, agy and opencode
 Exec=edualc %f
 Icon=io.github.felintusun.edualc
 Terminal=false
 Categories=Development;
-Keywords=Claude;Claude Code;AI;agent;
+Keywords=Claude;Claude Code;agy;Antigravity;Gemini;opencode;AI;agent;
 StartupWMClass=io.github.felintusun.edualc

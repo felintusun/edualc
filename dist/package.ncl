@@ -17,10 +17,10 @@ let window = import "../crates/slint/Cargo.toml" in
   },
   copyright = "2026 Felin Tusun",
   summary = window.package.description,
-  description = "A native desktop window for Claude Code, Anthropic's coding agent: conversations, permission prompts, plans to comment on, and sessions across projects, without the terminal UI. It runs Claude Code's command-line program, so Claude Code must be installed.",
-  generic_name = "Claude Code window",
+  description = "A native desktop window for coding agents: Claude Code, agy (Google's Antigravity CLI) and opencode. Conversations, permission prompts, plans to comment on, and sessions across projects, without a terminal UI. It runs the programs you have installed, with their own sign-in and settings.",
+  generic_name = "Coding agent window",
   categories = ["Development"],
-  keywords = ["Claude", "Claude Code", "AI", "agent"],
+  keywords = ["Claude", "Claude Code", "agy", "Antigravity", "Gemini", "opencode", "AI", "agent"],
 
   files = [
     { source = "target/release/edualc", role = 'Program },

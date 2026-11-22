@@ -1,4 +1,4 @@
-# edualcd as a user service: it runs Claude Code for windows that aren't on this machine (a page,
+# edualcd as a user service: it runs your sessions for windows that aren't on this machine (a page,
 # an app), reached over TLS with a token, besides the windows that are (they start edualcd
 # themselves, and need no service). Start it once: systemctl --user enable --now edualcd
 # Then print the address that pairs a window or opens a page: edualcd --pair
@@ -11,13 +11,13 @@
 # and, for it to run while you aren't logged in: loginctl enable-linger
 # `edualcd --pair` prints the address it listens at, as it was started.
 [Unit]
-Description=edualc's daemon: runs Claude Code for windows on other machines
+Description=edualc's daemon: runs your sessions for windows on other machines
 Documentation=https://github.com/felintusun/edualc
 
 [Service]
-# Through a login shell, for the PATH the user's own shell has (`claude` is often in
-# ~/.local/bin, which a user service's environment leaves out); CLAUDE_BIN, set in
-# ~/.config/environment.d/, names it otherwise.
+# Through a login shell, for the PATH the user's own shell has (`claude`, `agy` and `opencode`
+# are often in ~/.local/bin, which a user service's environment leaves out); CLAUDE_BIN, set in
+# ~/.config/environment.d/, names Claude Code's otherwise.
 ExecStart=/bin/sh -lc 'exec /usr/bin/edualcd --listen 127.0.0.1:7878'
 # The page edualcd serves with it (a folder beside edualcd's program otherwise).
 Environment=DIOXUS_PUBLIC_PATH=/usr/share/edualc/public

@@ -17,13 +17,13 @@ use crate::web::widgets::{Button, Icon, IconButton, Lucide};
 /// The view's id: where F6 brings the focus while it is over the conversation.
 pub(super) const PANEL: &str = "changes";
 
-/// Who changed a file, in words.
-fn who_words(who: ChangeWho) -> &'static str {
+/// Who changed a file, in words: `agent` is who answers in the session.
+fn who_words(who: ChangeWho, agent: &str) -> String {
     match who {
-        ChangeWho::Claude => "Claude's edit",
-        ChangeWho::Command => "by a command",
-        ChangeWho::Both => "Claude and a command",
-        ChangeWho::BetweenTurns => "between turns",
+        ChangeWho::Claude => format!("{agent}'s edit"),
+        ChangeWho::Command => "by a command".to_owned(),
+        ChangeWho::Both => format!("{agent} and a command"),
+        ChangeWho::BetweenTurns => "between turns".to_owned(),
     }
 }
 
@@ -43,9 +43,10 @@ pub fn ChangesPanel() -> Element {
     let view = use_context::<View>();
     let changes = view.changes.read();
     let scope = changes.scope;
+    let agent = view.session.read().agent_name.clone();
     let send = match changes.comments {
-        1 => "Send the comment to Claude".to_owned(),
-        count => format!("Send {count} comments to Claude"),
+        1 => format!("Send the comment to {agent}"),
+        count => format!("Send {count} comments to {agent}"),
     };
     rsx! {
         section {
@@ -126,7 +127,7 @@ fn FileRow(file: ChangedFile, index: usize) -> Element {
         ChangeKind::Deleted => (Lucide::FileMinus, "deleted"),
         ChangeKind::Changed => (Lucide::FileDiff, "changed"),
     };
-    let who = who_words(file.who);
+    let who = who_words(file.who, &view.session.read().agent_name);
     let reviewed = match file.review {
         ChangeReview::NotReviewed => "",
         ChangeReview::Reviewed => ", reviewed",

@@ -4,7 +4,7 @@
 .ie \n(.g .ds Aq \(aq
 .el .ds Aq '
 .SH NAME
-edualc \- Native desktop window for Claude Code
+edualc \- Native desktop window for coding agents: Claude Code, agy and opencode
 .ie \n(.g .ds Aq \(aq
 .el .ds Aq '
 .SH SYNOPSIS
@@ -12,9 +12,9 @@ edualc \- Native desktop window for Claude Code
 .ie \n(.g .ds Aq \(aq
 .el .ds Aq '
 .SH DESCRIPTION
-A native desktop window for Claude Code.
+A native desktop window for coding agents: Claude Code, agy and opencode.
 .PP
-Its arguments work like claude\*(Aqs own: the folder to work in, the model, a session to continue, and a first prompt. It needs claude (Claude Code) on the PATH, or agy or opencode with \-\-backend.
+Its arguments work like claude\*(Aqs own: the folder to work in, the model, a session to continue, and a first prompt. It needs the program it runs on the PATH: claude (Claude Code) by default, agy or opencode with \-\-backend.
 .ie \n(.g .ds Aq \(aq
 .el .ds Aq '
 .SH OPTIONS
@@ -103,14 +103,14 @@ Under niri, the start and project pages can focus the window of a session runnin
 Where the files below are kept.
 .SH FILES
 .TP
-\fB$XDG_CONFIG_HOME/edualc/settings.json\fR
-The settings (~/.config if unset).
+\fB$XDG_CONFIG_HOME/edualc/config.toml\fR
+The settings you might change by hand (~/.config if unset).
 .TP
 \fB$XDG_RUNTIME_DIR/edualc/\fR
 The daemon\*(Aqs socket.
 .TP
 \fB$XDG_STATE_HOME/edualc/\fR
-Transcripts of agy sessions (agy/), and folders left by the sandbox and agy\*(Aqs data folders (agy\-homes/) of earlier versions (~/.local/state if unset).
+What edualc keeps for itself (state.json), transcripts of agy sessions (agy/), and folders left by the sandbox and agy\*(Aqs data folders (agy\-homes/) of earlier versions (~/.local/state if unset).
 .TP
 \fB$CLAUDE_CONFIG_DIR/projects/\fR
 Claude Code\*(Aqs transcripts, read for the start page, project lists and to continue sessions.

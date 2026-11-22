@@ -1,6 +1,6 @@
 [package]
 name = "edualc"
-description = "Native desktop window for Claude Code"
+description = "Native desktop window for coding agents: Claude Code, agy and opencode"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

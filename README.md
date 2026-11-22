@@ -2,79 +2,40 @@
 
 <img src="assets/io.github.felintusun.edualc.svg" alt="" width="72" align="right">
 
-**A native Linux desktop window for Claude Code.**
+A desktop window for the coding agents Claude Code, Antigravity CLI and opencode.
 
-edualc runs the `claude` program you already have. Your sign-in, settings, CLAUDE.md, skills,
-hooks, MCP servers and sessions all work as they do in the terminal, and you can move a session
-between the terminal and the window at any time. The window is made for reading Claude's work and
-steering it.
+It runs the programs you already have, with their own sign-in and settings, through a local
+daemon that keeps your sessions going when the window closes.
 
-![A conversation: Claude explains why GPS noise inflates the elevation gain, its edits and commands folded into one line, and the result in a table](docs/screenshots/fixed.webp)
+![A conversation: Claude explains why GPS noise inflates the elevation gain, its edits folded into one line](docs/screenshots/fixed.webp)
 
-**[Try it in your browser](https://felintusun.github.io/edualc/)**: the real window, compiled to
-WebAssembly, with a demo project. A script plays Claude, so nothing you type leaves the page.
+[Try it in your browser](https://felintusun.github.io/edualc/): the window compiled to
+WebAssembly, with a script playing Claude.
 
-**And on Android.** The same window again, as an app that reaches edualcd over the network (see
-[In a browser, or from another machine](#in-a-browser-or-from-another-machine)).
+## Features
 
-## What you get
+- Shows a folder's hooks, MCP servers and environment before Claude Code runs there
+- Tool calls as cards with diffs; a run of them folds into one line
+- Plans you comment on paragraph by paragraph before approving
+- Diffs of each turn or the whole session, with line comments sent back to Claude
+- Every session in every project on one start page, and Ctrl+K to jump between them
+- Keyboard and screen reader access; follows your desktop's theme and text size
 
-- **You see what a folder would run before it runs.** If you haven't trusted a folder yet, the
-  window lists its hooks, MCP servers and environment variables before Claude Code starts there.
-- **A conversation you can read.** Markdown is rendered, and you can select and copy all of it.
-  Tool calls show as cards with diffs, and a run of them folds into one line.
-- **Permission buttons you can't misclick.** Allow, deny and say what to do instead, or always
-  allow with the exact rule shown. The buttons respond only a moment after a request appears, and
-  each answer goes to the request it was meant for.
-- **Plans you review like a document.** Comment on any heading, paragraph or list item. Then send
-  Claude back to planning, or approve the plan with your comments attached.
-- **Changes you inspect and comment on.** edualc snapshots your folder before and after each turn
-  so you can read diffs by last turn, since you looked, or whole session, mark files reviewed, and
-  send line comments back to Claude.
-- **All your sessions across projects.** The start page pins projects and lifts any session that
-  needs you to the top, each project page lists its running and earlier sessions, the quick switcher
-  (**Ctrl+K**) jumps to any session across terminals and folders, and you get a notification when
-  one needs you. A session you've prompted keeps running when you switch away or close the window.
-- **Side questions on the side.** `/btw` answers in a panel next to the conversation, which carries
-  on meanwhile.
-- **A native app.** It's built with Rust and Slint, with no browser engine, and it does almost
-  nothing while nothing changes. You can reach every control with the keyboard, screen readers can
-  read the window, and it follows your desktop's light or dark setting and text size.
-
-Every feature in detail: [docs/features.md](docs/features.md).
-
-## Screenshots
-
-| | |
-|---|---|
-| ![The start page with a pinned project, recent projects and a session waiting for you](docs/screenshots/start.webp) | ![The changes view showing what the last turn edited, with per-line diffs and review marks](docs/screenshots/changes.webp) |
-| ![An edit waiting for permission, its diff shown in full](docs/screenshots/edit-permission.webp) | ![A plan under review, with comments on two of its steps](docs/screenshots/plan-review.webp) |
-| ![Claude's questions as choices, with a code preview beside the selected one](docs/screenshots/questions.webp) | ![A side question answered in a panel beside the conversation](docs/screenshots/side-question.webp) |
-| ![A cloned folder's hook, environment and MCP server, listed before anything runs](docs/screenshots/trust.webp) | ![The same conversation in light Gruvbox](docs/screenshots/light.webp) |
+More in [docs/features.md](docs/features.md).
 
 ## Install
 
-You need Linux with Wayland, and Claude Code installed and signed in (`claude` on your PATH).
-
-There is no release yet. Until there is, build the main branch: on Arch with `makepkg -si` in
-[`dist/aur/edualc-git`](dist/aur/edualc-git), anywhere else with Cargo:
+edualc runs on Linux with Wayland; macOS support is under way
+([#17](https://github.com/felintusun/edualc/pull/17)). You need at least one of Claude Code, agy
+or opencode, signed in. There is no release yet. On Arch, run
+`makepkg -si` in [`dist/aur/edualc-git`](dist/aur/edualc-git). Elsewhere:
 
 ```sh
 cargo install --locked --git https://github.com/felintusun/edualc edualc
 cargo install --locked --git https://github.com/felintusun/edualc edualc-server --features server
 ```
 
-That puts `edualc` and its daemon `edualcd` side by side in `~/.cargo/bin`, as edualc needs
-them; it has no desktop entry or icon. Run it again to update.
-
-Releases will have packages for x86_64 and aarch64:
-
-- **Debian 12+, Ubuntu 24.04+:** `sudo apt install ./edualc_*.deb`
-- **Fedora, AlmaLinux 10:** `sudo dnf install ./edualc-*.rpm`
-- **Arch:** `makepkg -si` in [`dist/aur/edualc`](dist/aur/edualc)
-- **Other distributions:** the tarball has the program, its desktop entry and its icon.
-
-To paste images, install `wl-clipboard` too.
+Install `wl-clipboard` to paste images.
 
 ## Use
 
@@ -84,70 +45,21 @@ edualc --resume SESSION
 edualc --backend agy DIR
 ```
 
-`edualc` with no folder opens the start page. `edualc --help` lists every option. Your settings are in `~/.config/edualc/settings.json`.
+Settings are in `~/.config/edualc/config.toml`. edualcd, the daemon behind the window, can also
+serve it to a browser or an Android phone: see [docs/remote.md](docs/remote.md).
 
-`--backend` runs another program instead of Claude Code: `agy` (Google's Antigravity CLI) or
-`opencode`, provided that program is on your PATH. In the window, **New session** (or
-**New session here**) asks whether to start Claude Code, Claude Code with a stored API key, `agy`
-or `opencode`.
+## Limits
 
-**Coming from an earlier version?** Earlier versions ran Claude Code in a sandbox. Now Claude Code
-runs exactly as it does in your terminal. Sessions that ran in the sandbox kept their memory,
-plans, todos and file history in `~/.local/state/edualc/claude/<project>/`. edualc leaves that
-folder alone, so you can copy anything you still need from it. Their transcripts are already in
-`~/.claude`.
-
-## Known limits
-
-- Jumping to another session's window works only on niri.
-- `opencode` doesn't report usage or plan limits.
-- You can't mention files with `@` yet, and you paste images rather than drag them in.
-- edualc builds Slint from a fork, until the features it needs are in a Slint release.
-- The Android app keeps its connection only while it's on screen. Android stops an app in the
-  background, and the app reaches edualcd again when it comes back, so you hear of a session
-  waiting for you only then. It draws images on the window's thread, which many large ones slow
-  down. There is no release of it yet: build it as described below.
-
-## In a browser, or from another machine
-
-edualcd, the daemon the window starts, can also serve windows that aren't on this machine, and a
-web page that is the same window:
-
-1. Run `systemctl --user enable --now edualcd`. It listens on the loopback address.
-2. Run `edualcd --pair`. It prints an address that opens the page, or pairs a window or an app.
-   The token is in the part of the address that is never sent to a server.
-
-To reach edualcd from other machines, see the comments in `edualcd.service`. `edualcd --demo`
-serves the page to anyone, with a script in place of Claude Code, on a demo project.
-
-**On Android,** the app lists the edualcds it's paired with, and pairs with another by the
-address `edualcd --pair` prints. When it starts, it reaches the one it reached last, and opens the
-session it showed last there. A demo's address (`http://host:port/`) works too, and the window
-says its connection isn't encrypted. "Choose another edualcd" in the settings goes back to the
-list. The app keeps its pairings out of Android's backups. Links open in Android's browser,
-notifications are Android's (it asks you the first time the window opens), and the composer's
-image button pastes the clipboard's image. On the screen's keyboard, Enter starts a new line and
-the send button sends; on a keyboard with keys, Enter sends.
+- Jumping to another session's window needs niri.
+- No `@` file mentions yet, and images are pasted, not dropped.
+- opencode doesn't report usage.
+- Slint is built from a fork until what edualc needs is released.
 
 ## Building
 
-Run `cargo build --release` to build the window, and `cargo edualcd --release` for its daemon,
-without its page. `just release-build` builds both, edualcd with its page; it needs
-[dioxus-cli](https://dioxuslabs.com) (`cargo install --locked dioxus-cli`).
-
-To try a change, `just run` builds edualc and its daemon and starts the window, as you use
-edualc. `just try` starts one apart, with a daemon and settings of its own. `just` lists the
-rest. [docs/architecture.md](docs/architecture.md) explains how the code is laid out and how a
-release is made.
-
-dx builds the Android app too. It needs the Android SDK and NDK (`ANDROID_HOME`,
-`ANDROID_NDK_HOME`), a JDK 17 or later as `JAVA_HOME`, and the Rust target: run `dx build --android
--p edualc-server --features mobile --target aarch64-linux-android` (for the emulator,
-`x86_64-linux-android`). `dx serve` with the same arguments installs and starts it on a running
-emulator or a connected phone. In the emulator, the machine it runs on is `10.0.2.2`, so
-`edualcd --demo` there is `http://10.0.2.2:7878/`.
+`just run` builds the window and its daemon and starts them; `just` lists the rest.
+[docs/architecture.md](docs/architecture.md) explains the code.
 
 ## License
 
-GPL-3.0-or-later ([LICENSE](LICENSE)). edualc uses Slint under its GPL-3.0-only option, so a
-built edualc is distributed under GPL-3.0.
+GPL-3.0-or-later.

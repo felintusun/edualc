@@ -5,12 +5,12 @@
   <metadata_license>CC0-1.0</metadata_license>
   <project_license>GPL-3.0-or-later</project_license>
   <name>edualc</name>
-  <summary>Native desktop window for Claude Code</summary>
+  <summary>Native desktop window for coding agents: Claude Code, agy and opencode</summary>
   <developer id="io.github.felintusun">
     <name>Felin Tusun</name>
   </developer>
   <description>
-    <p>A native desktop window for Claude Code, Anthropic's coding agent: conversations, permission prompts, plans to comment on, and sessions across projects, without the terminal UI. It runs Claude Code's command-line program, so Claude Code must be installed.</p>
+    <p>A native desktop window for coding agents: Claude Code, agy (Google's Antigravity CLI) and opencode. Conversations, permission prompts, plans to comment on, and sessions across projects, without a terminal UI. It runs the programs you have installed, with their own sign-in and settings.</p>
   </description>
   <launchable type="desktop-id">io.github.felintusun.edualc.desktop</launchable>
   <url type="homepage">https://github.com/felintusun/edualc</url>
