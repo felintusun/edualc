@@ -85,19 +85,19 @@
     height: max(min(360px, calc(100% - 2 * var(--space-xl))), calc((100% - 2 * var(--space-xl)) * 0.75));
 }
 .usage-note { flex: none; color: var(--warning-text); padding: var(--space-m) var(--space-m) var(--space-m) var(--space-xl); }
-.usage-tabs {
+.usage-tabs, .settings-tabs {
     flex: none; display: flex; flex-wrap: wrap; gap: var(--space-xs);
     padding: var(--space-m) var(--space-xl) 0;
 }
-.usage-tab {
+.usage-tab, .settings-tab {
     position: relative; border: none; background: transparent; color: var(--text-secondary);
     border-radius: var(--radius-s); padding: var(--space-s) var(--space-m); cursor: pointer;
 }
-.usage-tab:hover { background: var(--hover); }
-.usage-tab:active { background: var(--pressed); }
-.usage-tab.selected { background: var(--selected); color: var(--text); }
+.usage-tab:hover, .settings-tab:hover { background: var(--hover); }
+.usage-tab:active, .settings-tab:active { background: var(--pressed); }
+.usage-tab.selected, .settings-tab.selected { background: var(--selected); color: var(--text); }
 /* Selected with a bar of the accent too, so selection isn't told by tint alone. */
-.usage-tab.selected::before, .setting.choice.selected::before {
+.usage-tab.selected::before, .settings-tab.selected::before, .setting.choice.selected::before {
     content: ""; position: absolute; left: 0; top: var(--space-s); bottom: var(--space-s);
     width: 3px; border-radius: 1.5px; background: var(--accent);
 }
@@ -126,6 +126,7 @@
 .settings-page .small, .setting-text .small { color: var(--text-tertiary); }
 .settings-heading { margin: 0; font-size: var(--base); font-weight: 600; color: var(--text); }
 .settings-heading.spaced { margin-top: var(--space-m); }
+.settings-page > .settings-heading.spaced:first-child { margin-top: 0; }
 .choices { display: flex; flex-direction: column; gap: var(--space-xs); }
 .setting {
     position: relative; display: flex; align-items: flex-start; gap: var(--space-s); width: 100%;

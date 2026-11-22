@@ -1,5 +1,5 @@
 // edualc's settings, over the conversation as the usage details are; Esc or the cross closes
-// them. Each takes effect at once and is kept in `settings.json`, but the API key, which the
+// them. Each takes effect at once and is kept in `config.toml`, but the API key, which the
 // keyring keeps.
 
 import { ScrollView } from "std-widgets.slint";
@@ -49,10 +49,33 @@ export component Choice inherits Pressable {
     }
 }
 
+// A group's heading in the settings.
+component Heading inherits Text {
+    font-weight: 600;
+    color: Theme.text;
+}
+
+// What a group is for, under its heading.
+component Explanation inherits Small {
+    wrap: word-wrap;
+    min-width: 0px;
+}
+
+// The settings' groups, one shown at a time.
+enum SettingsTab { input, sessions, account, daemon }
+
 export component SettingsPanel inherits Rectangle {
     callback close;
     // Shut down was pressed once: the second press, on the button that says what ends, does it.
     property <bool> confirming-shutdown;
+    property <SettingsTab> shown-tab: SettingsTab.input;
+    property <[{tab: SettingsTab, label: string}]> tabs: [
+        { tab: SettingsTab.input, label: "Input" },
+        { tab: SettingsTab.sessions, label: "Sessions" },
+        { tab: SettingsTab.account, label: "Account" },
+        { tab: SettingsTab.daemon, label: "Daemon" },
+    ];
+    property <bool> knows-account: Session.email != "" || Session.organization != "" || Session.provider != "" || Session.version != "" || Session.cost != "";
     preferred-height: panel-layout.preferred-height;
     background: Theme.surface;
     // The focus comes in as it opens, and Tab goes round within it: what is typed must not go
@@ -95,7 +118,7 @@ export component SettingsPanel inherits Rectangle {
                     overflow: elide;
                 }
                 Caption {
-                    text: "Kept in edualc's settings.json; each takes effect at once";
+                    text: "Kept in edualc's config.toml; each takes effect at once";
                     min-width: 0px;
                     wrap: word-wrap;
                 }
@@ -105,6 +128,39 @@ export component SettingsPanel inherits Rectangle {
                 label: "Close settings (Esc)";
                 y: (parent.height - self.height) / 2;
                 clicked => { root.close(); }
+            }
+        }
+        HorizontalLayout {
+            padding-left: root.width < 34rem ? Theme.space-l : Theme.space-xl;
+            padding-right: Theme.space-m;
+            padding-bottom: Theme.space-s;
+            spacing: Theme.space-xs;
+            alignment: start;
+            accessible-role: tab-list;
+            for entry[index] in root.tabs: Pressable {
+                height: Theme.chip;
+                selected: entry.tab == root.shown-tab;
+                border-width: 1px;
+                border-color: entry.tab == root.shown-tab ? Theme.accent.with-alpha(0.5) : Theme.divider;
+                accessible-role: tab;
+                accessible-label: entry.label;
+                accessible-item-selectable: true;
+                accessible-item-selected: entry.tab == root.shown-tab;
+                accessible-item-index: index;
+                accessible-item-count: root.tabs.length;
+                clicked => { root.shown-tab = entry.tab; }
+                HorizontalLayout {
+                    padding-left: Theme.space-m;
+                    padding-right: Theme.space-m;
+                    Text {
+                        text: entry.label;
+                        font-size: 1rem * Theme.small;
+                        font-weight: entry.tab == root.shown-tab ? 600 : 400;
+                        color: entry.tab == root.shown-tab ? Theme.text : Theme.text-secondary;
+                        vertical-alignment: center;
+                        accessible-role: none;
+                    }
+                }
             }
         }
         Rectangle {
@@ -125,254 +181,230 @@ export component SettingsPanel inherits Rectangle {
                 width: min(max(0px, scroll.visible-width - 2 * self.gutter), 640px);
                 padding-top: Theme.space-l;
                 padding-bottom: Theme.space-xl;
-                spacing: Theme.space-xs;
                 alignment: start;
-                Text {
-                    text: "Sending";
-                    font-weight: 600;
-                    color: Theme.text;
-                }
-                Choice {
-                    title: "Enter sends";
-                    detail: "Shift+Enter or Ctrl+Enter start a new line.";
-                    chosen: Preferences.send-key == SendKey.enter;
-                    clicked => { Preferences.choose-send-key(SendKey.enter); }
-                }
-                Choice {
-                    title: "Ctrl+Enter sends";
-                    detail: "Enter starts a new line, so a stray Enter never sends half a message.";
-                    chosen: Preferences.send-key == SendKey.ctrl-enter;
-                    clicked => { Preferences.choose-send-key(SendKey.ctrl-enter); }
-                }
-                Rectangle {
-                    height: Theme.space-m;
-                }
-                Text {
-                    text: "Messages from other sessions";
-                    font-weight: 600;
-                    color: Theme.text;
-                }
-                Small {
-                    text: "For messages to agy and opencode sessions. Messages to Claude Code follow its crossSessionInbound setting.";
-                    wrap: word-wrap;
-                    min-width: 0px;
-                }
-                Choice {
-                    title: "Ask before letting a new sender in";
-                    detail: "The first message from each sender waits until you let it in. Its later messages in that session come in at once.";
-                    chosen: Preferences.peer-messages == PeerMessages.ask-each-sender;
-                    clicked => { Preferences.choose-peer-messages(PeerMessages.ask-each-sender); }
-                }
-                Choice {
-                    title: "Let every message in";
-                    detail: "Sessions message each other without asking you.";
-                    chosen: Preferences.peer-messages == PeerMessages.let-all-in;
-                    clicked => { Preferences.choose-peer-messages(PeerMessages.let-all-in); }
-                }
-                Rectangle {
-                    height: Theme.space-m;
-                }
-                // Kana and Hangul tell a text's language themselves; Han characters alone don't.
-                Text {
-                    text: "Text in Han characters alone";
-                    font-weight: 600;
-                    color: Theme.text;
-                }
-                Small {
-                    text: "Chinese, Japanese and Korean draw many Han characters differently. A message with kana is set as Japanese and one with Hangul as Korean; one in Han characters alone as chosen here.";
-                    wrap: word-wrap;
-                    min-width: 0px;
-                }
-                Choice {
-                    title: "Japanese";
-                    detail: "Noto Sans CJK JP";
-                    chosen: Preferences.han-language == HanLanguage.japanese;
-                    clicked => { Preferences.choose-han-language(HanLanguage.japanese); }
-                }
-                Choice {
-                    title: "Simplified Chinese";
-                    detail: "Noto Sans CJK SC";
-                    chosen: Preferences.han-language == HanLanguage.simplified-chinese;
-                    clicked => { Preferences.choose-han-language(HanLanguage.simplified-chinese); }
-                }
-                Choice {
-                    title: "Traditional Chinese";
-                    detail: "Noto Sans CJK TC";
-                    chosen: Preferences.han-language == HanLanguage.traditional-chinese;
-                    clicked => { Preferences.choose-han-language(HanLanguage.traditional-chinese); }
-                }
-                Choice {
-                    title: "Korean";
-                    detail: "Noto Sans CJK KR";
-                    chosen: Preferences.han-language == HanLanguage.korean;
-                    clicked => { Preferences.choose-han-language(HanLanguage.korean); }
-                }
-                Rectangle {
-                    height: Theme.space-m;
-                }
-                Text {
-                    text: "New projects";
-                    font-weight: 600;
-                    color: Theme.text;
-                }
-                Small {
-                    text: "The folder New project makes new projects in, unless you choose another.";
-                    wrap: word-wrap;
-                    min-width: 0px;
-                }
-                HorizontalLayout {
-                    spacing: Theme.space-s;
-                    projects-dir := Field {
-                        property <string> saved: Preferences.new-projects-in;
-                        changed saved => { self.text = self.saved; }
-                        init => { self.text = Preferences.new-projects-in; }
-                        horizontal-stretch: 1;
-                        min-width: 80px;
-                        placeholder: "Folder for new projects";
-                        accepted(text) => { Preferences.set-new-projects-in(text); }
-                        changed has-focus => {
-                            if !self.has-focus && self.text != Preferences.new-projects-in {
-                                Preferences.set-new-projects-in(self.text);
-                            }
-                        }
-                    }
-                    TextButton {
-                        text: "Browse…";
-                        horizontal-stretch: 0;
-                        may-shorten: true;
-                        clicked => { Preferences.browse-new-projects-in(); }
-                    }
-                }
-                Rectangle {
-                    height: Theme.space-m;
-                }
-                Text {
-                    text: "Anthropic API key";
-                    font-weight: 600;
-                    color: Theme.text;
-                }
-                Small {
-                    text: Preferences.api-key-kept
-                        ? "Kept in your desktop's keyring. New session offers Claude Code with it, billed by the token, and continuing a Claude Code session asks which sign-in to use."
-                        : "Paste a key from the Anthropic Console to start Claude Code sessions with it, billed by the token. It is kept in your desktop's keyring, not in a file.";
-                    wrap: word-wrap;
-                    min-width: 0px;
-                }
-                HorizontalLayout {
-                    spacing: Theme.space-s;
-                    api-key := Field {
-                        secret: true;
-                        horizontal-stretch: 1;
-                        min-width: 80px;
-                        placeholder: Preferences.api-key-kept ? "Paste a new key to replace it" : "sk-ant-api…";
-                        accepted(text) => {
-                            if text != "" {
-                                Preferences.store-api-key(text);
-                                self.text = "";
-                            }
-                        }
-                    }
-                    TextButton {
-                        text: "Keep";
-                        enabled: api-key.text != "";
-                        opacity: api-key.text != "" ? 1 : 0.72;
-                        horizontal-stretch: 0;
-                        may-shorten: true;
-                        clicked => {
-                            Preferences.store-api-key(api-key.text);
-                            api-key.text = "";
-                        }
-                    }
-                    if Preferences.api-key-kept: TextButton {
-                        text: "Remove";
-                        danger: true;
-                        horizontal-stretch: 0;
-                        may-shorten: true;
-                        clicked => { Preferences.remove-api-key(); }
-                    }
-                }
-                if Preferences.api-key-note != "": Small {
-                    text: Preferences.api-key-note;
-                    color: Theme.danger-text;
-                    wrap: word-wrap;
-                    min-width: 0px;
-                }
-                if Session.email != "" || Session.organization != "" || Session.provider != "" || Session.version != "" || Session.cost != "": Rectangle {
-                    height: Theme.space-m;
-                }
-                if Session.email != "" || Session.organization != "" || Session.provider != "" || Session.version != "" || Session.cost != "": Text {
-                    text: Session.sign-in == SignInState.signed-in ? "Signed in"
-                        : Session.sign-in == SignInState.signed-out ? "Account (not signed in)" : "Account";
-                    font-weight: 600;
-                    color: Theme.text;
-                }
-                if Session.email != "" || Session.organization != "" || Session.provider != "" || Session.version != "" || Session.cost != "": VerticalLayout {
+                if root.shown-tab == SettingsTab.input: VerticalLayout {
                     spacing: Theme.space-xs;
-                    for line in [
-                        { label: "Email", value: Session.email },
-                        { label: "Organization", value: Session.organization },
-                        { label: "Provider", value: Session.provider },
-                        { label: Session.program, value: Session.version },
-                        { label: "This session", value: Session.cost },
-                    ]: HorizontalLayout {
+                    Heading {
+                        text: "Sending";
+                    }
+                    Choice {
+                        title: "Enter sends";
+                        detail: "Shift+Enter or Ctrl+Enter start a new line.";
+                        chosen: Preferences.send-key == SendKey.enter;
+                        clicked => { Preferences.choose-send-key(SendKey.enter); }
+                    }
+                    Choice {
+                        title: "Ctrl+Enter sends";
+                        detail: "Enter starts a new line, so a stray Enter never sends half a message.";
+                        chosen: Preferences.send-key == SendKey.ctrl-enter;
+                        clicked => { Preferences.choose-send-key(SendKey.ctrl-enter); }
+                    }
+                    Rectangle {
+                        height: Theme.space-m;
+                    }
+                    // Kana and Hangul tell a text's language themselves; Han characters alone don't.
+                    Heading {
+                        text: "Text in Han characters alone";
+                    }
+                    Explanation {
+                        text: "Chinese, Japanese and Korean draw many Han characters differently. A message with kana is set as Japanese and one with Hangul as Korean; one in Han characters alone as chosen here.";
+                    }
+                    Choice {
+                        title: "Japanese";
+                        detail: "Noto Sans CJK JP";
+                        chosen: Preferences.han-language == HanLanguage.japanese;
+                        clicked => { Preferences.choose-han-language(HanLanguage.japanese); }
+                    }
+                    Choice {
+                        title: "Simplified Chinese";
+                        detail: "Noto Sans CJK SC";
+                        chosen: Preferences.han-language == HanLanguage.simplified-chinese;
+                        clicked => { Preferences.choose-han-language(HanLanguage.simplified-chinese); }
+                    }
+                    Choice {
+                        title: "Traditional Chinese";
+                        detail: "Noto Sans CJK TC";
+                        chosen: Preferences.han-language == HanLanguage.traditional-chinese;
+                        clicked => { Preferences.choose-han-language(HanLanguage.traditional-chinese); }
+                    }
+                    Choice {
+                        title: "Korean";
+                        detail: "Noto Sans CJK KR";
+                        chosen: Preferences.han-language == HanLanguage.korean;
+                        clicked => { Preferences.choose-han-language(HanLanguage.korean); }
+                    }
+                }
+                if root.shown-tab == SettingsTab.sessions: VerticalLayout {
+                    spacing: Theme.space-xs;
+                    Heading {
+                        text: "Messages from other sessions";
+                    }
+                    Explanation {
+                        text: "For messages to agy and opencode sessions. Messages to Claude Code follow its crossSessionInbound setting.";
+                    }
+                    Choice {
+                        title: "Ask before letting a new sender in";
+                        detail: "The first message from each sender waits until you let it in. Its later messages in that session come in at once.";
+                        chosen: Preferences.peer-messages == PeerMessages.ask-each-sender;
+                        clicked => { Preferences.choose-peer-messages(PeerMessages.ask-each-sender); }
+                    }
+                    Choice {
+                        title: "Let every message in";
+                        detail: "Sessions message each other without asking you.";
+                        chosen: Preferences.peer-messages == PeerMessages.let-all-in;
+                        clicked => { Preferences.choose-peer-messages(PeerMessages.let-all-in); }
+                    }
+                    Rectangle {
+                        height: Theme.space-m;
+                    }
+                    Heading {
+                        text: "New projects";
+                    }
+                    Explanation {
+                        text: "The folder New project makes new projects in, unless you choose another.";
+                    }
+                    HorizontalLayout {
                         spacing: Theme.space-s;
-                        visible: line.value != "";
-                        height: line.value != "" ? self.preferred-height : 0;
-                        Small {
-                            text: line.label;
-                            width: min(8.5rem, page.width * 38%);
-                            overflow: elide;
-                            vertical-alignment: center;
-                        }
-                        Text {
-                            text: line.value;
-                            color: Theme.text;
-                            font-size: 1rem * Theme.small;
-                            overflow: elide;
-                            vertical-alignment: center;
+                        Field {
+                            property <string> saved: Preferences.new-projects-in;
+                            changed saved => { self.text = self.saved; }
+                            init => { self.text = Preferences.new-projects-in; }
                             horizontal-stretch: 1;
-                            min-width: 0px;
+                            min-width: 80px;
+                            placeholder: "Folder for new projects";
+                            accepted(text) => { Preferences.set-new-projects-in(text); }
+                            changed has-focus => {
+                                if !self.has-focus && self.text != Preferences.new-projects-in {
+                                    Preferences.set-new-projects-in(self.text);
+                                }
+                            }
+                        }
+                        TextButton {
+                            text: "Browse…";
+                            horizontal-stretch: 0;
+                            may-shorten: true;
+                            clicked => { Preferences.browse-new-projects-in(); }
                         }
                     }
                 }
-                Rectangle {
-                    height: Theme.space-m;
-                }
-                Text {
-                    text: "edualc's daemon";
-                    font-weight: 600;
-                    color: Theme.text;
-                }
-                Small {
-                    text: "It runs the sessions of every window, and goes on while one runs, so a newly installed edualc takes over only once it is shut down. Shutting down ends every session, in every window; the start page lets you continue them in the next window you open.";
-                    wrap: word-wrap;
-                    min-width: 0px;
-                }
-                FlexboxLayout {
-                    flex-direction: FlexboxLayoutDirection.row;
-                    flex-wrap: FlexboxLayoutWrap.wrap;
-                    alignment: LayoutAlignment.start;
-                    spacing: Theme.space-s;
-                    TextButton {
-                        text: !root.confirming-shutdown ? "Shut down edualc…"
-                            : Preferences.running-sessions == 1 ? "End 1 session and shut down"
-                            : "End " + Preferences.running-sessions + " sessions and shut down";
-                        danger: true;
-                        horizontal-stretch: 0;
-                        may-shorten: true;
-                        clicked => {
-                            if root.confirming-shutdown {
-                                root.confirming-shutdown = false;
-                                Preferences.shut-down();
-                            } else {
-                                root.confirming-shutdown = true;
+                if root.shown-tab == SettingsTab.account: VerticalLayout {
+                    spacing: Theme.space-xs;
+                    if root.knows-account: Heading {
+                        text: Session.sign-in == SignInState.signed-in ? "Signed in"
+                            : Session.sign-in == SignInState.signed-out ? "Account (not signed in)" : "Account";
+                    }
+                    if root.knows-account: VerticalLayout {
+                        spacing: Theme.space-xs;
+                        for line in [
+                            { label: "Email", value: Session.email },
+                            { label: "Organization", value: Session.organization },
+                            { label: "Provider", value: Session.provider },
+                            { label: Session.program, value: Session.version },
+                            { label: "This session", value: Session.cost },
+                        ]: HorizontalLayout {
+                            spacing: Theme.space-s;
+                            visible: line.value != "";
+                            height: line.value != "" ? self.preferred-height : 0;
+                            Small {
+                                text: line.label;
+                                width: min(8.5rem, page.width * 38%);
+                                overflow: elide;
+                                vertical-alignment: center;
+                            }
+                            Text {
+                                text: line.value;
+                                color: Theme.text;
+                                font-size: 1rem * Theme.small;
+                                overflow: elide;
+                                vertical-alignment: center;
+                                horizontal-stretch: 1;
+                                min-width: 0px;
                             }
                         }
                     }
-                    if root.confirming-shutdown: TextButton {
-                        text: "Cancel";
-                        horizontal-stretch: 0;
-                        clicked => { root.confirming-shutdown = false; }
+                    if root.knows-account: Rectangle {
+                        height: Theme.space-m;
+                    }
+                    Heading {
+                        text: "Anthropic API key";
+                    }
+                    Explanation {
+                        text: Preferences.api-key-kept
+                            ? "Kept in your desktop's keyring. New session offers Claude Code with it, billed by the token, and continuing a Claude Code session asks which sign-in to use."
+                            : "Paste a key from the Anthropic Console to start Claude Code sessions with it, billed by the token. It is kept in your desktop's keyring, not in a file.";
+                    }
+                    HorizontalLayout {
+                        spacing: Theme.space-s;
+                        api-key := Field {
+                            secret: true;
+                            horizontal-stretch: 1;
+                            min-width: 80px;
+                            placeholder: Preferences.api-key-kept ? "Paste a new key to replace it" : "sk-ant-api…";
+                            accepted(text) => {
+                                if text != "" {
+                                    Preferences.store-api-key(text);
+                                    self.text = "";
+                                }
+                            }
+                        }
+                        TextButton {
+                            text: "Keep";
+                            enabled: api-key.text != "";
+                            opacity: api-key.text != "" ? 1 : 0.72;
+                            horizontal-stretch: 0;
+                            may-shorten: true;
+                            clicked => {
+                                Preferences.store-api-key(api-key.text);
+                                api-key.text = "";
+                            }
+                        }
+                        if Preferences.api-key-kept: TextButton {
+                            text: "Remove";
+                            danger: true;
+                            horizontal-stretch: 0;
+                            may-shorten: true;
+                            clicked => { Preferences.remove-api-key(); }
+                        }
+                    }
+                    if Preferences.api-key-note != "": Explanation {
+                        text: Preferences.api-key-note;
+                        color: Theme.danger-text;
+                    }
+                }
+                if root.shown-tab == SettingsTab.daemon: VerticalLayout {
+                    spacing: Theme.space-xs;
+                    Heading {
+                        text: "edualc's daemon";
+                    }
+                    Explanation {
+                        text: "It runs the sessions of every window, and goes on while one runs, so a newly installed edualc takes over only once it is shut down. Shutting down ends every session, in every window; the start page lets you continue them in the next window you open.";
+                    }
+                    FlexboxLayout {
+                        flex-direction: FlexboxLayoutDirection.row;
+                        flex-wrap: FlexboxLayoutWrap.wrap;
+                        alignment: LayoutAlignment.start;
+                        spacing: Theme.space-s;
+                        TextButton {
+                            text: !root.confirming-shutdown ? "Shut down edualc…"
+                                : Preferences.running-sessions == 1 ? "End 1 session and shut down"
+                                : "End " + Preferences.running-sessions + " sessions and shut down";
+                            danger: true;
+                            horizontal-stretch: 0;
+                            may-shorten: true;
+                            clicked => {
+                                if root.confirming-shutdown {
+                                    root.confirming-shutdown = false;
+                                    Preferences.shut-down();
+                                } else {
+                                    root.confirming-shutdown = true;
+                                }
+                            }
+                        }
+                        if root.confirming-shutdown: TextButton {
+                            text: "Cancel";
+                            horizontal-stretch: 0;
+                            clicked => { root.confirming-shutdown = false; }
+                        }
                     }
                 }
             }

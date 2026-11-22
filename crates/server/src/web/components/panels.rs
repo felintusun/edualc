@@ -377,9 +377,9 @@ fn UsagePanel() -> Element {
                         h2 { id: "usage-title", class: "overlay-title", "Usage" }
                         div { class: "caption",
                             if usage.loading {
-                                "Asking Claude Code"
+                                "Asking {usage.program}"
                             } else {
-                                "As Claude Code's /usage and /context report it"
+                                "As {usage.program} reports it"
                             }
                         }
                     }
@@ -447,7 +447,7 @@ fn UsagePanel() -> Element {
                     None => rsx! {
                         div { class: "usage-empty small",
                             if !usage.loading {
-                                "Claude Code has no numbers to report yet."
+                                "{usage.program} has no numbers to report yet."
                             }
                         }
                     },
@@ -494,7 +494,7 @@ fn StatLine(row: StatRow) -> Element {
 }
 
 /// edualc's settings, over the conversation as the usage details are; Esc, the cross or a click
-/// beside them closes them. Each takes effect at once and is kept in `settings.json`.
+/// beside them closes them. Each takes effect at once and is kept in `config.toml`.
 #[component]
 pub fn Settings() -> Element {
     let open = use_settings_open();
@@ -514,6 +514,8 @@ fn SettingsPanel() -> Element {
     let preferences = view.preferences.read();
     let mut first = use_signal(|| None::<MountedEvent>);
     let mut last = use_signal(|| None::<MountedEvent>);
+    let mut shown = use_signal(|| SettingsTab::Input);
+    let mut tabs = use_signal(|| [const { None::<MountedEvent> }; SettingsTab::ALL.len()]);
     let send_key = preferences.send_key;
     let han = preferences.han_language;
     rsx! {
@@ -546,7 +548,7 @@ fn SettingsPanel() -> Element {
                     div { class: "panel-heading",
                         h2 { id: "settings-title", class: "overlay-title", "Settings" }
                         div { class: "caption",
-                            "Kept in edualc's settings.json; each takes effect at once"
+                            "Kept in edualc's config.toml; each takes effect at once"
                         }
                     }
                     button {
@@ -561,82 +563,82 @@ fn SettingsPanel() -> Element {
                         Icon { icon: Lucide::X }
                     }
                 }
-                div { class: "settings-scroll",
-                    div { class: "settings-page",
-                        h3 { id: "send-key", class: "settings-heading", "Sending" }
-                        div { class: "choices", role: "radiogroup", "aria-labelledby": "send-key",
-                            Choice {
-                                id: "send-enter",
-                                title: "Enter sends",
-                                detail: "Shift+Enter or Ctrl+Enter start a new line.",
-                                chosen: send_key == SendKey::Enter,
-                                onclick: move |()| view.act(Action::SendWith(settings::SendKey::Enter)),
-                            }
-                            Choice {
-                                id: "send-ctrl-enter",
-                                title: "Ctrl+Enter sends",
-                                detail: "Enter starts a new line, so a stray Enter never sends half a message.",
-                                chosen: send_key == SendKey::CtrlEnter,
-                                onclick: move |()| view.act(Action::SendWith(settings::SendKey::CtrlEnter)),
-                            }
-                        }
-                        Account {}
-                        DaemonSettings { running: preferences.running_sessions }
-                        // The app reaches one edualcd at a time; the start screen lists the others.
-                        if cfg!(feature = "mobile") {
-                            h3 { class: "settings-heading spaced", "edualcd" }
-                            p { class: "small",
-                                "edualcd runs Claude Code, and keeps its sessions going while the app is away. Choosing another closes this window; its sessions go on."
-                            }
-                            div { class: "settings-actions",
-                                Button {
-                                    icon: Lucide::RefreshCw,
-                                    onclick: move |_| view.act(Action::Quit),
-                                    "Choose another edualcd"
+                div { class: "settings-tabs", role: "tablist", "aria-label": "Settings",
+                    for (index, tab) in SettingsTab::ALL.into_iter().enumerate() {
+                        button {
+                            key: "{index}",
+                            id: "settings-tab-{index}",
+                            class: if tab == shown() { "settings-tab selected" } else { "settings-tab" },
+                            role: "tab",
+                            "aria-selected": "{tab == shown()}",
+                            "aria-controls": "settings-section",
+                            tabindex: if tab == shown() { "0" } else { "-1" },
+                            onmounted: move |event| {
+                                if let Some(slot) = tabs.write().get_mut(index) {
+                                    *slot = Some(event);
                                 }
-                            }
+                            },
+                            onclick: move |_| shown.set(tab),
+                            // The arrow keys go from tab to tab, as a tab list's do.
+                            onkeydown: move |event: KeyboardEvent| {
+                                let count = SettingsTab::ALL.len();
+                                let key = event.key();
+                                let to = if key == Key::ArrowRight {
+                                    (index + 1) % count
+                                } else if key == Key::ArrowLeft {
+                                    (index + count - 1) % count
+                                } else if key == Key::Home {
+                                    0
+                                } else if key == Key::End {
+                                    count - 1
+                                } else {
+                                    return;
+                                };
+                                event.prevent_default();
+                                if let Some(&next) = SettingsTab::ALL.get(to) {
+                                    shown.set(next);
+                                }
+                                focus(tabs.read().get(to).cloned().flatten());
+                            },
+                            "{tab.label()}"
                         }
-                        // Kana and Hangul tell a text's language themselves; Han characters
-                        // alone don't.
-                        h3 { id: "han-language", class: "settings-heading spaced",
-                            "Text in Han characters alone"
-                        }
-                        p { class: "small",
-                            "Chinese, Japanese and Korean draw many Han characters differently. A message with kana is set as Japanese and one with Hangul as Korean; one in Han characters alone as chosen here."
-                        }
-                        div {
-                            class: "choices",
-                            role: "radiogroup",
-                            "aria-labelledby": "han-language",
-                            Choice {
-                                id: "han-japanese",
-                                title: "Japanese",
-                                detail: "Noto Sans CJK JP",
-                                chosen: han == HanLanguage::Japanese,
-                                onclick: move |()| view.act(Action::HanLanguage(CjkLanguage::Japanese)),
-                            }
-                            Choice {
-                                id: "han-simplified-chinese",
-                                title: "Simplified Chinese",
-                                detail: "Noto Sans CJK SC",
-                                chosen: han == HanLanguage::SimplifiedChinese,
-                                onclick: move |()| view.act(Action::HanLanguage(CjkLanguage::SimplifiedChinese)),
-                            }
-                            Choice {
-                                id: "han-traditional-chinese",
-                                title: "Traditional Chinese",
-                                detail: "Noto Sans CJK TC",
-                                chosen: han == HanLanguage::TraditionalChinese,
-                                onclick: move |()| view.act(Action::HanLanguage(CjkLanguage::TraditionalChinese)),
-                            }
-                            Choice {
-                                id: "han-korean",
-                                title: "Korean",
-                                detail: "Noto Sans CJK KR",
-                                chosen: han == HanLanguage::Korean,
-                                onmounted: move |event| last.set(Some(event)),
-                                onclick: move |()| view.act(Action::HanLanguage(CjkLanguage::Korean)),
-                            }
+                    }
+                }
+                div { class: "settings-scroll",
+                    div {
+                        id: "settings-section",
+                        class: "settings-page",
+                        role: "tabpanel",
+                        tabindex: "0",
+                        "aria-labelledby": "settings-tab-{shown().index()}",
+                        // Where Shift+Tab from the first control goes round to, whichever tab is
+                        // shown.
+                        onmounted: move |event| last.set(Some(event)),
+                        match shown() {
+                            SettingsTab::Input => rsx! {
+                                InputSettings { send_key, han }
+                            },
+                            SettingsTab::Account => rsx! {
+                                Account {}
+                            },
+                            SettingsTab::Daemon => rsx! {
+                                DaemonSettings { running: preferences.running_sessions }
+                                // The app reaches one edualcd at a time; the start screen lists
+                                // the others.
+                                if cfg!(feature = "mobile") {
+                                    h3 { class: "settings-heading spaced", "edualcd" }
+                                    p { class: "small",
+                                        "edualcd runs your sessions, and keeps them going while the app is away. Choosing another closes this window; its sessions go on."
+                                    }
+                                    div { class: "settings-actions",
+                                        Button {
+                                            icon: Lucide::RefreshCw,
+                                            onclick: move |_| view.act(Action::Quit),
+                                            "Choose another edualcd"
+                                        }
+                                    }
+                                }
+                            },
                         }
                     }
                 }
@@ -645,6 +647,94 @@ fn SettingsPanel() -> Element {
                     tabindex: "0",
                     onfocus: move |_| focus(first.read().clone()),
                 }
+            }
+        }
+    }
+}
+
+/// The settings' groups, one shown at a time.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SettingsTab {
+    Input,
+    Account,
+    Daemon,
+}
+
+impl SettingsTab {
+    const ALL: [Self; 3] = [Self::Input, Self::Account, Self::Daemon];
+
+    fn label(self) -> &'static str {
+        match self {
+            Self::Input => "Input",
+            Self::Account => "Account",
+            Self::Daemon => "Daemon",
+        }
+    }
+
+    fn index(self) -> usize {
+        match self {
+            Self::Input => 0,
+            Self::Account => 1,
+            Self::Daemon => 2,
+        }
+    }
+}
+
+/// How the draft is sent, and the language of text in Han characters alone.
+#[component]
+fn InputSettings(send_key: SendKey, han: HanLanguage) -> Element {
+    let view = use_context::<View>();
+    rsx! {
+        h3 { id: "send-key", class: "settings-heading", "Sending" }
+        div { class: "choices", role: "radiogroup", "aria-labelledby": "send-key",
+            Choice {
+                id: "send-enter",
+                title: "Enter sends",
+                detail: "Shift+Enter or Ctrl+Enter start a new line.",
+                chosen: send_key == SendKey::Enter,
+                onclick: move |()| view.act(Action::SendWith(settings::SendKey::Enter)),
+            }
+            Choice {
+                id: "send-ctrl-enter",
+                title: "Ctrl+Enter sends",
+                detail: "Enter starts a new line, so a stray Enter never sends half a message.",
+                chosen: send_key == SendKey::CtrlEnter,
+                onclick: move |()| view.act(Action::SendWith(settings::SendKey::CtrlEnter)),
+            }
+        }
+        // Kana and Hangul tell a text's language themselves; Han characters alone don't.
+        h3 { id: "han-language", class: "settings-heading spaced", "Text in Han characters alone" }
+        p { class: "small",
+            "Chinese, Japanese and Korean draw many Han characters differently. A message with kana is set as Japanese and one with Hangul as Korean; one in Han characters alone as chosen here."
+        }
+        div { class: "choices", role: "radiogroup", "aria-labelledby": "han-language",
+            Choice {
+                id: "han-japanese",
+                title: "Japanese",
+                detail: "Noto Sans CJK JP",
+                chosen: han == HanLanguage::Japanese,
+                onclick: move |()| view.act(Action::HanLanguage(CjkLanguage::Japanese)),
+            }
+            Choice {
+                id: "han-simplified-chinese",
+                title: "Simplified Chinese",
+                detail: "Noto Sans CJK SC",
+                chosen: han == HanLanguage::SimplifiedChinese,
+                onclick: move |()| view.act(Action::HanLanguage(CjkLanguage::SimplifiedChinese)),
+            }
+            Choice {
+                id: "han-traditional-chinese",
+                title: "Traditional Chinese",
+                detail: "Noto Sans CJK TC",
+                chosen: han == HanLanguage::TraditionalChinese,
+                onclick: move |()| view.act(Action::HanLanguage(CjkLanguage::TraditionalChinese)),
+            }
+            Choice {
+                id: "han-korean",
+                title: "Korean",
+                detail: "Noto Sans CJK KR",
+                chosen: han == HanLanguage::Korean,
+                onclick: move |()| view.act(Action::HanLanguage(CjkLanguage::Korean)),
             }
         }
     }
@@ -700,7 +790,9 @@ fn Account() -> Element {
         ("This session", &session.cost),
     ];
     if lines.iter().all(|(_, value)| value.is_empty()) {
-        return rsx! {};
+        return rsx! {
+            p { class: "small", "Shown once a session has started." }
+        };
     }
     let heading = match session.sign_in {
         SignInState::SignedIn => "Signed in",
