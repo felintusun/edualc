@@ -42,7 +42,7 @@ export component OpenFolderDialog inherits Rectangle {
             spacing: Theme.space-m;
             Icon {
                 source: @image-url("@lucide/folder.svg");
-                tint: Theme.claude;
+                tint: Theme.agent;
                 width: 20px;
                 y: (parent.height - self.height) / 2;
             }
@@ -306,14 +306,14 @@ component ProjectCardView inherits Rectangle {
             if root.card.running > 0: Rectangle {
                 border-radius: Theme.radius-s;
                 border-width: 1px;
-                border-color: Theme.claude;
+                border-color: Theme.agent;
                 HorizontalLayout {
                     padding-left: Theme.space-xs;
                     padding-right: Theme.space-xs;
                     Text {
                         text: "\{root.card.running} running";
                         font-size: 1rem * Theme.caption;
-                        color: Theme.claude;
+                        color: Theme.agent;
                         vertical-alignment: center;
                     }
                 }

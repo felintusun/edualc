@@ -12,7 +12,7 @@
 .start-header { display: flex; align-items: center; gap: var(--space-m); }
 .start-heron {
     width: calc(var(--base) * 3); height: calc(var(--base) * 3); flex: none;
-    background: var(--claude); mask: var(--heron) center / contain no-repeat;
+    background: var(--agent); mask: var(--heron) center / contain no-repeat;
     -webkit-mask: var(--heron) center / contain no-repeat;
 }
 .start-reaching {

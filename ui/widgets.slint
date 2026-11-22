@@ -657,7 +657,7 @@ export component LiveDot inherits Rectangle {
         width: 8px;
         height: 8px;
         border-radius: 4px;
-        background: root.state == LiveState.busy ? Theme.claude : transparent;
+        background: root.state == LiveState.busy ? Theme.agent : transparent;
         border-width: root.state == LiveState.busy ? 0 : 1.5px;
         border-color: Theme.text-faint;
     }

@@ -169,7 +169,7 @@ pub fn begin(
         greeting.settings.clone(),
         edualc_core::app::Start {
             cwd,
-            backend: edualc_core::claude::Backend::Claude,
+            backend: edualc_core::provider::Backend::Claude,
             model: None,
         },
     );

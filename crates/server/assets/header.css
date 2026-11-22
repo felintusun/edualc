@@ -21,7 +21,7 @@
 .worktree-button:hover { background: var(--hover); }
 .worktree-button:active { background: var(--pressed); }
 .worktree-button .icon { color: var(--text-secondary); }
-.worktree-button .worktree-icon { color: var(--claude); }
+.worktree-button .worktree-icon { color: var(--agent); }
 .worktree-menu {
     position: absolute; top: 100%; right: 0; margin-top: var(--space-xs); z-index: 50;
     width: 220px; box-sizing: border-box; padding: var(--space-xs);
@@ -47,13 +47,13 @@
 .header-btw:hover { background: var(--hover); }
 .header-btw:active { background: var(--pressed); }
 .header-btw.lit { color: var(--text); }
-.header-btw.lit .icon { color: var(--claude); }
+.header-btw.lit .icon { color: var(--agent); }
 .header-btw.selected { background: var(--selected); }
 .header-btw.selected::before {
     content: ""; position: absolute; left: 0; top: var(--space-s); bottom: var(--space-s);
     width: 3px; border-radius: 1.5px; background: var(--accent);
 }
-.header-unseen { width: 8px; height: 8px; border-radius: 4px; background: var(--claude); flex: none; }
+.header-unseen { width: 8px; height: 8px; border-radius: 4px; background: var(--agent); flex: none; }
 
 .header-unencrypted {
     display: inline-flex; align-items: center; gap: var(--space-xs); flex: none;
@@ -63,7 +63,7 @@
 /* edualc's heron, in Claude's colour. About once a minute, for a second or so, it looks over its
    shoulder, preens or flaps its wings, in turn: 61 s, 83 s and 47 s apart. */
 .heron-mark {
-    width: 24px; height: 24px; flex: none; background: var(--claude);
+    width: 24px; height: 24px; flex: none; background: var(--agent);
     mask: var(--heron) center / contain no-repeat;
     animation: heron 194.71s step-end infinite;
 }

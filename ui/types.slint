@@ -156,8 +156,8 @@ export enum ChangeScope { turn, since-looked, session }
 
 export enum ChangeKind { added, changed, deleted }
 
-// Who changed a file: Claude's editing tools, a command, both, or nobody in a turn.
-export enum ChangeWho { claude, command, both, between-turns }
+// Who changed a file: the agent's editing tools, a command, both, or nobody in a turn.
+export enum ChangeWho { agent, command, both, between-turns }
 
 export enum ChangeReview { not-reviewed, reviewed, changed-since }
 

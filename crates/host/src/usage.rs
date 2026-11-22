@@ -10,12 +10,13 @@ use std::time::Duration;
 use tokio::io::{AsyncBufReadExt as _, AsyncWriteExt as _, BufReader};
 use tokio::process::Command;
 
-use crate::claude::{self, Backend};
+use crate::claude;
 use crate::external::wire::{
     AssistantError, ControlRequest, ControlResponse, Input, Message, RateLimitReport, RequestId,
     UsageReport,
 };
 use crate::ipc::ProviderUsage;
+use crate::provider::Backend;
 
 /// How long a standalone `claude` usage probe gets to answer.
 const CLAUDE_USAGE_WAIT: Duration = Duration::from_secs(15);

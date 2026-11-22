@@ -26,12 +26,14 @@ pub struct Capabilities {
     pub folder_trust: bool,
     /// Offers an optional stored Anthropic API key alongside terminal sign-in.
     pub api_key_sign_in: bool,
-    /// Supplies built-in client commands (`/btw`, `/login`) and subscription tier metadata.
-    pub claude_extras: bool,
+    /// Signs in by a command you run in a terminal, which `/login` shows you: behind a pipe the
+    /// program offers no sign-in of its own.
+    pub terminal_sign_in: bool,
     /// Supports interactive block-level plan comments returned alongside approval.
     pub plan_comments: bool,
-    /// Uses Claude Code's fixed permission-mode menu rather than dynamic agent modes.
-    pub claude_modes: bool,
+    /// The mode menu is a fixed set of permission modes, not the modes the program offers as it
+    /// starts.
+    pub fixed_modes: bool,
     /// Applies a mid-turn mode switch only from the next prompt onward.
     pub deferred_mode_switch: bool,
 }
@@ -102,9 +104,9 @@ impl Backend {
                 plan_limits: sign_in == SignInWith::Account,
                 folder_trust: true,
                 api_key_sign_in: true,
-                claude_extras: true,
+                terminal_sign_in: true,
                 plan_comments: true,
-                claude_modes: true,
+                fixed_modes: true,
                 deferred_mode_switch: false,
             },
             Self::Agy => Capabilities {
@@ -115,9 +117,9 @@ impl Backend {
                 plan_limits: true,
                 folder_trust: false,
                 api_key_sign_in: false,
-                claude_extras: false,
+                terminal_sign_in: false,
                 plan_comments: false,
-                claude_modes: false,
+                fixed_modes: false,
                 deferred_mode_switch: true,
             },
             Self::Opencode => Capabilities {
@@ -128,9 +130,9 @@ impl Backend {
                 plan_limits: false,
                 folder_trust: false,
                 api_key_sign_in: false,
-                claude_extras: false,
+                terminal_sign_in: false,
                 plan_comments: false,
-                claude_modes: false,
+                fixed_modes: false,
                 deferred_mode_switch: true,
             },
         }

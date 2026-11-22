@@ -78,7 +78,7 @@ fn greet(outbox: &Sender<FromDaemon>) {
             finds_windows: false,
             local: false,
             home: demo::Folder::Trailhead.path().to_path_buf(),
-            backends: vec![crate::claude::Backend::Claude],
+            backends: vec![crate::provider::Backend::Claude],
         },
     );
     tell(outbox, FromDaemon::Hosted(Vec::new()));
@@ -135,10 +135,10 @@ fn read_for(outbox: &Sender<FromDaemon>, request: ActId, read: Read) {
         // The demo keeps nothing between its runs: a session shown before isn't there.
         Read::Saved(_) => Answer::Saved(crate::sessions::Saved::Nowhere),
         Read::ProviderUsage { backend, .. } => Answer::ProviderUsage(match backend {
-            crate::claude::Backend::Claude => {
+            crate::provider::Backend::Claude => {
                 crate::ipc::ProviderUsage::noted("The browser demo shows no live usage.")
             }
-            crate::claude::Backend::Agy | crate::claude::Backend::Opencode => {
+            crate::provider::Backend::Agy | crate::provider::Backend::Opencode => {
                 crate::ipc::ProviderUsage::Unavailable
             }
         }),

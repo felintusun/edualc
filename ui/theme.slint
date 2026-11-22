@@ -53,7 +53,7 @@ struct Colours {
     link: color,
     selection: color,
     selection-text: color,
-    claude: color,
+    agent: color,
     success: color,
     warning: color,
     warning-text: color,
@@ -91,7 +91,7 @@ export global Theme {
         link: #83a598, // blue
         selection: #504945, // bg2
         selection-text: #fbf1c7,
-        claude: #fe8019,
+        agent: #fe8019,
         success: #b8bb26, // green
         warning: #fabd2f, // yellow
         warning-text: #fabd2f,
@@ -130,7 +130,7 @@ export global Theme {
         link: #076678, // blue
         selection: #d5c4a1, // bg2
         selection-text: #282828,
-        claude: #d65d0e,
+        agent: #d65d0e,
         success: #736f10, // green, lifted
         warning: #b57614, // yellow
         warning-text: #926219, // lifted
@@ -170,7 +170,7 @@ export global Theme {
         link: #8ab4f8,
         selection: #2d4f7c,
         selection-text: #ffffff,
-        claude: #d97757,
+        agent: #d97757,
         success: #6bc46d,
         warning: #e5b443,
         warning-text: #e5b443,
@@ -210,7 +210,7 @@ export global Theme {
         link: #1a56c4,
         selection: #c8dbff,
         selection-text: #111111,
-        claude: #b8532f,
+        agent: #b8532f,
         success: #1e7b34,
         warning: #b26a00,
         warning-text: #8a5300,
@@ -278,8 +278,8 @@ export global Theme {
     out property <color> selection: self.colours.selection;
     out property <color> selection-text: self.colours.selection-text;
 
-    // Claude's mark, and the dot that shows it working.
-    out property <color> claude: self.colours.claude;
+    // The agent's mark, and the dot that shows it working.
+    out property <color> agent: self.colours.agent;
 
     // How things went. Where a colour falls short as text, its `-text` twin is lifted for it;
     // as dots and edges they keep 3:1.

@@ -99,7 +99,7 @@
     display: flex; align-items: center; gap: var(--space-m); height: 56px; flex: none;
     padding: 0 var(--space-m) 0 var(--space-xl); border-bottom: 1px solid var(--divider);
 }
-.plan-review-icon { width: 22px; height: 22px; color: var(--claude); }
+.plan-review-icon { width: 22px; height: 22px; color: var(--agent); }
 .plan-review-titles { flex: 1; min-width: 0; }
 .plan-review-title { margin: 0; font-size: var(--title); font-weight: 600; color: var(--text); }
 .plan-review-caption { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

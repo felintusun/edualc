@@ -5,9 +5,9 @@ use std::path::PathBuf;
 
 use slint::ComponentHandle;
 
-use crate::claude::Backend;
 use crate::external::wire::SessionId;
 use crate::folder::{Folder, FolderError};
+use crate::provider::Backend;
 use crate::{app, connect, decode, desktop, generated, sessions, ui};
 
 /// A native desktop window for coding agents: Claude Code, agy and opencode.

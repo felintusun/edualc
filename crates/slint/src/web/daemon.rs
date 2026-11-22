@@ -93,10 +93,10 @@ fn read_for(events: &Sender<Event>, request: ActId, read: Read) {
         Read::Changes { .. } => Answer::Changes(Ok(crate::changes::ChangeSet::default())),
         Read::Diff { .. } => Answer::Diff(Ok(crate::changes::Diff::default())),
         Read::ProviderUsage { backend, .. } => Answer::ProviderUsage(match backend {
-            crate::claude::Backend::Claude => {
+            crate::provider::Backend::Claude => {
                 crate::ipc::ProviderUsage::noted("The browser demo shows no live usage.")
             }
-            crate::claude::Backend::Agy | crate::claude::Backend::Opencode => {
+            crate::provider::Backend::Agy | crate::provider::Backend::Opencode => {
                 crate::ipc::ProviderUsage::Unavailable
             }
         }),

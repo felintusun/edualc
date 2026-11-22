@@ -96,7 +96,7 @@ export component UsagePanel inherits Rectangle {
                 spacing: Theme.space-s;
                 Icon {
                     source: @image-url("@lucide/gauge.svg");
-                    tint: Theme.claude;
+                    tint: Theme.agent;
                     width: Theme.icon;
                     y: (parent.height - self.height) / 2;
                 }
@@ -166,7 +166,7 @@ export component UsagePanel inherits Rectangle {
                                 height: 6px;
                                 y: (parent.height - self.height) / 2;
                                 border-radius: 3px;
-                                background: tab.loading ? Theme.claude
+                                background: tab.loading ? Theme.agent
                                     : tab.sections.length > 0 ? Theme.success : Theme.text-tertiary;
                             }
                             Text {

@@ -18,7 +18,7 @@
 .press:disabled { cursor: default; background: transparent; }
 
 .trimmed { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
-.ink-claude { color: var(--claude); }
+.ink-agent { color: var(--agent); }
 .ink-secondary { color: var(--text-secondary); }
 .ink-tertiary { color: var(--text-tertiary); }
 
@@ -68,7 +68,7 @@
 .live-dot { display: inline-flex; align-items: center; justify-content: center; width: var(--icon-small); height: var(--icon-small); flex: none; }
 .live-dot.waiting { color: var(--warning-text); }
 .live-mark { width: 8px; height: 8px; border-radius: 4px; box-sizing: border-box; border: 1.5px solid var(--text-faint); }
-.live-mark.busy { background: var(--claude); border: none; }
+.live-mark.busy { background: var(--agent); border: none; }
 
 /* What runs besides the turn's own steps. */
 .tasks { position: relative; display: inline-flex; min-width: 0; }

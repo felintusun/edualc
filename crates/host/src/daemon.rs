@@ -1040,7 +1040,7 @@ enum ToHub {
 struct Kept {
     cwd: PathBuf,
     session: SessionId,
-    backend: crate::claude::Backend,
+    backend: crate::provider::Backend,
     /// What it was started signed in with: a window attaching to it is told.
     sign_in: SignInWith,
     /// The window and key it is shown under.
@@ -2119,7 +2119,7 @@ async fn send_line(outbox: &mpsc::Sender<FromDaemon>, key: Generation, stream: S
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::claude::{Conversation, FolderConfiguration};
+    use crate::provider::{Conversation, FolderConfiguration};
 
     /// A line over the network has no say in this machine's desktop: what it asks of it is
     /// refused, and what is a folder or an image comes back as none.
@@ -2193,7 +2193,7 @@ mod tests {
 
     fn launch() -> Launch {
         Launch {
-            backend: crate::claude::Backend::Claude,
+            backend: crate::provider::Backend::Claude,
             cwd: PathBuf::from("/tmp"),
             conversation: Conversation::New(
                 SessionId::try_from("11111111-2222-4333-8444-555555555555".to_owned())
@@ -2201,7 +2201,7 @@ mod tests {
             ),
             model: None,
             folder_configuration: FolderConfiguration::Read,
-            sign_in: crate::claude::SignInWith::Account,
+            sign_in: crate::provider::SignInWith::Account,
         }
     }
 

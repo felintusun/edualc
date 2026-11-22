@@ -19,12 +19,12 @@ use rustix::io::Errno;
 use tokio::sync::{mpsc, oneshot};
 
 use crate::acp::{self, Agent, ExternalSession, brain};
-use crate::claude::Backend;
 use crate::external::agy::{self, AgyTask, Step, StepKind, StepStatus};
 use crate::external::claude_files::{ClaudeJsonWhole, ProjectWhole};
 use crate::external::wire::{SessionId, TranscriptLine};
 use crate::folder::Folder;
 use crate::ipc::{self, ActId, Answer, FromDaemon, Place, ProjectOverview, Read, Target, Watched};
+use crate::provider::Backend;
 use crate::sessions::{LiveKind, LiveSession, LiveStatus, MessagingName, ProjectInfo, SessionInfo};
 use crate::{sessions, settings, snapshots};
 
@@ -1458,7 +1458,7 @@ mod tests {
     #[test]
     fn a_thousand_sessions_fit_a_message() {
         let session = |at: usize| sessions::SessionInfo {
-            backend: crate::claude::Backend::Claude,
+            backend: crate::provider::Backend::Claude,
             id: crate::external::wire::SessionId::from(uuid::Uuid::from_u128(at as u128)),
             title: "x".repeat(300),
             modified: std::time::SystemTime::now(),
@@ -1480,7 +1480,7 @@ mod tests {
             modified: now,
             sessions: (0..OVERVIEW_SESSIONS)
                 .map(|sub| sessions::SessionInfo {
-                    backend: crate::claude::Backend::Claude,
+                    backend: crate::provider::Backend::Claude,
                     id: crate::external::wire::SessionId::from(uuid::Uuid::from_u128(
                         u128::try_from(idx * 10 + sub).unwrap_or(0),
                     )),

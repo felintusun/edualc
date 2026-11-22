@@ -40,7 +40,7 @@ component FileRow inherits Pressable {
     accessible-description: root.who-words + ", +\{root.file.added} −\{root.file.removed}"
         + (root.file.review == ChangeReview.reviewed ? ", reviewed" : root.file.review == ChangeReview.changed-since ? ", changed since you reviewed it" : "");
     clicked => { Changes.select(root.index); }
-    property <string> who-words: root.file.who == ChangeWho.claude ? Session.agent-name + "'s edit"
+    property <string> who-words: root.file.who == ChangeWho.agent ? Session.agent-name + "'s edit"
         : root.file.who == ChangeWho.command ? "by a command"
         : root.file.who == ChangeWho.both ? Session.agent-name + " and a command"
         : "between turns";
@@ -73,7 +73,7 @@ component FileRow inherits Pressable {
                 spacing: Theme.space-s;
                 Caption {
                     text: root.who-words;
-                    color: root.file.who == ChangeWho.claude ? Theme.text-secondary : Theme.warning-text;
+                    color: root.file.who == ChangeWho.agent ? Theme.text-secondary : Theme.warning-text;
                     accessible-role: none;
                 }
                 Caption {
@@ -278,7 +278,7 @@ export component ChangesPanel inherits Rectangle {
                 spacing: root.narrow ? Theme.space-s : Theme.space-m;
                 Icon {
                     source: @image-url("@lucide/git-compare.svg");
-                    tint: Theme.claude;
+                    tint: Theme.agent;
                     width: 22px;
                     y: (parent.height - self.height) / 2;
                 }

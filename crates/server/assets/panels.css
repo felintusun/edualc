@@ -2,7 +2,7 @@
    conversation (ui/side.slint, ui/peek.slint), the usage details and the settings over it
    (ui/usage.slint, ui/settings.slint). */
 
-.icon.claude { color: var(--claude); }
+.icon.agent { color: var(--agent); }
 .icon.large { width: 22px; height: 22px; }
 .elide { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .secondary { color: var(--text-secondary); }
@@ -31,7 +31,7 @@
 }
 .exchange > .bubble { align-self: flex-end; max-width: 85%; box-sizing: border-box; }
 .exchange .waiting { display: flex; align-items: center; gap: var(--space-s); color: var(--text-tertiary); }
-.exchange .dot { width: 8px; height: 8px; border-radius: 4px; background: var(--claude); flex: none; }
+.exchange .dot { width: 8px; height: 8px; border-radius: 4px; background: var(--agent); flex: none; }
 .exchange .answer { display: flex; flex-direction: column; gap: var(--space-s); align-items: flex-start; }
 .exchange .answer > .blocks { align-self: stretch; }
 .copy-answer.icon-button { width: 24px; height: 24px; color: var(--text-faint); }

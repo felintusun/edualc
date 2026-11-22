@@ -855,7 +855,7 @@ component EditArea inherits Rectangle {
     property <int> breath: 0;
     // 0 to 1 and back over a breath (2.4 s).
     property <float> swell: (1 - cos(root.breath * 360deg / root.breaths)) / 2;
-    property <color> glow: Session.activity == Activity.tool ? Theme.info : Theme.claude;
+    property <color> glow: Session.activity == Activity.tool ? Theme.info : Theme.agent;
     Timer {
         interval: 100ms;
         running: root.glowing;
@@ -1431,7 +1431,7 @@ component ApiKeySessionDialog inherits Rectangle {
             spacing: Theme.space-s;
             Icon {
                 source: @image-url("@lucide/key-round.svg");
-                tint: Theme.claude;
+                tint: Theme.agent;
                 y: (parent.height - self.height) / 2;
             }
             Title {
@@ -1574,7 +1574,7 @@ component NewSessionDialog inherits Rectangle {
             spacing: Theme.space-s;
             Icon {
                 source: @image-url("@lucide/square-pen.svg");
-                tint: Theme.claude;
+                tint: Theme.agent;
                 y: (parent.height - self.height) / 2;
             }
             Title {
@@ -2207,7 +2207,7 @@ export component AppWindow inherits Window {
                                             spacing: Theme.space-xs;
                                             Icon {
                                                 source: @image-url("@lucide/git-compare.svg");
-                                                tint: Changes.last-turn != "" ? Theme.claude : Theme.text-secondary;
+                                                tint: Changes.last-turn != "" ? Theme.agent : Theme.text-secondary;
                                                 width: Theme.icon-small;
                                                 y: (parent.height - self.height) / 2;
                                             }
@@ -2236,7 +2236,7 @@ export component AppWindow inherits Window {
                                             spacing: Theme.space-xs;
                                             Icon {
                                                 source: @image-url("@lucide/git-branch.svg");
-                                                tint: Theme.claude;
+                                                tint: Theme.agent;
                                                 width: Theme.icon-small;
                                                 y: (parent.height - self.height) / 2;
                                             }
@@ -2325,7 +2325,7 @@ export component AppWindow inherits Window {
                                         spacing: Theme.space-xs;
                                         Icon {
                                             source: @image-url("@lucide/message-circle-dashed.svg");
-                                            tint: Side.view != SideView.hidden ? Theme.claude : Theme.text-secondary;
+                                            tint: Side.view != SideView.hidden ? Theme.agent : Theme.text-secondary;
                                             width: Theme.icon-small;
                                             y: (parent.height - self.height) / 2;
                                         }
@@ -2340,7 +2340,7 @@ export component AppWindow inherits Window {
                                             height: 8px;
                                             y: (parent.height - self.height) / 2;
                                             border-radius: 4px;
-                                            background: Theme.claude;
+                                            background: Theme.agent;
                                         }
                                     }
                                 }

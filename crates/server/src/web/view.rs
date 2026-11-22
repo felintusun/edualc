@@ -132,7 +132,7 @@ impl View {
 
     /// Starts a new session in the current project with the program and sign-in `program` names.
     pub fn new_session(&self, program: model::Program) {
-        use edualc_core::claude::{Backend, SignInWith};
+        use edualc_core::provider::{Backend, SignInWith};
         let (backend, sign_in) = match program {
             model::Program::Claude => (Backend::Claude, SignInWith::Account),
             model::Program::ClaudeApiKey => (Backend::Claude, SignInWith::ApiKey),

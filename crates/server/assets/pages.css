@@ -107,7 +107,7 @@
 .page-dialog { width: min(calc(100% - 2 * var(--space-l)), 520px); }
 .page-dialog.tall { width: min(calc(100% - 2 * var(--space-l)), 640px); }
 .page-dialog .overlay-title { flex: 1; }
-.dialog-icon { color: var(--claude); display: inline-flex; }
+.dialog-icon { color: var(--agent); display: inline-flex; }
 .dialog-body { display: flex; flex-direction: column; gap: var(--space-s); padding: var(--space-l) var(--space-xl); min-height: 0; }
 .dialog-label { color: var(--text-secondary); font-size: var(--small); margin-top: var(--space-xs); }
 .dialog-hint { margin: 0; overflow-wrap: anywhere; }

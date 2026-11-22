@@ -113,7 +113,7 @@ pub fn id_number(id: &SessionId, at: usize) -> usize {
 #[serde(deny_unknown_fields)]
 pub struct SessionInfo {
     /// The program it talks to.
-    pub backend: crate::claude::Backend,
+    pub backend: crate::provider::Backend,
     pub id: SessionId,
     pub title: String,
     pub modified: SystemTime,
@@ -204,7 +204,7 @@ pub struct LiveSession {
     /// Its subagents running now, as their records tell (see [`running_agents`]).
     pub agents: usize,
     /// The program it runs, as where its transcript is says; Claude Code before it has one.
-    pub backend: crate::claude::Backend,
+    pub backend: crate::provider::Backend,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, serde::Serialize)]
@@ -310,11 +310,11 @@ fn all_projects_dirs() -> Vec<PathBuf> {
         .collect()
 }
 
-fn state_projects(backend: crate::claude::Backend) -> Option<PathBuf> {
+fn state_projects(backend: crate::provider::Backend) -> Option<PathBuf> {
     let folder = match backend {
-        crate::claude::Backend::Claude => return None,
-        crate::claude::Backend::Agy => "agy",
-        crate::claude::Backend::Opencode => "opencode",
+        crate::provider::Backend::Claude => return None,
+        crate::provider::Backend::Agy => "agy",
+        crate::provider::Backend::Opencode => "opencode",
     };
     dirs::state_dir().map(|state| state.join("edualc").join(folder))
 }
@@ -323,13 +323,13 @@ fn state_projects(backend: crate::claude::Backend) -> Option<PathBuf> {
 /// keeps its own: agy keeps its conversations in a database of its own, which edualc doesn't
 /// read.
 pub fn agy_projects() -> Option<PathBuf> {
-    state_projects(crate::claude::Backend::Agy)
+    state_projects(crate::provider::Backend::Agy)
 }
 
 /// Where edualc keeps the shadow transcripts of opencode's sessions, a folder per project as
 /// Claude Code keeps its own.
 pub fn opencode_projects() -> Option<PathBuf> {
-    state_projects(crate::claude::Backend::Opencode)
+    state_projects(crate::provider::Backend::Opencode)
 }
 
 /// Whether `path` lies inside agy's brain folder.
@@ -359,15 +359,15 @@ pub fn is_agy_brain_session(_id: &SessionId) -> bool {
 }
 
 /// The program a session saved at `transcript` talks to, as where its transcript is says.
-pub fn backend_of(transcript: &Path) -> crate::claude::Backend {
+pub fn backend_of(transcript: &Path) -> crate::provider::Backend {
     if agy_projects().is_some_and(|agy| transcript.starts_with(&agy))
         || is_agy_brain_path(transcript)
     {
-        crate::claude::Backend::Agy
+        crate::provider::Backend::Agy
     } else if opencode_projects().is_some_and(|oc| transcript.starts_with(&oc)) {
-        crate::claude::Backend::Opencode
+        crate::provider::Backend::Opencode
     } else {
-        crate::claude::Backend::Claude
+        crate::provider::Backend::Claude
     }
 }
 
@@ -673,7 +673,7 @@ pub fn live() -> Vec<LiveSession> {
                         .map_or(0, |transcript| running_agents(transcript, SystemTime::now())),
                     backend: transcript
                         .as_deref()
-                        .map_or(crate::claude::Backend::Claude, backend_of),
+                        .map_or(crate::provider::Backend::Claude, backend_of),
                     id: record.session_id,
                     cwd: record.cwd,
                     name: record.name,
@@ -1483,18 +1483,18 @@ mod tests {
     fn external_ids_map_deterministically_and_backends_identify_state_dirs() {
         let uuid = "e4cd185b-4679-4fa9-8245-69f15bdbbbe1";
         assert_eq!(
-            SessionId::for_external(crate::claude::Backend::Agy, uuid).as_str(),
+            SessionId::for_external(crate::provider::Backend::Agy, uuid).as_str(),
             uuid
         );
-        let ses_a = SessionId::for_external(crate::claude::Backend::Opencode, "ses_abc123");
-        let ses_b = SessionId::for_external(crate::claude::Backend::Opencode, "ses_abc123");
-        let ses_c = SessionId::for_external(crate::claude::Backend::Opencode, "ses_xyz789");
+        let ses_a = SessionId::for_external(crate::provider::Backend::Opencode, "ses_abc123");
+        let ses_b = SessionId::for_external(crate::provider::Backend::Opencode, "ses_abc123");
+        let ses_c = SessionId::for_external(crate::provider::Backend::Opencode, "ses_xyz789");
         assert_eq!(ses_a, ses_b);
         assert_ne!(ses_a, ses_c);
         if let Some(oc) = opencode_projects() {
             assert_eq!(
                 backend_of(&oc.join("-w-app/x.jsonl")),
-                crate::claude::Backend::Opencode
+                crate::provider::Backend::Opencode
             );
         }
         if let Some(brain) = crate::external::agy::brain() {
@@ -1504,7 +1504,7 @@ mod tests {
                         .join(uuid)
                         .join(".system_generated/logs/transcript.jsonl")
                 ),
-                crate::claude::Backend::Agy
+                crate::provider::Backend::Agy
             );
         }
     }

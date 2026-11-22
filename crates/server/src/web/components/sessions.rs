@@ -115,7 +115,7 @@ pub fn TasksChip() -> Element {
                 "aria-expanded": "{open}",
                 onmounted: move |element| chip.set(Some(element)),
                 onclick: move |_| show(),
-                span { class: "ink-claude",
+                span { class: "ink-agent",
                     Icon { icon: Lucide::Layers, class: "small" }
                 }
                 span { class: "tasks-summary trimmed", "{session.tasks_summary}" }

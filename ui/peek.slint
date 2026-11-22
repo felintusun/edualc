@@ -150,7 +150,7 @@ export component PeekPanel inherits Rectangle {
             spacing: Theme.space-s;
             Icon {
                 source: root.conversation ? @image-url("@lucide/bot.svg") : @image-url("@lucide/square-terminal.svg");
-                tint: Theme.claude;
+                tint: Theme.agent;
                 y: (parent.height - self.height) / 2;
             }
             VerticalLayout {

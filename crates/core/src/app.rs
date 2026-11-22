@@ -13,7 +13,6 @@ use serde_json::Value;
 
 use crate::agent::{self, Agent, Output};
 use crate::chat::{Body, Change, Chat, ImageKey, ToolState};
-use crate::claude::{self, FolderConfiguration, Launch, Resume};
 use crate::decode::{Picture, Pixels};
 use crate::desktop;
 use crate::external::wire::{
@@ -30,6 +29,7 @@ use crate::overview;
 use crate::plan;
 use crate::present::model::PlaceView;
 use crate::present::{Command, Frontend, OverviewView, Presenter, Seat};
+use crate::provider::{self, FolderConfiguration, Launch, Resume};
 use crate::repeat::Repeat;
 use crate::sessions::{
     self, LiveSession, LiveStatus, MessagingName, ProjectInfo, SessionInfo, Worktree,
@@ -123,16 +123,16 @@ pub enum Modes {
 
 impl Default for Modes {
     fn default() -> Self {
-        Self::of(claude::Backend::default())
+        Self::of(provider::Backend::default())
     }
 }
 
 impl Modes {
     /// What a session of `backend` offers before its process says more.
-    pub fn of(backend: claude::Backend) -> Self {
+    pub fn of(backend: provider::Backend) -> Self {
         if backend
-            .capabilities(claude::SignInWith::Account)
-            .claude_modes
+            .capabilities(provider::SignInWith::Account)
+            .fixed_modes
         {
             Self::Claude(None)
         } else {
@@ -324,7 +324,7 @@ pub enum Event {
     SettingsNotKept(String),
     /// On-demand usage result for a coding agent provider.
     ProviderUsageRead {
-        backend: claude::Backend,
+        backend: provider::Backend,
         usage: ipc::ProviderUsage,
     },
     /// The line to edualcd over the network is lost, and is being reached again: what was asked
@@ -594,14 +594,14 @@ pub enum Action {
     Send(String),
     Interrupt,
     /// A new session, running this program, signed in so if it is Claude Code.
-    NewSession(claude::Backend, claude::SignInWith),
+    NewSession(provider::Backend, provider::SignInWith),
     /// A new session started from the project page for this program.
-    NewSessionInProject(claude::Backend, claude::SignInWith),
+    NewSessionInProject(provider::Backend, provider::SignInWith),
     /// A new Claude Code session with the API key, with this model (an alias Claude Code
     /// takes), or the model menu's.
     NewApiKeySession(Option<String>),
     /// The session waiting for it continues signed in so; none: it isn't continued.
-    ContinueWith(Option<claude::SignInWith>),
+    ContinueWith(Option<provider::SignInWith>),
     /// An Anthropic API key, as pasted, for the keyring.
     StoreApiKey(PastedKey),
     RemoveApiKey,
@@ -757,7 +757,7 @@ pub enum Action {
 /// A model picked for one program: the other program doesn't know its name.
 #[derive(Debug)]
 pub struct ModelChoice {
-    backend: claude::Backend,
+    backend: provider::Backend,
     model: String,
 }
 
@@ -768,9 +768,9 @@ pub struct Status {
     pub title: Option<String>,
     /// The program the session talks to: the one picked for a new session (the command line's
     /// at first), the transcript's for one continued.
-    pub backend: claude::Backend,
+    pub backend: provider::Backend,
     /// What a Claude Code session signs in with, as picked when it was started or continued.
-    pub sign_in_with: claude::SignInWith,
+    pub sign_in_with: provider::SignInWith,
     /// The model in use, as the CLI resolved it.
     pub model: String,
     pub models: Vec<wire::ModelInfo>,
@@ -827,9 +827,9 @@ impl Status {
             return None;
         }
         match self.backend {
-            claude::Backend::Claude => Some(self.limits.claude),
-            claude::Backend::Agy => Some(self.limits.agy),
-            claude::Backend::Opencode => None,
+            provider::Backend::Claude => Some(self.limits.claude),
+            provider::Backend::Agy => Some(self.limits.agy),
+            provider::Backend::Opencode => None,
         }
     }
 
@@ -838,15 +838,15 @@ impl Status {
     pub(crate) fn limits_mut(&mut self) -> Option<&mut Limits> {
         if !self
             .backend
-            .capabilities(claude::SignInWith::Account)
+            .capabilities(provider::SignInWith::Account)
             .plan_limits
         {
             return None;
         }
         match self.backend {
-            claude::Backend::Claude => Some(&mut self.limits.claude),
-            claude::Backend::Agy => Some(&mut self.limits.agy),
-            claude::Backend::Opencode => None,
+            provider::Backend::Claude => Some(&mut self.limits.claude),
+            provider::Backend::Agy => Some(&mut self.limits.agy),
+            provider::Backend::Opencode => None,
         }
     }
 
@@ -959,19 +959,19 @@ pub struct PlanLimits {
 }
 
 impl PlanLimits {
-    pub(crate) fn for_backend(&self, backend: claude::Backend) -> Option<Limits> {
+    pub(crate) fn for_backend(&self, backend: provider::Backend) -> Option<Limits> {
         match backend {
-            claude::Backend::Claude => Some(self.claude),
-            claude::Backend::Agy => Some(self.agy),
-            claude::Backend::Opencode => None,
+            provider::Backend::Claude => Some(self.claude),
+            provider::Backend::Agy => Some(self.agy),
+            provider::Backend::Opencode => None,
         }
     }
 
-    pub(crate) fn mut_for_backend(&mut self, backend: claude::Backend) -> Option<&mut Limits> {
+    pub(crate) fn mut_for_backend(&mut self, backend: provider::Backend) -> Option<&mut Limits> {
         match backend {
-            claude::Backend::Claude => Some(&mut self.claude),
-            claude::Backend::Agy => Some(&mut self.agy),
-            claude::Backend::Opencode => None,
+            provider::Backend::Claude => Some(&mut self.claude),
+            provider::Backend::Agy => Some(&mut self.agy),
+            provider::Backend::Opencode => None,
         }
     }
 }
@@ -1014,26 +1014,26 @@ pub struct ProviderUsageState {
 #[derive(Debug, Default)]
 pub struct UsagePanel {
     pub open: bool,
-    pub active_backend: claude::Backend,
+    pub active_backend: provider::Backend,
     pub claude: ProviderUsageState,
     pub agy: ProviderUsageState,
     pub opencode: ProviderUsageState,
 }
 
 impl UsagePanel {
-    pub fn for_backend(&self, backend: claude::Backend) -> &ProviderUsageState {
+    pub fn for_backend(&self, backend: provider::Backend) -> &ProviderUsageState {
         match backend {
-            claude::Backend::Claude => &self.claude,
-            claude::Backend::Agy => &self.agy,
-            claude::Backend::Opencode => &self.opencode,
+            provider::Backend::Claude => &self.claude,
+            provider::Backend::Agy => &self.agy,
+            provider::Backend::Opencode => &self.opencode,
         }
     }
 
-    pub fn for_backend_mut(&mut self, backend: claude::Backend) -> &mut ProviderUsageState {
+    pub fn for_backend_mut(&mut self, backend: provider::Backend) -> &mut ProviderUsageState {
         match backend {
-            claude::Backend::Claude => &mut self.claude,
-            claude::Backend::Agy => &mut self.agy,
-            claude::Backend::Opencode => &mut self.opencode,
+            provider::Backend::Claude => &mut self.claude,
+            provider::Backend::Agy => &mut self.agy,
+            provider::Backend::Opencode => &mut self.opencode,
         }
     }
 
@@ -1091,8 +1091,8 @@ pub enum Request {
     TaskOutput(wire::TaskId),
     /// A side question, by its place in the side chat.
     Side(usize),
-    Usage(claude::Backend),
-    ContextUsage(claude::Backend),
+    Usage(provider::Backend),
+    ContextUsage(provider::Backend),
 }
 
 /// A session running elsewhere, shown as it goes but not driven from here.
@@ -1237,7 +1237,7 @@ enum Reading {
         path: PathBuf,
     },
     /// On-demand usage for a coding agent provider.
-    ProviderUsage { backend: claude::Backend },
+    ProviderUsage { backend: provider::Backend },
 }
 
 impl Reading {
@@ -1405,9 +1405,9 @@ pub struct App<F: Frontend> {
     desktop_text_size: f32,
     /// The backend passed on the command line (default `Backend::Claude`), restored when
     /// returning to a project page or start page.
-    default_backend: claude::Backend,
+    default_backend: provider::Backend,
     /// Coding agent backends available on PATH when the window connected.
-    available_backends: Vec<claude::Backend>,
+    available_backends: Vec<provider::Backend>,
     /// What the start-page project filter holds.
     start_filter: String,
     /// What the list of sessions is narrowed to.
@@ -1509,7 +1509,7 @@ impl<F: Frontend> App<F> {
             active_backend: backend,
             ..UsagePanel::default()
         };
-        for candidate in claude::Backend::ALL {
+        for candidate in provider::Backend::ALL {
             usage.for_backend_mut(candidate).available = available_backends.contains(&candidate);
         }
         Self {
@@ -1845,11 +1845,11 @@ impl<F: Frontend> App<F> {
             Action::NewApiKeySession(model) => {
                 if let Some(model) = model {
                     self.status.model_choice = Some(ModelChoice {
-                        backend: claude::Backend::Claude,
+                        backend: provider::Backend::Claude,
                         model,
                     });
                 }
-                self.new_session(claude::Backend::Claude, claude::SignInWith::ApiKey);
+                self.new_session(provider::Backend::Claude, provider::SignInWith::ApiKey);
             }
             Action::ContinueWith(sign_in) => self.continue_with(sign_in),
             Action::StoreApiKey(pasted) => self.store_api_key(&pasted.0),
@@ -2257,7 +2257,7 @@ impl<F: Frontend> App<F> {
                 .as_ref()
                 .map(|worktree| worktree.name.as_str()),
             agents: mark.agents,
-            program: claude::Program::of(self.status.backend, self.status.sign_in_with),
+            program: provider::Program::of(self.status.backend, self.status.sign_in_with),
         })
     }
 
@@ -2751,7 +2751,7 @@ impl<F: Frontend> App<F> {
         }
     }
 
-    fn new_session(&mut self, backend: claude::Backend, sign_in: claude::SignInWith) {
+    fn new_session(&mut self, backend: provider::Backend, sign_in: provider::SignInWith) {
         let Some(cwd) = self.location.cwd().map(Path::to_path_buf) else {
             return;
         };
@@ -2762,7 +2762,7 @@ impl<F: Frontend> App<F> {
         self.reset_session(None, None, backend);
         // agy and opencode sign in themselves.
         self.status.sign_in_with = if !backend.capabilities(sign_in).api_key_sign_in {
-            claude::SignInWith::Account
+            provider::SignInWith::Account
         } else {
             sign_in
         };
@@ -2775,7 +2775,7 @@ impl<F: Frontend> App<F> {
         &mut self,
         id: Option<SessionId>,
         title: Option<String>,
-        backend: claude::Backend,
+        backend: provider::Backend,
     ) {
         self.status.session_id = id;
         self.status.title = title;
@@ -2786,7 +2786,7 @@ impl<F: Frontend> App<F> {
         // A wait for the limit belongs to the session whose turn it stopped.
         self.status.limit_wait = LimitWait::Idle;
         // So does its sign-in: one running elsewhere is taken to be on the user's own.
-        self.status.sign_in_with = claude::SignInWith::Account;
+        self.status.sign_in_with = provider::SignInWith::Account;
         // A session that was to be continued once its sign-in was picked isn't, once another is
         // shown.
         self.choosing_sign_in = None;
@@ -2840,7 +2840,7 @@ impl<F: Frontend> App<F> {
         // the session view right away so `SignInChoiceBar` is shown immediately instead of staying
         // hidden on the project page.
         if backend
-            .capabilities(claude::SignInWith::Account)
+            .capabilities(provider::SignInWith::Account)
             .api_key_sign_in
             && self.api_key == ApiKeyKept::Kept
         {
@@ -2861,11 +2861,11 @@ impl<F: Frontend> App<F> {
             self.redraw = Redraw::everything();
             return;
         }
-        self.continue_session(id, backend, claude::SignInWith::Account);
+        self.continue_session(id, backend, provider::SignInWith::Account);
     }
 
     /// The program session `id` ran, as the list, running records, or its transcript says.
-    fn backend_of(&self, id: &SessionId) -> claude::Backend {
+    fn backend_of(&self, id: &SessionId) -> provider::Backend {
         self.sessions
             .iter()
             .find(|session| &session.id == id)
@@ -2888,7 +2888,7 @@ impl<F: Frontend> App<F> {
                     .and_then(|cwd| sessions::find_transcript(cwd, id))
                     .map(|path| sessions::backend_of(&path))
             })
-            .or_else(|| sessions::is_agy_brain_session(id).then_some(claude::Backend::Agy))
+            .or_else(|| sessions::is_agy_brain_session(id).then_some(provider::Backend::Agy))
             .unwrap_or_else(|| {
                 self.location.cwd().map_or(self.status.backend, |cwd| {
                     sessions::backend_of(&sessions::locate(cwd, id))
@@ -2897,7 +2897,7 @@ impl<F: Frontend> App<F> {
     }
 
     /// The session waiting for the user's pick goes on signed in so; or isn't continued.
-    fn continue_with(&mut self, sign_in: Option<claude::SignInWith>) {
+    fn continue_with(&mut self, sign_in: Option<provider::SignInWith>) {
         let Some(id) = self.choosing_sign_in.take() else {
             return;
         };
@@ -2911,8 +2911,8 @@ impl<F: Frontend> App<F> {
     fn continue_session(
         &mut self,
         id: SessionId,
-        backend: claude::Backend,
-        sign_in: claude::SignInWith,
+        backend: provider::Backend,
+        sign_in: provider::SignInWith,
     ) {
         let Some(cwd) = self.location.cwd().map(Path::to_path_buf) else {
             return;
@@ -3083,7 +3083,7 @@ impl<F: Frontend> App<F> {
             .unwrap_or_else(|| session.name.clone());
         // Preserve the watched session's own backend (`Claude`, `Agy`, `Opencode`).
         self.reset_session(Some(session.id.clone()), Some(title), session.backend);
-        self.status.sign_in_with = claude::SignInWith::Account;
+        self.status.sign_in_with = provider::SignInWith::Account;
         self.load_session(session.id.clone(), session.cwd.clone());
         self.forget_watch();
         self.watch = Some(Watch {
@@ -3107,7 +3107,7 @@ impl<F: Frontend> App<F> {
         if !watch
             .session
             .backend
-            .capabilities(claude::SignInWith::Account)
+            .capabilities(provider::SignInWith::Account)
             .fork
         {
             let agent = watch.session.backend.agent();
@@ -3438,7 +3438,7 @@ impl<F: Frontend> App<F> {
                 self.sessions.clear();
                 self.load_sessions();
                 self.load_overview();
-                self.new_session(self.default_backend, claude::SignInWith::Account);
+                self.new_session(self.default_backend, provider::SignInWith::Account);
             }
             Err(error) => self.view.set_new_project_error(&error.to_string()),
         }
@@ -4306,7 +4306,7 @@ fn plan_offered(input: &Value) -> Option<AskKind> {
 #[derive(Debug)]
 pub struct Start {
     pub cwd: Option<PathBuf>,
-    pub backend: claude::Backend,
+    pub backend: provider::Backend,
     pub model: Option<String>,
 }
 
@@ -4321,7 +4321,7 @@ pub struct Desktop {
     /// In logical pixels.
     text_size: f32,
     /// Coding agent backends available on PATH when the window connected.
-    backends: Vec<claude::Backend>,
+    backends: Vec<provider::Backend>,
 }
 
 impl Desktop {
@@ -4345,7 +4345,7 @@ impl Desktop {
             finds_windows: false,
             local: true,
             text_size,
-            backends: vec![claude::Backend::Claude],
+            backends: vec![provider::Backend::Claude],
         }
     }
 }
@@ -4473,13 +4473,13 @@ mod tests {
                     openers: Vec::new(),
                     finds_windows: false,
                     text_size: 14.0,
-                    backends: vec![claude::Backend::Claude],
+                    backends: vec![provider::Backend::Claude],
                     local: true,
                 },
                 Ok(Settings::default()),
                 Start {
                     cwd: Some(cwd.clone()),
-                    backend: claude::Backend::Claude,
+                    backend: provider::Backend::Claude,
                     model: None,
                 },
             );
@@ -4701,7 +4701,7 @@ mod tests {
         driven.sent();
         driven.take(Event::Agent {
             generation,
-            output: claude::output_of_line(
+            output: crate::claude::output_of_line(
                 r#"{"type":"control_request","request_id":"m1","request":{"subtype":"can_use_tool","tool_name":"edualc_incoming_message","input":{"from":"tidy-otter","message":"Hi"}}}"#
                     .to_owned(),
             ),
@@ -4758,7 +4758,7 @@ mod tests {
         ] {
             driven.take(Event::Agent {
                 generation,
-                output: claude::output_of_line(line.to_owned()),
+                output: crate::claude::output_of_line(line.to_owned()),
             });
         }
         let said = said(&driven);
@@ -4814,10 +4814,10 @@ mod tests {
             limits.five_hour = Some(used);
         }
         assert!(five_hours(&status).is_some());
-        status.sign_in_with = claude::SignInWith::ApiKey;
+        status.sign_in_with = provider::SignInWith::ApiKey;
         assert!(status.plan_limits().is_none());
-        status.backend = claude::Backend::Agy;
-        status.sign_in_with = claude::SignInWith::Account;
+        status.backend = provider::Backend::Agy;
+        status.sign_in_with = provider::SignInWith::Account;
         assert!(
             five_hours(&status).is_none(),
             "Claude Code's limits aren't agy's"
@@ -4826,7 +4826,7 @@ mod tests {
             limits.five_hour = Some(used);
         }
         assert!(five_hours(&status).is_some());
-        status.backend = claude::Backend::Opencode;
+        status.backend = provider::Backend::Opencode;
         assert!(status.plan_limits().is_none());
         assert!(status.limits_mut().is_none());
     }
@@ -4837,17 +4837,17 @@ mod tests {
     #[test]
     fn a_model_is_kept_for_the_program_it_was_picked_for() {
         let mut status = Status {
-            backend: claude::Backend::Claude,
+            backend: provider::Backend::Claude,
             model_choice: Some(ModelChoice {
-                backend: claude::Backend::Claude,
+                backend: provider::Backend::Claude,
                 model: "sonnet".to_owned(),
             }),
             ..Status::default()
         };
         assert_eq!(status.chosen_model(), Some("sonnet"));
-        status.backend = claude::Backend::Agy;
+        status.backend = provider::Backend::Agy;
         assert_eq!(status.chosen_model(), None);
-        status.backend = claude::Backend::Claude;
+        status.backend = provider::Backend::Claude;
         assert_eq!(status.chosen_model(), Some("sonnet"));
     }
 
@@ -4897,7 +4897,7 @@ mod tests {
             serde_json::to_value(claudes.request()).expect("a request"),
             serde_json::json!({"subtype": "set_permission_mode", "mode": "acceptEdits"})
         );
-        let mut modes = Modes::of(claude::Backend::Claude);
+        let mut modes = Modes::of(provider::Backend::Claude);
         modes.chose(&agys);
         assert_eq!(
             modes,
@@ -5332,13 +5332,13 @@ mod tests {
                     openers: Vec::new(),
                     finds_windows: false,
                     text_size: 14.0,
-                    backends: vec![claude::Backend::Claude],
+                    backends: vec![provider::Backend::Claude],
                     local: true,
                 },
                 Ok(settings),
                 Start {
                     cwd,
-                    backend: claude::Backend::Claude,
+                    backend: provider::Backend::Claude,
                     model: None,
                 },
             );
@@ -5447,8 +5447,8 @@ mod tests {
         )));
 
         test.send(Event::Action(Action::NewSession(
-            claude::Backend::Claude,
-            claude::SignInWith::Account,
+            provider::Backend::Claude,
+            provider::SignInWith::Account,
         )));
         assert!(matches!(&test.app.location, Location::Session(path) if path == &proj));
         assert_eq!(test.latest_nav().view, PlaceView::Session);
@@ -5632,7 +5632,7 @@ mod tests {
             path: proj.clone(),
             modified: std::time::SystemTime::UNIX_EPOCH,
             sessions: vec![SessionInfo {
-                backend: claude::Backend::Claude,
+                backend: provider::Backend::Claude,
                 id: wait_id.clone(),
                 title: "Fix parser".to_owned(),
                 modified: std::time::SystemTime::UNIX_EPOCH,
@@ -5651,7 +5651,7 @@ mod tests {
             status: LiveStatus::Waiting,
             worktree: None,
             agents: 0,
-            backend: claude::Backend::Claude,
+            backend: provider::Backend::Claude,
         }]));
         assert_eq!(test.latest_nav().needs_you, 1);
 
@@ -5678,8 +5678,8 @@ mod tests {
             id: ipc::HostedId::default().next(),
             session: id.clone(),
             cwd: PathBuf::from("/code/beep"),
-            backend: claude::Backend::Claude,
-            sign_in: claude::SignInWith::Account,
+            backend: provider::Backend::Claude,
+            sign_in: provider::SignInWith::Account,
             attached: false,
             state: ipc::HostedState::Idle,
         };
@@ -5743,7 +5743,7 @@ mod tests {
                     root: root.clone(),
                     path: PathBuf::from("calc.py"),
                     kind: Kind::Changed,
-                    who: Who::Claude,
+                    who: Who::Agent,
                     added: 1,
                     removed: 0,
                     review: Review::NotReviewed,
@@ -5804,7 +5804,7 @@ mod tests {
         test.send(Event::SessionsListed {
             cwd: proj.clone(),
             sessions: vec![sessions::SessionInfo {
-                backend: claude::Backend::Claude,
+                backend: provider::Backend::Claude,
                 id: id.clone(),
                 title: "Chat".to_owned(),
                 modified: std::time::SystemTime::UNIX_EPOCH,
@@ -5833,8 +5833,8 @@ mod tests {
             id: ipc::HostedId::default().next(),
             session: id.clone(),
             cwd: proj.clone(),
-            backend: claude::Backend::Claude,
-            sign_in: claude::SignInWith::Account,
+            backend: provider::Backend::Claude,
+            sign_in: provider::SignInWith::Account,
             attached: false,
             state: ipc::HostedState::Idle,
         };
@@ -5887,20 +5887,20 @@ mod tests {
     fn entering_project_resets_backend_and_new_session_in_project_starts_cleanly() {
         let mut test = TestApp::start(None, Settings::default());
         test.app.begin(Vec::new(), Vec::new(), None, None, None);
-        test.app.status.backend = claude::Backend::Agy;
-        test.app.status.sign_in_with = claude::SignInWith::ApiKey;
+        test.app.status.backend = provider::Backend::Agy;
+        test.app.status.sign_in_with = provider::SignInWith::ApiKey;
         test.app.choosing_sign_in = Some(SessionId::new_random());
 
         let proj = PathBuf::from("/tmp/proj-reset");
         test.send(Event::Action(Action::EnterProject(proj.clone())));
-        assert_eq!(test.app.status.backend, claude::Backend::Claude);
-        assert_eq!(test.app.status.sign_in_with, claude::SignInWith::Account);
+        assert_eq!(test.app.status.backend, provider::Backend::Claude);
+        assert_eq!(test.app.status.sign_in_with, provider::SignInWith::Account);
         assert!(test.app.choosing_sign_in.is_none());
         drop(test.drain_daemon());
 
         test.send(Event::Action(Action::NewSessionInProject(
-            claude::Backend::Claude,
-            claude::SignInWith::Account,
+            provider::Backend::Claude,
+            provider::SignInWith::Account,
         )));
         assert!(matches!(&test.app.location, Location::Session(path) if path == &proj));
         assert!(test.app.choosing_sign_in.is_none());
@@ -5933,12 +5933,12 @@ mod tests {
             status: LiveStatus::Waiting,
             worktree: None,
             agents: 0,
-            backend: claude::Backend::Agy,
+            backend: provider::Backend::Agy,
         };
         test.send(Event::LiveListed(vec![live]));
         test.send(Event::Action(Action::EnterProject(proj.clone())));
         test.send(Event::Action(Action::OpenSession(id.clone())));
-        assert_eq!(test.app.status.backend, claude::Backend::Agy);
+        assert_eq!(test.app.status.backend, provider::Backend::Agy);
         assert!(test.app.watch.is_some());
 
         test.send(Event::Action(Action::ShowChanges));
@@ -5950,7 +5950,7 @@ mod tests {
                     root: proj.clone(),
                     path: PathBuf::from("lib.rs"),
                     kind: Kind::Changed,
-                    who: Who::Claude,
+                    who: Who::Agent,
                     added: 1,
                     removed: 0,
                     review: Review::NotReviewed,
@@ -6023,7 +6023,7 @@ mod tests {
     #[test]
     fn provider_usage_read_populates_tabs_from_any_page() {
         let mut test = TestApp::start(None, Settings::default());
-        test.app.available_backends = vec![claude::Backend::Claude, claude::Backend::Agy];
+        test.app.available_backends = vec![provider::Backend::Claude, provider::Backend::Agy];
         test.app.begin(Vec::new(), Vec::new(), None, None, None);
         drop(test.drain_daemon());
 
@@ -6033,7 +6033,7 @@ mod tests {
             msg,
             ToDaemon::Read {
                 read: Read::ProviderUsage {
-                    backend: claude::Backend::Claude,
+                    backend: provider::Backend::Claude,
                     ..
                 },
                 ..
@@ -6043,7 +6043,7 @@ mod tests {
             msg,
             ToDaemon::Read {
                 read: Read::ProviderUsage {
-                    backend: claude::Backend::Agy,
+                    backend: provider::Backend::Agy,
                     ..
                 },
                 ..
@@ -6063,7 +6063,7 @@ mod tests {
             ..wire::UsageReport::default()
         };
         test.send(Event::ProviderUsageRead {
-            backend: claude::Backend::Agy,
+            backend: provider::Backend::Agy,
             usage: ipc::ProviderUsage::reported(report.clone()),
         });
         assert_eq!(test.app.usage.agy.report, Some(report));
@@ -6081,7 +6081,7 @@ mod tests {
         let s1 = SessionId::new_random();
         let s2 = SessionId::new_random();
         let info = |id: SessionId, title: &str| sessions::SessionInfo {
-            backend: claude::Backend::Opencode,
+            backend: provider::Backend::Opencode,
             id,
             title: title.to_owned(),
             modified: std::time::SystemTime::UNIX_EPOCH,
@@ -6136,7 +6136,7 @@ mod tests {
             status: LiveStatus::Busy,
             worktree: None,
             agents: 0,
-            backend: claude::Backend::Opencode,
+            backend: provider::Backend::Opencode,
         };
         test.send(Event::LiveListed(vec![live]));
         test.send(Event::Action(Action::EnterProject(proj)));
@@ -6154,9 +6154,9 @@ mod tests {
         assert!(test.drain_daemon().iter().any(|msg| matches!(
             msg,
             ToDaemon::Start {
-                launch: claude::Launch {
-                    backend: claude::Backend::Opencode,
-                    conversation: claude::Conversation::Fork { .. },
+                launch: provider::Launch {
+                    backend: provider::Backend::Opencode,
+                    conversation: provider::Conversation::Fork { .. },
                     ..
                 },
                 ..

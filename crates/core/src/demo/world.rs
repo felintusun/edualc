@@ -245,7 +245,7 @@ pub fn saved(cwd: &Path) -> Vec<SessionInfo> {
         .filter(|saved| saved.cwd.path() == cwd)
         .filter_map(|saved| {
             Some(SessionInfo {
-                backend: crate::claude::Backend::Claude,
+                backend: crate::provider::Backend::Claude,
                 id: SessionId::from(saved.id),
                 title: title(&saved.transcript)?,
                 modified: ago(saved.age),
@@ -276,7 +276,7 @@ pub fn running() -> Vec<LiveSession> {
                     branch: format!("worktree-{name}"),
                 }),
                 agents: 0,
-                backend: crate::claude::Backend::Claude,
+                backend: crate::provider::Backend::Claude,
                 cwd,
             }
         })

@@ -108,7 +108,7 @@
     width: var(--icon-small); height: var(--icon-small); flex: none;
     display: inline-flex; align-items: center; justify-content: center;
 }
-.state-mark .dot { width: 8px; height: 8px; border-radius: 4px; background: var(--claude); }
+.state-mark .dot { width: 8px; height: 8px; border-radius: 4px; background: var(--agent); }
 .state-mark.done { color: var(--success); }
 .state-mark.failed { color: var(--danger-text); }
 .state-mark.awaiting { color: var(--warning); }
@@ -247,7 +247,7 @@
 .heron { width: 64px; height: 64px; flex: none; }
 .heron-x, .heron-y { width: 100%; height: 100%; position: relative; }
 .heron-bird {
-    position: absolute; inset: 0; background: var(--claude); visibility: hidden;
+    position: absolute; inset: 0; background: var(--agent); visibility: hidden;
     mask-size: contain; mask-repeat: no-repeat; mask-position: center;
     -webkit-mask-size: contain; -webkit-mask-repeat: no-repeat; -webkit-mask-position: center;
 }

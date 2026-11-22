@@ -259,7 +259,7 @@ pub fn Composer() -> Element {
     };
     let glow = match session.activity {
         Activity::Tool => "var(--info)",
-        Activity::Idle | Activity::Model => "var(--claude)",
+        Activity::Idle | Activity::Model => "var(--agent)",
     };
     let scroll_style = if size_now == ComposerSize::Chosen {
         format!("height: {}px;", chosen().max(2.0 * line).round())

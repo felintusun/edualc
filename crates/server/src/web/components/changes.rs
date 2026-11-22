@@ -20,7 +20,7 @@ pub(super) const PANEL: &str = "changes";
 /// Who changed a file, in words: `agent` is who answers in the session.
 fn who_words(who: ChangeWho, agent: &str) -> String {
     match who {
-        ChangeWho::Claude => format!("{agent}'s edit"),
+        ChangeWho::Agent => format!("{agent}'s edit"),
         ChangeWho::Command => "by a command".to_owned(),
         ChangeWho::Both => format!("{agent} and a command"),
         ChangeWho::BetweenTurns => "between turns".to_owned(),

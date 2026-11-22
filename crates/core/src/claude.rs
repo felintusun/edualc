@@ -4,9 +4,6 @@
 
 use crate::agent;
 use crate::external::wire::{ControlPeek, Input, Message, PeekedKind, RequestId};
-pub use crate::provider::{
-    Backend, Capabilities, Conversation, FolderConfiguration, Launch, Program, Resume, SignInWith,
-};
 
 /// The `claude` to run: `$CLAUDE_BIN` as the daemon was started with, or the one on `PATH`.
 pub fn program() -> std::ffi::OsString {

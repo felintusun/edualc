@@ -47,7 +47,7 @@ pub(crate) fn main() {
                     .path()
                     .to_path_buf(),
             ),
-            backend: crate::claude::Backend::Claude,
+            backend: crate::provider::Backend::Claude,
             model: None,
         },
     );

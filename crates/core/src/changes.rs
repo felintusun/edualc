@@ -39,9 +39,10 @@ pub enum Kind {
 /// Who changed a file, as far as the turns tell.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Who {
-    /// Claude's Edit, Write or NotebookEdit named it in the turn that changed it.
-    Claude,
-    /// It changed in a turn without Claude's editing tools naming it: a command it ran.
+    /// The agent's editing tools (Claude Code's Edit, Write or NotebookEdit, or an edit as agy
+    /// or opencode reports it) named it in the turn that changed it.
+    Agent,
+    /// It changed in a turn without the agent's editing tools naming it: a command it ran.
     Command,
     /// Both, in the turns shown.
     Both,

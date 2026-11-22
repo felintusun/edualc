@@ -116,10 +116,10 @@ impl Agent {
         self.backend().can_fork()
     }
 
-    fn backend(self) -> crate::claude::Backend {
+    fn backend(self) -> crate::provider::Backend {
         match self {
-            Self::Agy => crate::claude::Backend::Agy,
-            Self::Opencode => crate::claude::Backend::Opencode,
+            Self::Agy => crate::provider::Backend::Agy,
+            Self::Opencode => crate::provider::Backend::Opencode,
         }
     }
 
@@ -398,7 +398,7 @@ fn acp_session_id(transcript: &Path) -> Option<String> {
 /// An external session discovered via ACP `session/list`.
 #[derive(Debug, Clone)]
 pub(crate) struct ExternalSession {
-    pub backend: crate::claude::Backend,
+    pub backend: crate::provider::Backend,
     pub raw_id: String,
     pub id: SessionId,
     pub cwd: PathBuf,
@@ -1309,7 +1309,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("edualc-acp-seed-{}", std::process::id()));
         std::fs::create_dir_all(&dir).expect("scratch dir");
         let shadow = dir.join("shadow.jsonl");
-        let id = SessionId::for_external(crate::claude::Backend::Opencode, "ses_123");
+        let id = SessionId::for_external(crate::provider::Backend::Opencode, "ses_123");
         seed_shadow_transcript(
             Agent::Opencode,
             &shadow,

@@ -644,8 +644,8 @@ mod tests {
     use std::time::Duration;
 
     use super::*;
-    use crate::claude::Backend;
     use crate::ipc::HostedId;
+    use crate::provider::Backend;
     use crate::sessions::LiveKind;
 
     fn session_id(number: u128) -> SessionId {

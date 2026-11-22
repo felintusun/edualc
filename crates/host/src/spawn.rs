@@ -239,7 +239,7 @@ mod tests {
 
     #[test]
     fn opencode_allows_fork_while_agy_refuses_it() {
-        assert!(crate::claude::Backend::Opencode.can_fork());
-        assert!(!crate::claude::Backend::Agy.can_fork());
+        assert!(crate::provider::Backend::Opencode.can_fork());
+        assert!(!crate::provider::Backend::Agy.can_fork());
     }
 }

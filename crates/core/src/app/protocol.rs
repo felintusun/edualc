@@ -513,7 +513,8 @@ impl<F: Frontend> App<F> {
     }
 
     fn set_commands(&mut self, mut commands: Vec<CommandInfo>) {
-        if self.status.capabilities().claude_extras {
+        let capabilities = self.status.capabilities();
+        if capabilities.side_questions {
             // The terminal's own; this window answers it in the side panel.
             commands.push(CommandInfo {
                 name: "btw".into(),
@@ -521,6 +522,8 @@ impl<F: Frontend> App<F> {
                     .into(),
                 argument_hint: "[question]".into(),
             });
+        }
+        if capabilities.terminal_sign_in {
             commands.push(CommandInfo {
                 name: "login".into(),
                 description: "Sign in to Claude Code".into(),
@@ -543,7 +546,7 @@ impl<F: Frontend> App<F> {
         if !initialized.account.email.is_empty() && self.status.sign_in == SignIn::Unknown {
             self.status.sign_in = SignIn::SignedIn;
         }
-        if self.status.capabilities().claude_extras
+        if self.status.capabilities().plan_limits
             && !initialized.account.subscription_type.is_empty()
         {
             self.status

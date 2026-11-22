@@ -185,7 +185,7 @@ impl ToSlint for present::ChangeWho {
     type Slint = slint_ui::ChangeWho;
     fn to_slint(&self, _: &Drawing) -> Self::Slint {
         match self {
-            Self::Claude => slint_ui::ChangeWho::Claude,
+            Self::Agent => slint_ui::ChangeWho::Agent,
             Self::Command => slint_ui::ChangeWho::Command,
             Self::Both => slint_ui::ChangeWho::Both,
             Self::BetweenTurns => slint_ui::ChangeWho::BetweenTurns,

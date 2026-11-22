@@ -221,7 +221,7 @@ pub(crate) fn wire(window: &AppWindow, events: &Sender<Event>) {
 
     let sessions = window.global::<Sessions>();
     let new_session_action = |program| {
-        use crate::claude::{Backend, SignInWith};
+        use crate::provider::{Backend, SignInWith};
         let (backend, sign_in) = match program {
             Program::Claude => (Backend::Claude, SignInWith::Account),
             Program::ClaudeApiKey => (Backend::Claude, SignInWith::ApiKey),
@@ -237,7 +237,7 @@ pub(crate) fn wire(window: &AppWindow, events: &Sender<Event>) {
     sessions.on_new_session_in_project({
         let actions = actions.clone();
         move |program| {
-            use crate::claude::{Backend, SignInWith};
+            use crate::provider::{Backend, SignInWith};
             let (backend, sign_in) = match program {
                 Program::Claude => (Backend::Claude, SignInWith::Account),
                 Program::ClaudeApiKey => (Backend::Claude, SignInWith::ApiKey),
@@ -252,8 +252,8 @@ pub(crate) fn wire(window: &AppWindow, events: &Sender<Event>) {
         let actions = actions.clone();
         move |sign_in| {
             actions.send(Action::ContinueWith(Some(match sign_in {
-                SignInWith::Account => crate::claude::SignInWith::Account,
-                SignInWith::ApiKey => crate::claude::SignInWith::ApiKey,
+                SignInWith::Account => crate::provider::SignInWith::Account,
+                SignInWith::ApiKey => crate::provider::SignInWith::ApiKey,
             })));
         }
     });

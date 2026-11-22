@@ -115,7 +115,7 @@ pub fn SidePanel() -> Element {
     rsx! {
         aside { class: "side side-panel", "aria-labelledby": "side-title",
             div { class: "panel-head",
-                Icon { icon: Lucide::MessageCircleQuestionMark, class: "claude" }
+                Icon { icon: Lucide::MessageCircleQuestionMark, class: "agent" }
                 div { class: "panel-heading",
                     h2 { id: "side-title", class: "panel-title", "By the way" }
                     div { class: "caption elide",
@@ -253,7 +253,7 @@ pub fn PeekPanel() -> Element {
     rsx! {
         aside { class: "side peek-panel", "aria-labelledby": "peek-title",
             div { class: "panel-head",
-                Icon { icon, class: "claude" }
+                Icon { icon, class: "agent" }
                 div { class: "panel-heading",
                     h2 { id: "peek-title", class: "panel-title elide", "{peek.title}" }
                     div { class: "caption elide", "{peek.detail} · {state}" }
@@ -372,7 +372,7 @@ fn UsagePanel() -> Element {
                 "aria-busy": "{usage.loading}",
                 onmounted: move |event| focus(Some(event)),
                 div { class: "overlay-head",
-                    Icon { icon: Lucide::Gauge, class: "claude large" }
+                    Icon { icon: Lucide::Gauge, class: "agent large" }
                     div { class: "panel-heading",
                         h2 { id: "usage-title", class: "overlay-title", "Usage" }
                         div { class: "caption",
@@ -544,7 +544,7 @@ fn SettingsPanel() -> Element {
                     onfocus: move |_| focus(last.read().clone()),
                 }
                 div { class: "overlay-head",
-                    Icon { icon: Lucide::Settings, class: "claude large" }
+                    Icon { icon: Lucide::Settings, class: "agent large" }
                     div { class: "panel-heading",
                         h2 { id: "settings-title", class: "overlay-title", "Settings" }
                         div { class: "caption",

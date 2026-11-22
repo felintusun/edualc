@@ -25,7 +25,6 @@ use crate::app::{
 use crate::changes;
 use crate::chat::{self, Body, Change, Chat, ImageKey};
 use crate::cjk::{CjkLanguage, CjkText, Standing};
-use crate::claude::Backend;
 use crate::decode::{Picture, Pixels};
 use crate::desktop::Opener;
 use crate::external::tool_input::{BashInput, IncomingMessageInput, WebFetchInput};
@@ -36,6 +35,7 @@ use crate::grouping::{self, Grouping, RunState};
 use crate::ipc::Runs;
 use crate::markdown::{self, Block};
 use crate::overview;
+use crate::provider::Backend;
 use crate::sessions::{self, LiveStatus, ProjectInfo, Worktree};
 use crate::settings;
 use crate::sidebar;
@@ -653,7 +653,7 @@ impl<F: Frontend> Presenter<F> {
         session.can_shell = caps.inline_shell;
         session.can_btw = caps.side_questions;
         session.can_fork = caps.fork;
-        self.sessions.program = program_shown(crate::claude::Program::of(
+        self.sessions.program = program_shown(crate::provider::Program::of(
             status.backend,
             status.sign_in_with,
         ));
@@ -818,7 +818,7 @@ impl<F: Frontend> Presenter<F> {
                     changes::Kind::Deleted => model::ChangeKind::Deleted,
                 },
                 who: match file.who {
-                    changes::Who::Claude => model::ChangeWho::Claude,
+                    changes::Who::Agent => model::ChangeWho::Agent,
                     changes::Who::Command => model::ChangeWho::Command,
                     changes::Who::Both => model::ChangeWho::Both,
                     changes::Who::BetweenTurns => model::ChangeWho::BetweenTurns,
@@ -1035,7 +1035,7 @@ impl<F: Frontend> Presenter<F> {
         &mut self,
         asks: &VecDeque<Ask>,
         cwd: &Path,
-        backend: crate::claude::Backend,
+        backend: crate::provider::Backend,
     ) {
         let Some(ask) = asks.front() else {
             self.prompt.kind = PromptKind::None;
@@ -1588,7 +1588,7 @@ struct ToolPrompt {
     summary_reads_as: tools::Writing,
 }
 
-fn tool_prompt(ask: &Ask, cwd: &Path, backend: crate::claude::Backend) -> ToolPrompt {
+fn tool_prompt(ask: &Ask, cwd: &Path, backend: crate::provider::Backend) -> ToolPrompt {
     let view = tools::describe(&ask.tool, &ask.input, cwd, tools::Depth::Headline);
     let agent = backend.agent();
     let (title, summary) = if ask.tool == ToolName::EdualcIncomingMessage {
@@ -1695,7 +1695,7 @@ fn always_label(rule: &wire::Suggestion) -> String {
 }
 
 /// The mode menu's items, with their descriptions, and the one ticked.
-fn mode_menu(modes: &Modes, backend: crate::claude::Backend) -> (Vec<(String, String)>, usize) {
+fn mode_menu(modes: &Modes, backend: crate::provider::Backend) -> (Vec<(String, String)>, usize) {
     match modes {
         Modes::Claude(current) => {
             let mut items: Vec<(String, String)> = PermissionMode::iter()
@@ -1746,12 +1746,12 @@ fn menu(items: &[(String, String)]) -> Vec<MenuItem> {
     items
 }
 
-fn program_shown(program: crate::claude::Program) -> model::Program {
+fn program_shown(program: crate::provider::Program) -> model::Program {
     match program {
-        crate::claude::Program::Claude => model::Program::Claude,
-        crate::claude::Program::ClaudeApiKey => model::Program::ClaudeApiKey,
-        crate::claude::Program::Agy => model::Program::Agy,
-        crate::claude::Program::Opencode => model::Program::Opencode,
+        crate::provider::Program::Claude => model::Program::Claude,
+        crate::provider::Program::ClaudeApiKey => model::Program::ClaudeApiKey,
+        crate::provider::Program::Agy => model::Program::Agy,
+        crate::provider::Program::Opencode => model::Program::Opencode,
     }
 }
 
@@ -1801,9 +1801,9 @@ fn session_row(row: &sidebar::Row) -> SessionRow {
             age: sessions::age(earlier.modified),
             selected: earlier.shown,
             worktree: earlier.worktree.as_deref().unwrap_or_default().into(),
-            program: program_shown(crate::claude::Program::of(
+            program: program_shown(crate::provider::Program::of(
                 earlier.backend,
-                crate::claude::SignInWith::Account,
+                crate::provider::SignInWith::Account,
             )),
             ..SessionRow::default()
         },
@@ -2494,7 +2494,7 @@ mod tests {
     /// session, and a placeholder for an agy session whose modes agy hasn't told yet.
     #[test]
     fn the_mode_menu_offers_the_programs_own_modes() {
-        use crate::claude::Backend;
+        use crate::provider::Backend;
         let titles = |items: &[(String, String)]| {
             items
                 .iter()
@@ -2567,7 +2567,7 @@ mod tests {
                     description: String::new(),
                 },
             };
-            tool_prompt(&ask, Path::new("/work"), crate::claude::Backend::Claude)
+            tool_prompt(&ask, Path::new("/work"), crate::provider::Backend::Claude)
         };
         let message = asked(
             ToolName::SendMessage,
@@ -2751,7 +2751,7 @@ mod tests {
                     state: Some(LiveStatus::Waiting),
                     modified: web_time::SystemTime::UNIX_EPOCH,
                     last_said: Some("Checked the tests.".to_owned()),
-                    program: crate::claude::Program::Claude,
+                    program: crate::provider::Program::Claude,
                     worktree: Some("rework".to_owned()),
                 }],
                 pinned: false,
@@ -2764,7 +2764,7 @@ mod tests {
                 session_title: "Fix shell".to_owned(),
                 question: "Run tests?".to_owned(),
                 since: None,
-                program: crate::claude::Program::Claude,
+                program: crate::provider::Program::Claude,
             }],
         };
 

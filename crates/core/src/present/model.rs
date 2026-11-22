@@ -139,7 +139,7 @@ pub enum ChangeKind {
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
 pub enum ChangeWho {
     #[default]
-    Claude,
+    Agent,
     Command,
     Both,
     BetweenTurns,

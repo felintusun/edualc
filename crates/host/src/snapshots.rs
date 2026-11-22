@@ -285,7 +285,7 @@ impl Store {
         to: usize,
         manifests: &mut Manifests,
     ) -> Result<Who, Error> {
-        let (mut claude, mut command) = (false, false);
+        let (mut by_agent, mut command) = (false, false);
         for turn in &self.index.turns {
             if turn.before < from || turn.after > to || self.taken(turn.before)?.root != root {
                 continue;
@@ -301,15 +301,15 @@ impl Store {
             if before != after {
                 let whole = root.join(path);
                 if turn.touched.contains(&whole) || turn.touched.contains(path) {
-                    claude = true;
+                    by_agent = true;
                 } else {
                     command = true;
                 }
             }
         }
-        Ok(match (claude, command) {
+        Ok(match (by_agent, command) {
             (true, true) => Who::Both,
-            (true, false) => Who::Claude,
+            (true, false) => Who::Agent,
             (false, true) => Who::Command,
             (false, false) => Who::BetweenTurns,
         })
@@ -828,7 +828,7 @@ mod tests {
                 (
                     "src/lib.rs".to_owned(),
                     Kind::Changed,
-                    Who::Claude,
+                    Who::Agent,
                     Review::NotReviewed
                 ),
             ]
@@ -916,19 +916,19 @@ mod tests {
                 .map(|(path, _, who, _)| (path, who))
                 .collect()
         };
-        assert_eq!(paths(Scope::Turn), [("b.txt".to_owned(), Who::Claude)]);
+        assert_eq!(paths(Scope::Turn), [("b.txt".to_owned(), Who::Agent)]);
         assert_eq!(
             paths(Scope::SinceLooked),
             [
-                ("b.txt".to_owned(), Who::Claude),
+                ("b.txt".to_owned(), Who::Agent),
                 ("notes.txt".to_owned(), Who::BetweenTurns)
             ]
         );
         assert_eq!(
             paths(Scope::Session),
             [
-                ("a.txt".to_owned(), Who::Claude),
-                ("b.txt".to_owned(), Who::Claude),
+                ("a.txt".to_owned(), Who::Agent),
+                ("b.txt".to_owned(), Who::Agent),
                 ("notes.txt".to_owned(), Who::BetweenTurns)
             ]
         );

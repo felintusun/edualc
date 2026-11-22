@@ -65,7 +65,7 @@ export component SidePanel inherits Rectangle {
             spacing: Theme.space-s;
             Icon {
                 source: @image-url("@lucide/message-circle-question-mark.svg");
-                tint: Theme.claude;
+                tint: Theme.agent;
                 y: (parent.height - self.height) / 2;
             }
             VerticalLayout {
@@ -136,7 +136,7 @@ export component SidePanel inherits Rectangle {
                         height: 8px;
                         y: (parent.height - self.height) / 2;
                         border-radius: 4px;
-                        background: Theme.claude;
+                        background: Theme.agent;
                     }
                     Small {
                         text: exchange.state == SideState.retrying ? "Waiting for the API, then trying again" : "Answering";
