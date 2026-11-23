@@ -3956,8 +3956,8 @@ impl<F: Frontend> App<F> {
         self.answer(&ask, response, ToolState::Running);
     }
 
-    /// Denies the waiting request. A tool call denied with nothing said stops the turn, as in
-    /// the terminal; with what to do instead, Claude carries on with that.
+    /// Denies the waiting request. A Claude Code tool call denied with nothing said stops the
+    /// turn, as in the terminal; with what to do instead, Claude carries on with that.
     fn deny(&mut self, request: &RequestId, feedback: &str) {
         let Some(ask) = self.take_ask(request) else {
             return;
@@ -3982,14 +3982,11 @@ impl<F: Frontend> App<F> {
                 true,
             ),
             AskKind::Tool { .. } => (feedback.to_owned(), false),
-            // The agent's own rejection; with nothing said, the turn stops, as Claude Code's.
+            // The agent's own rejection, and the agent goes on from it as it would on its own.
             AskKind::Acp { options, .. } => {
                 let kinds = [AcpOptionKind::RejectOnce, AcpOptionKind::RejectAlways];
                 let chosen = call::first_of(options, &kinds).map(|option| option.id.clone());
                 self.choose(&ask, chosen, ToolState::Denied);
-                if feedback.is_empty() {
-                    self.interrupt();
-                }
                 return;
             }
         };
@@ -4812,8 +4809,8 @@ mod tests {
     }
 
     /// An ACP agent's request is answered with the agent's own choices: Allow with its
-    /// "allow once", the always button with its "allow always", and a bare Deny with its
-    /// "reject", the turn then stopped.
+    /// "allow once", the always button with its "allow always", and Deny with its "reject"
+    /// alone: the agent goes on from it as it would without edualc.
     #[test]
     fn an_agents_request_is_answered_with_its_choices() {
         let (mut driven, generation) = started();
@@ -4883,13 +4880,8 @@ mod tests {
             feedback: String::new(),
         });
         assert_eq!(chosen(&denied), "reject");
-        assert!(matches!(
-            denied.get(1),
-            Some(agent::Command::ControlRequest {
-                request: wire::ControlRequest::Interrupt,
-                ..
-            })
-        ));
+        assert_eq!(denied.len(), 1, "the reject alone: {denied:?}");
+        assert!(!driven.app.status.stop_asked);
     }
 
     /// Another session's message, turned down during a turn, is turned down alone: the turn

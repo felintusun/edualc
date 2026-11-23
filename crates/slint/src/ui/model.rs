@@ -1120,6 +1120,9 @@ pub(super) fn apply_prompt(
     if old.is_none_or(|old| old.deny_label != new.deny_label) {
         global.set_deny_label(new.deny_label.to_slint(images));
     }
+    if old.is_none_or(|old| old.takes_feedback != new.takes_feedback) {
+        global.set_takes_feedback(new.takes_feedback.to_slint(images));
+    }
     if old.is_none_or(|old| old.always_label != new.always_label) {
         global.set_always_label(new.always_label.to_slint(images));
     }

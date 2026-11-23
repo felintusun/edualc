@@ -631,6 +631,7 @@ pub struct Prompt {
     pub detail: String,
     pub allow_label: String,
     pub deny_label: String,
+    pub takes_feedback: bool,
     pub always_label: String,
     pub queued: i32,
     pub serial: i32,

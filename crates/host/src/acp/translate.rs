@@ -1801,8 +1801,6 @@ impl Translator {
             }));
         }
         // Calls the agent never answered for, or never gave arguments for, are done now.
-        let cancelled =
-            prompted.is_some_and(|prompted| prompted.stop_reason == StopReason::Cancelled);
         let open: Vec<String> = self
             .entries
             .iter()
@@ -1819,7 +1817,9 @@ impl Translator {
                 ..ToolCall::default()
             }));
         }
-        let failed = error.is_some() || cancelled;
+        // A cancelled turn was stopped, not failed: by you, or by the agent itself, as opencode
+        // stops when you reject a call.
+        let failed = error.is_some();
         let model = self.model.clone().unwrap_or_else(|| agent.to_string());
         effects.push(Effect::ToWindow(Event::Result(TurnResult {
             subtype: if failed {
@@ -3290,6 +3290,10 @@ mod tests {
         assert!(said.contains("can't be read"), "{said}");
         let (failed, _) = ended_with(r#"{"stopReason":"end_turn"}"#);
         assert!(!failed);
+        // Stopped, by you or by the agent on a rejected call: not a failure.
+        let (failed, said) = ended_with(r#"{"stopReason":"cancelled"}"#);
+        assert!(!failed);
+        assert!(said.is_empty(), "{said}");
     }
 
     /// A turn that fails because Google's API refused agy's sign-in ends with a 401 in its

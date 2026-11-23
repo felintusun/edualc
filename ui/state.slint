@@ -223,6 +223,9 @@ export global Prompt {
     // "Allow" and "Deny", or an ACP agent's words for them ("Allow once", "Reject").
     in property <string> allow-label: "Allow";
     in property <string> deny-label: "Deny";
+    // Whether a denial can say what to do instead: Claude Code takes it, ACP's answer has no
+    // place for it.
+    in property <bool> takes-feedback: true;
     // E.g. "Always allow Bash(npm test)", or an ACP agent's words; empty if there is nothing
     // to remember.
     in property <string> always-label;

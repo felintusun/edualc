@@ -1116,6 +1116,7 @@ impl<F: Frontend> Presenter<F> {
                 detail.clone_into(&mut prompt.detail);
                 "Allow".clone_into(&mut prompt.allow_label);
                 "Deny".clone_into(&mut prompt.deny_label);
+                prompt.takes_feedback = true;
                 // Only a rule the window can say in full is offered.
                 prompt.always_label = suggestions
                     .first()
@@ -1144,6 +1145,7 @@ impl<F: Frontend> Presenter<F> {
                     &[AcpOptionKind::RejectOnce, AcpOptionKind::RejectAlways],
                     "Deny",
                 );
+                prompt.takes_feedback = false;
             }
         }
         self.prompt_shown = Some(ask.request.clone());
@@ -2709,6 +2711,8 @@ mod tests {
             ),
             ("Allow once", "Always allow", "Reject")
         );
+        // ACP's answer has no place for what to do instead, so it isn't asked for.
+        assert!(!prompt.takes_feedback);
     }
 
     /// Counted by kind, agents first, each kind once however its tasks are interleaved.

@@ -164,6 +164,7 @@ fn ToolPrompt(armed: bool, grab: Grab) -> Element {
     let always = prompt.always_label.clone();
     let allow_label = prompt.allow_label.clone();
     let deny_label = prompt.deny_label.clone();
+    let takes_feedback = prompt.takes_feedback;
     let serial = prompt.serial;
     rsx! {
         div { class: "prompt-part",
@@ -208,26 +209,28 @@ fn ToolPrompt(armed: bool, grab: Grab) -> Element {
             // On a line of its own, so that a narrow or zoomed window doesn't push it out of
             // sight beside a long "Always allow". Enter denies with what was written, as Deny
             // does: once armed like the buttons, and not with nothing written.
-            input {
-                id: "prompt-feedback",
-                class: "field prompt-field",
-                r#type: "text",
-                placeholder: "Or tell {agent} what to do instead",
-                "aria-label": "Or tell {agent} what to do instead",
-                value: "{feedback}",
-                oninput: move |event| feedback.set(event.value()),
-                onkeydown: move |event| {
-                    if event.key() == Key::Enter && !event.is_composing() {
-                        let text = feedback();
-                        if armed && !text.is_empty() {
-                            answer(view, serial, |request| Action::Deny {
-                                request,
-                                feedback: text,
-                            });
-                            feedback.set(String::new());
+            if takes_feedback {
+                input {
+                    id: "prompt-feedback",
+                    class: "field prompt-field",
+                    r#type: "text",
+                    placeholder: "Or tell {agent} what to do instead",
+                    "aria-label": "Or tell {agent} what to do instead",
+                    value: "{feedback}",
+                    oninput: move |event| feedback.set(event.value()),
+                    onkeydown: move |event| {
+                        if event.key() == Key::Enter && !event.is_composing() {
+                            let text = feedback();
+                            if armed && !text.is_empty() {
+                                answer(view, serial, |request| Action::Deny {
+                                    request,
+                                    feedback: text,
+                                });
+                                feedback.set(String::new());
+                            }
                         }
-                    }
-                },
+                    },
+                }
             }
         }
     }

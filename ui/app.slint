@@ -231,6 +231,8 @@ component PromptBar inherits Rectangle {
     // asked by a flag and a count (`grab-pending`, `grab-serial`), and clears the flag.
     in-out property <bool> grab-pending;
     in-out property <int> grab-serial;
+    // What to do instead of a tool, as written in the field below the buttons.
+    property <string> feedback;
     function grab() {
         Focus.area = FocusArea.writing;
         root.grab-pending = true;
@@ -348,15 +350,16 @@ component PromptBar inherits Rectangle {
                     text: Prompt.deny-label;
                     danger: true;
                     clicked => {
-                        Prompt.deny(Prompt.request, feedback.text);
-                        feedback.text = "";
+                        Prompt.deny(Prompt.request, root.feedback);
+                        root.feedback = "";
                     }
                 }
             }
             // On a line of its own, so that a narrow or zoomed window doesn't push it out of
             // sight beside a long "Always allow". Enter denies with what was written, as Deny
             // does: once armed like the buttons, and not with nothing written.
-            feedback := Field {
+            if Prompt.takes-feedback: Field {
+                text <=> root.feedback;
                 property <int> grab: root.grab-serial;
                 placeholder: "Or tell " + Session.agent-name + " what to do instead";
                 accepted(text) => {

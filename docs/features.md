@@ -372,7 +372,9 @@ like Claude Code's: streamed text and thinking, tool cards, permission requests,
 menu from the program. A tool card shows a call as the program describes it: its own title for
 the call, the files it works on, the change an edit makes, and what the call printed once the
 program ends it. When the program asks before a call, the buttons are its own choices, in its
-words: "Allow once", "Always allow" and "Reject" for opencode. Questions, to-do lists, subagents
+words: "Allow once", "Always allow" and "Reject" for opencode. The program goes on from your
+choice as it would on its own, and the bar has no field for what to do instead, which the
+program's protocol has no room for. Questions, to-do lists, subagents
 and messages to other sessions show as Claude Code's do. A model you pick stays with its
 program: a new session with another program starts with that program's default.
 
