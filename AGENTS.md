@@ -64,14 +64,20 @@ docs/, never only in one agent's own memory: the other agent can't see it there.
 
 ### Comments
 
-Written as in the kernel's Rust code, curl, tokio and rustls:
+Written as in the kernel's Rust code, curl, tokio and rustls, and as the Rust book (3.4, 14.2)
+and the rustdoc book ask:
 
 - A module's `//!` header says what the module is for, in a line or two. A title will do.
-- An item's doc is one line that starts with a verb: "Returns the session's folder." Write more
-  only for an invariant, a safety contract or a trap the caller must know.
+- An item's doc tells how to use it, not how it is built. Its first line is the summary rustdoc
+  shows in lists, one line that starts with a verb: "Returns the session's folder." Write more
+  only for an invariant, a safety contract or a trap the caller must know. Don't repeat the
+  types; rustdoc links them from the signature.
+- `# Errors`, `# Panics` and `# Safety` sections where a caller needs them: which errors and
+  when, what panics, what an `unsafe fn`'s caller must uphold.
 - Trait impls, tests, and items whose name says it all get no doc.
-- A comment in a function body says why, warns of a trap, or quotes what it follows (a spec, a
-  program's version): "Claude Code 2.1.316 begins a denied call's result this way."
+- A comment in a function body goes on its own line above the code it is about, and says why,
+  warns of a trap, or quotes what it follows (a spec, a program's version): "Claude Code
+  2.1.316 begins a denied call's result this way."
 - "We" for the code's reasoning: "We drop the line here; the hub ends the session."
 - Tags: `SAFETY:`, `INVARIANT:`, `TODO:` with its reason and when it can go.
 - Never: restating the code or the name, narrating a change, justifying an edit, chains of
