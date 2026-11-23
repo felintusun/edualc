@@ -581,9 +581,6 @@ mod tests {
         }
     }
 
-    /// A message reaches the inbox of the session named, after its token, in Claude Code's
-    /// envelope: the sender's inbox to answer at, its name, its class, the text. The list names
-    /// the other sessions running.
     #[test]
     fn a_message_reaches_the_inbox_of_the_session_named() {
         let (sender, peer_name) = (name(SENDER_ID), name(PEER_ID));
@@ -619,8 +616,6 @@ mod tests {
         peer.done();
     }
 
-    /// The envelope is Claude Code's to the byte, as a session reads one back: the inbox to
-    /// answer at, the name, the class, then the text on lines of its own.
     #[test]
     fn a_message_goes_in_claude_codes_envelope() {
         let sender = name(SENDER_ID);
@@ -645,8 +640,6 @@ mod tests {
         );
     }
 
-    /// A text can't end its envelope early: what would close it is escaped as Claude Code
-    /// escapes it, and nothing else of the text changes.
     #[test]
     fn a_text_cannot_close_its_envelope() {
         for (text, expected) in [
@@ -672,8 +665,6 @@ mod tests {
         }
     }
 
-    /// A message read back from its envelope is the sender's name and the text as it was sent,
-    /// what was escaped in it unescaped; content without an envelope is all text.
     #[test]
     fn a_message_reads_back_from_its_envelope() {
         let name = name(SENDER_ID);
@@ -694,8 +685,6 @@ mod tests {
         assert_eq!(unwrapped("plain"), (None, "plain".to_owned()));
     }
 
-    /// An inbox is addressed as Claude Code addresses one, and the address read back to the
-    /// path; a path too long for Claude Code has no address.
     #[test]
     fn an_inbox_is_addressed_as_claude_code_addresses_it() {
         let socket = Path::new("/run/user/1000/cc socks/ü-1.sock");
@@ -714,8 +703,6 @@ mod tests {
         );
     }
 
-    /// Nothing is posted to a session not running under that name, to the sender itself, or into
-    /// an inbox that isn't where and what a Claude Code session's is.
     #[test]
     fn nothing_is_posted_where_it_shouldnt_be() {
         let peer_name = name(PEER_ID);

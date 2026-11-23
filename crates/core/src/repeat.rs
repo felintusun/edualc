@@ -86,7 +86,6 @@ impl Running {
 mod tests {
     use super::*;
 
-    /// Events come every period once started, and none once stopped.
     #[test]
     fn it_repeats_until_stopped() {
         let (events, received) = async_channel::unbounded();

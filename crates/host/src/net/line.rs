@@ -253,8 +253,6 @@ async fn carry_on(
 mod tests {
     use super::*;
 
-    /// A line is silent from its last message, or from the last bytes its connection read, a
-    /// message only part of the way there too, whichever came later.
     #[test]
     fn a_line_is_silent_from_whatever_it_last_said() {
         let message = Instant::now();

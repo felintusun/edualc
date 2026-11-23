@@ -158,8 +158,6 @@ fn is_han(character: char) -> bool {
 mod tests {
     use super::*;
 
-    /// Kana make a text Japanese even among Han characters, Hangul Korean, and Han alone takes
-    /// the language chosen; Latin text and CJK punctuation alone have none.
     #[test]
     fn a_texts_language_comes_from_its_script() {
         let han = CjkLanguage::TraditionalChinese;
@@ -183,8 +181,6 @@ mod tests {
         assert_eq!(language("「」。、"), None);
     }
 
-    /// An English text quoting a CJK word keeps its own setting; a Japanese one is set as
-    /// Japanese however much code it holds.
     #[test]
     fn cjk_is_the_main_script_by_its_share_of_letters_outside_code() {
         let han = CjkLanguage::SimplifiedChinese;

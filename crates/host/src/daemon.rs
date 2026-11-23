@@ -300,8 +300,6 @@ mod tests {
     use crate::provider::{Conversation, FolderConfiguration, Launch, SignInWith};
     use crate::spawn;
 
-    /// A line over the network has no say in this machine's desktop: what it asks of it is
-    /// refused, and what is a folder or an image comes back as none.
     #[tokio::test]
     async fn a_line_over_the_network_has_no_say_in_this_machines_desktop() {
         let (outbox, mut says) = mpsc::channel(8);
@@ -332,8 +330,6 @@ mod tests {
         assert!(matches!(says.recv().await, Some(FromDaemon::Pasted { .. })));
     }
 
-    /// What the hello of a line over the network says it can do: nothing on this machine's
-    /// desktop, and no editors to open folders in.
     #[tokio::test]
     async fn the_hello_of_a_network_line_says_it_is_not_local() {
         let (line, asks, mut says) = Line::pair();
@@ -403,9 +399,6 @@ mod tests {
         }
     }
 
-    /// A turn starts as the session becomes busy, with the files the agent's editing tools name
-    /// in it (Claude Code's, and an ACP agent's), and ends as it becomes idle; nothing is said
-    /// while it stays either.
     #[test]
     fn a_session_tells_the_keeper_its_turns() {
         let (changed, _summaries) = mpsc::channel(1);
@@ -464,7 +457,6 @@ mod tests {
         }
     }
 
-    /// Pieces of a line make one line, for a key in use; a key used twice is refused.
     #[test]
     fn a_connection_works_out_what_requests_come_to() {
         let key = Generation::default().next();
@@ -512,8 +504,6 @@ mod tests {
         );
     }
 
-    /// A window leaving lets its sessions run on, shown nowhere; another window attaches to
-    /// one, but not to one shown already.
     #[test]
     fn the_hub_keeps_sessions_past_their_window() {
         let (first_window, second_window) = (WindowId(1), WindowId(2));
@@ -605,8 +595,6 @@ mod tests {
         assert!(hub.list().is_empty());
     }
 
-    /// A window attaching to a running session hears what it was started signed in with, not
-    /// what the window last started.
     #[test]
     fn the_hub_lists_each_sessions_sign_in() {
         let window = WindowId(1);
@@ -676,8 +664,6 @@ mod tests {
         );
     }
 
-    /// A window attaching meanwhile learns what runs in the background from the latest list,
-    /// which names all of it; an emptied list is told too, as nothing running.
     #[test]
     fn the_latest_background_tasks_are_told_after_the_init() {
         let mut pending = Pending::default();
@@ -701,9 +687,6 @@ mod tests {
         );
     }
 
-    /// A task begun and not yet ended is told again, all that was said about it, in order and
-    /// after the background list: a foreground one is in no list. Its end, or the turn's, drops
-    /// it.
     #[test]
     fn open_tasks_are_told_until_they_end() {
         let mut pending = Pending::default();
@@ -756,8 +739,6 @@ mod tests {
         );
     }
 
-    /// Only a task's latest progress is told again, past the turn's end (a background task runs
-    /// on), until the task ends.
     #[test]
     fn a_tasks_latest_progress_is_told_until_it_ends() {
         let mut pending = Pending::default();
@@ -784,8 +765,6 @@ mod tests {
         assert_eq!(pending.lines().count(), 0);
     }
 
-    /// Turns are counted as the window counts them: one for each prompt written, one fewer for
-    /// each result; a `!` command, a control request or a replayed row starts none.
     #[test]
     fn turns_under_way_are_counted_for_a_window_attaching() {
         let mut pending = Pending::default();
@@ -842,9 +821,6 @@ mod tests {
         assert_eq!(pending.lines().count(), 0);
     }
 
-    /// A window joining hears the list of sessions before anything else: its handshake reads
-    /// the list right after the hello, to attach to a session the daemon runs rather than start
-    /// it a second time.
     #[tokio::test(flavor = "current_thread")]
     async fn a_window_joining_hears_the_list_first() {
         let (hub, requests) = mpsc::channel(8);
@@ -867,8 +843,6 @@ mod tests {
         hub_task.await.expect("the hub ends");
     }
 
-    /// A window asking to shut down: every window hears it, and the hub ends though windows
-    /// are still connected, which ends the daemon (`serve` hears the hub's end).
     #[tokio::test(flavor = "current_thread")]
     async fn a_shutdown_tells_every_window_and_ends_the_hub() {
         let (hub, requests) = mpsc::channel(8);
@@ -911,7 +885,6 @@ mod tests {
         drop(hub);
     }
 
-    /// A window's shutdown goes to the hub as it is.
     #[test]
     fn a_window_asks_the_hub_to_shut_down() {
         let mut connection = Connection::new(WindowId(1), Reach::Local);
@@ -957,8 +930,6 @@ mod tests {
         }
     }
 
-    /// A process through the actor, shown nowhere at first: what it asked is asked again of the
-    /// window that attaches, and its end is told there.
     #[tokio::test(flavor = "current_thread")]
     async fn a_session_asks_again_what_a_window_missed() {
         let (orders, commands) = mpsc::channel(8);
@@ -1016,8 +987,6 @@ mod tests {
         ));
     }
 
-    /// A process that doesn't read its input holds up nothing else: a window attaching is
-    /// answered, and closing it ends it, killed a grace after.
     #[tokio::test(flavor = "current_thread")]
     async fn a_session_not_reading_its_input_goes_on() {
         let (orders, commands) = mpsc::channel(8);
@@ -1063,7 +1032,6 @@ mod tests {
         ));
     }
 
-    /// A process that doesn't read its input is let fall behind by so many bytes, and no more.
     #[tokio::test(flavor = "current_thread")]
     async fn a_process_input_unread_is_bounded_by_its_bytes() {
         let mut process = running("sleep", &["30"]).child;
@@ -1110,9 +1078,6 @@ mod tests {
         assert_eq!(pending.state(), HostedState::Idle);
     }
 
-    /// The gap the Changes view had: a turn the session starts itself, for another session's
-    /// message, has no prompt of the window's; Claude's first words start it, its result ends
-    /// it. Within a prompted turn they start nothing more.
     #[test]
     fn a_turn_the_session_starts_itself_is_a_turn() {
         let mut pending = Pending::default();

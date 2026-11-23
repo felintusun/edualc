@@ -210,7 +210,6 @@ impl Listener for TlsListener {
 mod tests {
     use super::*;
 
-    /// A connection says when it last read something, and only then.
     #[tokio::test]
     async fn a_connection_says_when_it_last_read() {
         use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};

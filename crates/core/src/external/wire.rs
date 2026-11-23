@@ -1720,8 +1720,6 @@ mod tests {
 
     use super::*;
 
-    /// A transcript line is written with the session, folder and time it is of beside its own
-    /// keys, and reads back as the line it was.
     #[test]
     fn a_transcript_entry_carries_its_session_folder_and_time() {
         let line = TranscriptLine::AiTitle {
@@ -1752,9 +1750,6 @@ mod tests {
         );
     }
 
-    /// A turn that ended on the API refusing the session's sign-in, as Claude Code 2.1.316 ends
-    /// one (recorded 2026-11-02 with an invalid token), is told apart from other failures and
-    /// from a turn that went well.
     #[test]
     fn a_refused_sign_in_is_told_apart() {
         let result = |line: Value| match serde_json::from_value(line) {
@@ -1780,8 +1775,6 @@ mod tests {
         assert!(!done.sign_in_refused());
     }
 
-    /// What Claude Code 2.1.316 says with nobody signed in: an assistant message of its own,
-    /// then a result that is an error but names no HTTP status.
     #[test]
     fn being_signed_out_is_told_apart() {
         let said = serde_json::from_value::<Message>(json!({
@@ -1823,8 +1816,6 @@ mod tests {
         ));
     }
 
-    /// What Claude Code writes when the plan's limit stops a turn, as its transcripts keep it
-    /// (2026-11-13).
     #[test]
     fn reaching_the_usage_limit_is_told_apart() {
         let said = serde_json::from_value::<Message>(json!({
@@ -1845,7 +1836,6 @@ mod tests {
         ));
     }
 
-    /// Only a model's answer shows that the sign-in works: `/context`, say, needs none.
     #[test]
     fn a_command_answered_by_claude_code_says_nothing_of_the_sign_in() {
         let result = |line: Value| {
@@ -1863,8 +1853,6 @@ mod tests {
         assert!(!result(json!({ "subtype": "success", "is_error": true })));
     }
 
-    /// `get_usage` as Claude Code 2.1.316 answers it signed in with a handed-over token and with
-    /// nobody signed in: null where the numbers can't be had, unlike a field left out.
     #[test]
     fn usage_given_as_null_reads_as_no_usage() {
         let report: UsageReport = serde_json::from_value(json!({
@@ -1883,9 +1871,6 @@ mod tests {
         assert_eq!(report.rate_limits.limits.len(), 1);
     }
 
-    /// User-role lines as Claude Code 2.1.316 sends them with `--replay-user-messages`
-    /// (recorded on the bench): another session's message is told apart from the window's own
-    /// echoed back, and from Claude Code's own tool results.
     #[test]
     fn user_lines_say_who_sent_them() {
         let user_line = |line: Value| match serde_json::from_value(line) {
@@ -2073,8 +2058,6 @@ mod tests {
         assert!(matches!(serde_json::from_value(line), Ok(Message::Other)));
     }
 
-    /// A task's start, change and end, in the shapes of Claude Code 2.1.316's SDK types; a
-    /// foreground agent tells it isn't backgrounded.
     #[test]
     fn task_events_name_their_task() {
         let parse = |line: Value| serde_json::from_value::<Message>(line).ok();
@@ -2198,7 +2181,6 @@ mod tests {
         );
     }
 
-    /// What the window writes, against the shape the CLI reads.
     #[test]
     fn input_is_written_as_the_cli_reads_it() {
         let encoded = |input: &Input| serde_json::to_value(input).expect("encodable");
@@ -2302,8 +2284,6 @@ mod tests {
         );
     }
 
-    /// edualcd's adapter reads what the window writes with the window's own types: every kind
-    /// of line reads back as the line it was, the keys left out for their default included.
     #[test]
     fn every_line_the_window_writes_reads_back() {
         let id = || RequestId::from("gui_7".to_owned());
@@ -2405,9 +2385,6 @@ mod tests {
         assert_eq!(ToolName::Edit.to_string(), "Edit");
     }
 
-    /// Images in a prompt as Anthropic's vision docs send them: `"type": "image"`, its
-    /// `"source"` of `"type": "base64"`, `"media_type"` and `"data"`, then the text. A prompt
-    /// without images stays a plain string.
     #[test]
     fn a_prompt_with_images_is_written_as_the_vision_docs_show() {
         let image = ImageBlock::base64(MediaType::Jpeg, "QUJD".into());
@@ -2430,8 +2407,6 @@ mod tests {
         assert_eq!(plain.pointer("/message/content"), Some(&json!("Hi")));
     }
 
-    /// A `!` command goes as the CLI reads one, each with an id of its own; what it printed
-    /// goes ahead of the next prompt, as the rows the CLI replayed, then images, then the text.
     #[test]
     fn a_shell_command_and_its_rows_are_written_as_the_cli_reads_them() {
         let command = serde_json::to_value(Input::bash_command("ls -a")).expect("encodable");
@@ -2467,7 +2442,6 @@ mod tests {
         );
     }
 
-    /// A plan and questions go back as Claude sent them, with the user's part in them.
     #[test]
     fn tool_input_goes_back_whole() {
         let asked = json!({

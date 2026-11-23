@@ -348,10 +348,6 @@ mod tests {
         folder
     }
 
-    /// Hooks of every type by what they do, helpers, plugins turned on, environment variables
-    /// by name, permissions that let more run, marketplaces, every key not read by name, and MCP
-    /// servers with their command lines are listed, in a steady order; values of variables are
-    /// not.
     #[test]
     fn a_folder_lists_what_it_would_run() {
         let folder = scratch("runs");
@@ -442,7 +438,6 @@ mod tests {
         std::fs::remove_dir_all(&folder).expect("the scratch folder goes");
     }
 
-    /// A list longer than is shown says how many more there were, instead of seeming complete.
     #[test]
     fn a_long_list_says_how_many_more() {
         let folder = scratch("more");
@@ -463,9 +458,6 @@ mod tests {
         std::fs::remove_dir_all(&folder).expect("the scratch folder goes");
     }
 
-    /// A folder whose files can't be read says so, instead of seeming to run nothing: a link
-    /// isn't followed (it could lead to the user's own configuration), and a file that doesn't
-    /// parse is named.
     #[test]
     fn what_cant_be_read_is_said() {
         let folder = scratch("unreadable");

@@ -286,7 +286,6 @@ fn Row(row: DiffRow, index: usize) -> Element {
 mod tests {
     use super::*;
 
-    /// A comment is on the new file's line, or the old one's for a line taken out.
     #[test]
     fn a_comment_names_the_new_line_or_the_old_one() {
         let row = |old: &str, new: &str| DiffRow {

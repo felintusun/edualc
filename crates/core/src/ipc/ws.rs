@@ -261,8 +261,6 @@ mod tests {
             .0
     }
 
-    /// A demo is reached in plain, at its line, speaking its protocol, and shows an empty token
-    /// first.
     #[tokio::test]
     async fn a_demo_is_reached_without_tls() {
         use crate::ipc::pairing::Demo;
@@ -298,8 +296,6 @@ mod tests {
         );
     }
 
-    /// A ping comes as no message, but comes: a line watched for silence hears an idle edualcd's
-    /// pings; what is said after it comes as said.
     #[tokio::test]
     async fn a_ping_is_heard_as_no_message() {
         let (window_end, daemon_end) = tokio::net::UnixStream::pair().expect("a socket pair");
@@ -323,7 +319,6 @@ mod tests {
         drop(daemon.await.expect("the daemon's end ran"));
     }
 
-    /// A line closed for its token is told as refused, not as hung up.
     #[tokio::test]
     async fn a_refused_token_is_told() {
         let (window_end, daemon_end) = tokio::net::UnixStream::pair().expect("a socket pair");
@@ -354,7 +349,6 @@ mod tests {
         daemon.await.expect("the daemon's end ran");
     }
 
-    /// Messages go both ways whole over a socket pair.
     #[tokio::test]
     async fn whole_messages_go_through() {
         let (window_end, daemon_end) = tokio::net::UnixStream::pair().expect("a socket pair");

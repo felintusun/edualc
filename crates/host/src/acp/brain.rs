@@ -318,8 +318,6 @@ mod tests {
     const ENDED: &str = "a539fe4a-54a1-469c-bc13-066bcacfba57";
     const HELPER: &str = "55282ae3-ca5a-4b50-a583-7ca7ffa6c63b";
 
-    /// A swarm shows its board and its running workers, not its coordinator or a killed
-    /// worker; a subagent outside the swarm shows while it is alive, a member only once.
     #[test]
     fn a_swarm_and_its_subagents_are_tasks() {
         let member = |conversation: &str, role, killed| Member {
@@ -378,8 +376,6 @@ mod tests {
         );
     }
 
-    /// A member's steps read as its prompt and its answers, the tools by agy's names; a tool's
-    /// result gives no line.
     #[test]
     fn steps_read_as_a_transcript() {
         let told = step_line(
@@ -429,7 +425,6 @@ mod tests {
         ));
     }
 
-    /// User prompts in agy's transcript unwrap `<USER_REQUEST>` and drop metadata/settings blocks.
     #[test]
     fn user_requests_unwrap_and_drop_metadata() {
         let asked = step_line(
@@ -448,7 +443,6 @@ mod tests {
         );
     }
 
-    /// A board's post reads as what its member said, with its number.
     #[test]
     fn a_post_reads_as_its_members() {
         let said = post_line(

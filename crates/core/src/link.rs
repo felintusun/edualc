@@ -416,8 +416,6 @@ mod tests {
         }
     }
 
-    /// A pasted image's pieces come together in order; too many are told of once and the
-    /// rest dropped; bytes that don't parse are an error, not a panic.
     #[test]
     fn pasted_pieces_join_once_and_no_further() {
         let mut pasting = BTreeMap::new();

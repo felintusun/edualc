@@ -237,8 +237,6 @@ mod tests {
             .map(|progress| progress.usage.total_tokens)
     }
 
-    /// A task's progress shows while it runs, also after a move to the background and when it
-    /// came before the task's start; its end takes it away.
     #[test]
     fn progress_shows_while_its_task_runs() {
         let mut tasks = Tasks::default();
@@ -265,7 +263,6 @@ mod tests {
         assert!(!tasks.progress(a1, used(30)), "an ended task shows nothing");
     }
 
-    /// A subagent the turn waits for runs until it ends, beside the background list.
     #[test]
     fn a_foreground_agent_runs_until_it_ends() {
         let mut tasks = Tasks::default();
@@ -284,7 +281,6 @@ mod tests {
         assert_eq!(ids(&tasks), [("b1".to_owned(), Place::Background)]);
     }
 
-    /// One moved to the background leaves the foreground, and counts once while both name it.
     #[test]
     fn an_agent_moved_to_the_background_counts_once() {
         let mut tasks = Tasks::default();
@@ -296,8 +292,6 @@ mod tests {
         assert_eq!(ids(&tasks), [("a1".to_owned(), Place::Background)]);
     }
 
-    /// Only foreground subagents are kept from their start: a background one comes in the list,
-    /// a shell command shows as its call, and Claude Code's own tasks show nowhere.
     #[test]
     fn only_foreground_agents_are_kept_from_their_start() {
         let mut tasks = Tasks::default();
@@ -315,7 +309,6 @@ mod tests {
         assert_eq!(ids(&tasks), []);
     }
 
-    /// The turn's end ends what it waited for, though no end was said; the list stays.
     #[test]
     fn the_turns_end_ends_its_foreground_agents() {
         let mut tasks = Tasks::default();

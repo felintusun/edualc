@@ -1020,7 +1020,6 @@ impl ToAgent {
 mod tests {
     use super::*;
 
-    /// Lines as agy 1.5.6 wrote them (paths shortened), read as what they are.
     #[test]
     fn agys_lines_read() {
         let update = r#"{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"s","update":{"sessionUpdate":"tool_call_update","toolCallId":"call_1","name":"edit_file","args":{},"status":"completed","kind":"edit","title":"File notes.txt","rawInput":{"Path":"/w/notes.txt","Replacement":"b","Target":"a"},"rawOutput":{},"content":[{"type":"diff","path":"/w/notes.txt","newText":"b\n","oldText":"a\n"}],"locations":[{"path":"/w/notes.txt"}]}}}"#;

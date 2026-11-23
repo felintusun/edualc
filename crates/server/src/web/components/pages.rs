@@ -813,8 +813,6 @@ pub fn Switcher(onclose: EventHandler<()>) -> Element {
 mod tests {
     use super::*;
 
-    /// The start page's filter reads a project's name, its folder and what was said last in
-    /// it, whatever the case; the switcher's a session's title, project and state.
     #[test]
     fn filters_read_names_folders_and_what_was_said() {
         let card = |name: &str, shown: &str, said: &str| ProjectCard {

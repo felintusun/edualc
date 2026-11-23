@@ -437,8 +437,6 @@ export global Focus {
         .expect("the sample parses")
     }
 
-    /// Exported enums keep their values in order, with Slint's names; comments and
-    /// unexported declarations are ignored.
     #[test]
     fn reads_exported_enums_in_order() {
         assert_eq!(
@@ -450,8 +448,6 @@ export global Focus {
         );
     }
 
-    /// Struct fields keep the order written, and each type is resolved: scalars, lists and
-    /// types.slint's own names.
     #[test]
     fn reads_struct_fields_in_order_with_their_types() {
         let row = model()
@@ -476,7 +472,6 @@ export global Focus {
         );
     }
 
-    /// Only presented globals are read, only their `in` properties, and not the skipped ones.
     #[test]
     fn reads_only_the_in_properties_of_presented_globals() {
         let globals = model().globals;
@@ -502,7 +497,6 @@ export global Focus {
         );
     }
 
-    /// A float anywhere inside a type, through the structs it holds, is found.
     #[test]
     fn finds_floats_through_structs() {
         let model = model();
@@ -511,7 +505,6 @@ export global Focus {
         assert!(!model.has_float(&Kind::One(Item::Scalar(Scalar::String))));
     }
 
-    /// A type that is neither a scalar nor declared in types.slint is refused, naming where.
     #[test]
     fn refuses_unknown_types() {
         let error = Model::parse(
@@ -526,7 +519,6 @@ export global Focus {
         );
     }
 
-    /// A file that doesn't parse is refused with Slint's diagnostics.
     #[test]
     fn refuses_files_that_dont_parse() {
         let error = Model::parse(

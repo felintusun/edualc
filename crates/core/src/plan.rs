@@ -127,8 +127,6 @@ mod tests {
         parts
     }
 
-    /// Each part is named by its own first words, without heading or bullet marks, and a long
-    /// one is cut.
     #[test]
     fn a_part_is_named_by_its_first_words() {
         let plan = format!(
@@ -163,7 +161,6 @@ mod tests {
         );
     }
 
-    /// Two parts alike: the comment goes under the one it was made on, not the first.
     #[test]
     fn comments_land_under_their_own_part() {
         let plan = "- Run the tests\n\nThen:\n\n- Run the tests\n";

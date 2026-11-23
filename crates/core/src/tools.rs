@@ -569,8 +569,6 @@ mod tests {
         assert_eq!(shortened_path(Path::new("/srv/app"), 24), "/srv/app");
     }
 
-    /// A card shows a path inside the project from the project; one outside, if long, keeps
-    /// its file's name and folder, which used to be cut off at the end.
     #[test]
     fn a_card_keeps_the_file_name_of_a_long_path() {
         let cwd = Path::new("/srv/project");
@@ -605,8 +603,6 @@ mod tests {
         );
     }
 
-    /// Each card reads its tool's input by Claude Code's names, the optional ones included;
-    /// a call still streaming in, its input empty, shows its name alone.
     #[test]
     fn cards_read_claude_codes_inputs() {
         let cwd = Path::new("/p");
@@ -689,8 +685,6 @@ mod tests {
         assert_eq!(view.detail, "# Build\ncd x\nmake");
     }
 
-    /// A Monitor's card reads as its command, as Claude Code 2.1.316 sends it, not as its
-    /// input's JSON; it isn't titled as a background Bash.
     #[test]
     fn a_monitor_reads_as_its_command() {
         let input = json!({
@@ -719,9 +713,6 @@ mod tests {
         assert!(view.summary.starts_with("github  "));
     }
 
-    /// Claude Code's own SendMessage reads as a message, not as its input's JSON: to a session
-    /// by name, or, by an inbox's address (as Claude Code tells a session to answer), to
-    /// "another session", the address kept in the detail.
     #[test]
     fn messages_to_sessions_read_as_messages() {
         let card = |to: &str| {
@@ -752,8 +743,6 @@ mod tests {
         assert_eq!(result_text(Some(&content)), "File not found");
     }
 
-    /// opencode's calls, as opencode 2026-11 gives them: titled by opencode, with the file the
-    /// title doesn't name, a command without its folder, an edit with the change it makes.
     #[test]
     fn an_acp_call_reads_as_the_agent_gives_it() {
         use crate::call::{AcpCall, AcpKind, AcpStatus, Diff};

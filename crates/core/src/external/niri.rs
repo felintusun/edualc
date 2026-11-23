@@ -95,8 +95,6 @@ fn parse_reply(reply: &str) -> Result<Response, Error> {
 mod tests {
     use super::*;
 
-    /// Requests as niri reads them: `niri-ipc` 26.4.0 declares `Request::Windows`,
-    /// `Request::Action(Action)` and `Action::FocusWindow { id }`, externally tagged.
     #[test]
     fn requests_are_written_as_niri_reads_them() {
         assert_eq!(
@@ -110,9 +108,6 @@ mod tests {
         );
     }
 
-    /// Window lists of three niri releases parse alike: 25.02 (before `is_urgent` and
-    /// `layout`), and 26.04 as the running niri sent it (2026-11-01, title and app id replaced),
-    /// with a field no release has yet.
     #[test]
     fn window_lists_of_older_and_newer_niri_parse() {
         let releases = [
@@ -130,7 +125,6 @@ mod tests {
         }
     }
 
-    /// What niri says to a request it doesn't take.
     #[test]
     fn a_refusal_keeps_niris_reason() {
         assert!(matches!(

@@ -404,8 +404,6 @@ mod tests {
         assert_eq!(texts, [Some("a"), None, Some("b")]);
     }
 
-    /// Each comment goes with its file, its line's number in the file as it is (the old
-    /// file's for a removed line) and the line's text.
     #[test]
     fn comments_go_as_one_message_with_their_lines() {
         let comment = |kind, old, new, text: &str, said: &str| LineComment {

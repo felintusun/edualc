@@ -781,9 +781,6 @@ mod tests {
         assert_eq!(turn_facts(&turn(None, 0, 0)), "Turn 3 · 0 tokens in, 0 out");
     }
 
-    /// The mode menu offers the session's program's own modes, by their names, with the one
-    /// the program is in ticked: Claude Code's for a Claude Code session, agy's for an agy
-    /// session, and a placeholder for an agy session whose modes agy hasn't told yet.
     #[test]
     fn the_mode_menu_offers_the_programs_own_modes() {
         use crate::provider::Backend;
@@ -833,8 +830,6 @@ mod tests {
         assert_eq!(ticked, 0);
     }
 
-    /// A question's tab is marked answered once an option is picked or something else is
-    /// written; blanks don't count.
     #[test]
     fn a_question_is_answered_by_a_pick_or_by_writing() {
         assert!(!answered(&[false, false], ""));
@@ -844,8 +839,6 @@ mod tests {
         assert!(!answered(&[], ""));
     }
 
-    /// The bar shows a message to another session as the words it is, and a command as code,
-    /// as their cards do.
     #[test]
     fn the_bar_sets_a_message_as_prose_and_a_command_as_code() {
         let asked = |tool: ToolName, input: serde_json::Value| {
@@ -867,7 +860,6 @@ mod tests {
         assert_eq!(command.summary_reads_as, tools::Writing::Code);
     }
 
-    /// A rule to remember is offered in the words of Claude Code's own dialog.
     #[test]
     fn a_rule_to_remember_reads_as_claude_codes_dialog_says_it() {
         let cwd = Path::new("/work/app");
@@ -914,7 +906,6 @@ mod tests {
         );
     }
 
-    /// Claude Code's request gets its dialog's choices, and the field for what to do instead.
     #[test]
     fn claude_codes_request_is_answered_in_its_dialogs_words() {
         let suggestion = serde_json::json!({
@@ -950,7 +941,6 @@ mod tests {
         assert!(prompt.takes_feedback);
     }
 
-    /// The bar asks about an ACP agent's call by its kind, in the agent's own words for it.
     #[test]
     fn the_bar_asks_about_an_acp_call_in_the_agents_words() {
         let call = |title: &str, kind, location: &str| AcpCall {
@@ -1013,7 +1003,6 @@ mod tests {
         assert!(!prompt.takes_feedback);
     }
 
-    /// Counted by kind, agents first, each kind once however its tasks are interleaved.
     #[test]
     fn background_tasks_are_counted_by_kind() {
         assert_eq!(tasks_summary(&[]), "");
@@ -1039,8 +1028,6 @@ mod tests {
         .expect("a task")
     }
 
-    /// A task is named by what it does, by its agent's kind where it has one, and as in the
-    /// foreground where the turn waits for it.
     #[test]
     fn a_task_says_what_it_does_and_where() {
         let running = |task, place| Running {
@@ -1070,8 +1057,6 @@ mod tests {
         );
     }
 
-    /// What a task used reads briefly and leaves out what is none; what it does now is its
-    /// summary, else the tool it used last.
     #[test]
     fn a_tasks_progress_reads_briefly() {
         let usage = |tool_uses, total_tokens, duration_ms| wire::TaskUsage {

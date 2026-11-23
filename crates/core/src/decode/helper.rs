@@ -365,8 +365,6 @@ mod tests {
         bytes.into_inner()
     }
 
-    /// The sizes in Anthropic's vision docs' table, high-resolution tier: 1920x1080 and
-    /// 2000x1500 are "Not resized", 3840x2160 is "2576x1449 px", 4,784 tokens.
     #[test]
     fn images_are_scaled_as_the_vision_docs_say() {
         assert_eq!(sent_size(1920, 1080), (1920, 1080));
@@ -393,8 +391,6 @@ mod tests {
         assert!(checked(&postcard::to_stdvec(&Decoded::Image(picture)).expect("encodes")).is_ok());
     }
 
-    /// An image to show is scaled down to fit, never up; its answer is taken only whole and
-    /// within that size.
     #[test]
     fn an_image_to_show_fits_its_room_and_its_answer_is_checked() {
         let large = shown(&png(3000, 1000)).expect("decodes");
@@ -436,7 +432,6 @@ mod tests {
         ));
     }
 
-    /// A GIF and a WebP are read like a PNG, and go as one, their pixels kept.
     #[test]
     fn a_gif_or_webp_is_read_and_goes_as_a_png() {
         let source = image::RgbaImage::from_fn(30, 20, |x, y| {
@@ -487,9 +482,6 @@ mod tests {
         ));
     }
 
-    /// The confinement holds: confined as the helper is, a process reaching for a file is killed
-    /// (the real filter, whose answer to anything not allowed is death). The test starts itself
-    /// again as that process.
     #[test]
     fn a_confined_helper_is_killed_reaching_for_a_file() {
         use std::os::unix::process::ExitStatusExt;
@@ -515,7 +507,6 @@ mod tests {
         assert_eq!(status.signal(), Some(libc::SIGSYS), "{status}");
     }
 
-    /// The helper's answer is taken as untrusted: one whole answer, sizes that agree.
     #[test]
     fn an_answer_that_doesnt_hold_together_is_refused() {
         let picture = decoded(&png(40, 20), MAX_SIDE_PX).expect("decodes");

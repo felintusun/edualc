@@ -190,8 +190,6 @@ use crate::present::model as present;
 mod tests {
     use super::*;
 
-    /// Slint's names become Rust's: kebab-case values to CamelCase variants, fields to
-    /// snake_case.
     #[test]
     fn renames_slint_names_for_rust() {
         assert_eq!(camel("loud-and-clear"), "LoudAndClear");

@@ -36,7 +36,6 @@ pub fn replace(path: &Path, bytes: &[u8], mode: u32) -> std::io::Result<()> {
 mod tests {
     use super::*;
 
-    /// What was there is replaced whole, with nothing left beside it.
     #[test]
     fn a_file_is_replaced_whole() {
         let dir = std::env::temp_dir().join(format!("edualc-replace-{}", std::process::id()));

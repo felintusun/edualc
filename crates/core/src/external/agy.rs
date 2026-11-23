@@ -316,8 +316,6 @@ mod tests {
 
     const WORKER: &str = "1e16b130-ab24-45b6-8ebf-b573ab82eb7f";
 
-    /// A conversation's steps are its `transcript.jsonl`, or its `transcript_full.jsonl` while
-    /// that is missing; both are told apart from agy's other files.
     #[test]
     fn steps_are_read_from_either_log() {
         let brain = std::env::temp_dir().join(format!("edualc-agy-steps-{}", std::process::id()));
@@ -344,8 +342,6 @@ mod tests {
         std::fs::remove_dir_all(&brain).expect("cleaned up");
     }
 
-    /// A limit agy has switched off says no reset time, and is left out; one in use that says
-    /// none is refused. The groups as agy printed them on 2026-11-23 (descriptions shortened).
     #[test]
     fn a_switched_off_limit_is_left_out() {
         let groups = r#"{"groups":[{"name":"Gemini Models","buckets":[{"id":"gemini-weekly","window":"weekly","remaining_fraction":0.99,"reset_time":"2026-11-29T23:41:19Z"}]},{"name":"Claude and GPT models","buckets":[{"id":"3p-weekly","window":"weekly","remaining_fraction":0,"reset_time":"2026-11-24T23:50:29Z"},{"id":"3p-5h","window":"5h","disabled":true,"remaining_fraction":1}]}]}"#;
@@ -361,8 +357,6 @@ mod tests {
         assert!(serde_json::from_str::<Quotas>(&unsaid).is_err());
     }
 
-    /// `/usage`'s answer as agy 1.5.9 prints it (descriptions shortened); a model draws on the
-    /// group that lists it or is named after it, whatever its effort.
     #[test]
     fn quotas_read() {
         let answer: UsageAnswer = serde_json::from_str(
@@ -390,7 +384,6 @@ mod tests {
         assert!(gemini.covers("Orchestrator (Hydrogen)"));
     }
 
-    /// Steps as agy 1.5.9 writes them: an answer with a tool call, then its result.
     #[test]
     fn steps_read() {
         let answer: Step = serde_json::from_str(
@@ -413,7 +406,6 @@ mod tests {
         );
     }
 
-    /// A swarm's files as agy 1.5.9 writes them.
     #[test]
     fn a_swarm_reads() {
         let swarm: Swarm = serde_json::from_str(&format!(
@@ -435,8 +427,6 @@ mod tests {
         assert_eq!((post.seq, post.agent.as_str()), (2, "coordinator"));
     }
 
-    /// A task's name gives back the conversation it is; another session's tasks, and a name
-    /// that would lead out of the brain folder, aren't agy's.
     #[test]
     fn task_names_round_trip() {
         let id = SessionId::try_from(WORKER.to_owned()).expect("an id");

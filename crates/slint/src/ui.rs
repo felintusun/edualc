@@ -706,7 +706,6 @@ mod tests {
         }
     }
 
-    /// A block streaming in is coloured over and over: only what it shows now is kept.
     #[test]
     fn code_coloured_replaces_what_was_coloured_at_its_place() {
         let (mut drawing, _) = drawing();
@@ -717,8 +716,6 @@ mod tests {
         assert!(drawing.coloured_as("python", "fn f").is_none());
     }
 
-    /// The same code at two places is coloured once for both: one of them growing leaves the
-    /// other its colours.
     #[test]
     fn code_shown_at_another_place_keeps_its_colours() {
         let (mut drawing, _) = drawing();
@@ -747,7 +744,6 @@ mod tests {
         assert!(drawing.coloured_as("rust", "fn").is_none());
     }
 
-    /// Code growing keeps its colours until it is coloured again; other code is shown plain.
     #[test]
     fn growing_code_keeps_its_colours() {
         let (mut drawing, _) = drawing();
@@ -763,8 +759,6 @@ mod tests {
         assert!(!keeps(&code("rust", "fn"), &code("rust", "fn f"), &drawing));
     }
 
-    /// What was coloured is drawn where the code has only grown since, as far as it goes, until
-    /// the code's own colours are known; never over other code, or another language's.
     #[test]
     fn colours_for_code_since_grown_are_drawn_until_its_own_come() {
         let (mut drawing, _) = drawing();
@@ -780,8 +774,6 @@ mod tests {
         assert!(!draws(&code("rust", "fn f() {}"), &drawing));
     }
 
-    /// Code that names no language is never ordered coloured: nothing would come to replace
-    /// what it showed, so as it grows it is drawn as it is now.
     #[test]
     fn growing_code_of_no_language_is_drawn_as_it_grows() {
         use super::ToSlint as _;
@@ -795,7 +787,6 @@ mod tests {
         );
     }
 
-    /// What the shared Markdown splitter takes for inline Markdown is what Slint's parser takes.
     #[test]
     fn markdown_accepted_as_slint_accepts_it() {
         let samples = [

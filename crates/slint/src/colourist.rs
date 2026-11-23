@@ -394,7 +394,6 @@ mod tests {
         format!("{text:?}")
     }
 
-    /// Results cross from the thread to the window's.
     #[test]
     fn what_is_coloured_can_be_sent() {
         fn sendable<T: Send>() {}
@@ -447,8 +446,6 @@ mod tests {
         assert_eq!(debug(&done.text), debug(&expected));
     }
 
-    /// A block streamed in, a piece at a time, each coloured before the next arrives, ends as
-    /// it would coloured at once.
     #[test]
     fn a_streamed_block_ends_as_a_whole_one() {
         let code = "/* a\n   long comment */\nfn f() -> u8 {\n    1\n}\n";

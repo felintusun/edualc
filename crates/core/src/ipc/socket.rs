@@ -348,8 +348,6 @@ mod tests {
         Folder { fd, path }
     }
 
-    /// The window is the program beside the daemon; a new build replacing either on disk is
-    /// still it; another program, or another place, isn't.
     #[test]
     fn a_window_is_the_program_beside_the_daemon() {
         let daemon = Path::new("/home/someone/edualc/target/release/edualcd");
@@ -474,7 +472,6 @@ mod tests {
         }
     }
 
-    /// Frames come together however reads split them; one that doesn't parse is refused.
     #[test]
     fn frames_are_taken_byte_by_byte_and_junk_refused() {
         let mut deframer = Deframer::<(String, u32)>::default();

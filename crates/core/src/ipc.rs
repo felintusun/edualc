@@ -954,8 +954,6 @@ impl Act {
 mod tests {
     use super::*;
 
-    /// A project name is one folder: what a window that skipped the check sends is refused
-    /// as it arrives, so the daemon never makes `..` or a path.
     #[test]
     fn a_project_name_is_one_folder() {
         let name = |typed: &str| ProjectName::try_from(typed.to_owned());
@@ -973,8 +971,6 @@ mod tests {
         assert!(arrived.is_err());
     }
 
-    /// A pasted key loses the spaces around it; one with spaces inside, or nothing, isn't
-    /// taken. What `Debug` writes (the logs) never holds the key.
     #[test]
     fn an_api_key_is_taken_clean_and_never_written_out() {
         let key = ApiKey::parse("  sk-ant-api03-abc_DEF-123\n").expect("a key");

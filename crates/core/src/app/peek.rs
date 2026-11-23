@@ -470,8 +470,6 @@ mod tests {
         serde_json::from_value(value).expect("a transcript line")
     }
 
-    /// As Claude Code 2.1.316 writes a subagent's transcript: its prompt, then what it says and
-    /// calls; tool results and meta lines tell nothing of their own.
     #[test]
     fn a_subagents_transcript_reads_as_steps() {
         let cwd = Path::new("/home/u/project");
@@ -510,7 +508,6 @@ mod tests {
         assert!(called.text.contains("fn parse"), "{called:?}");
     }
 
-    /// Only the latest steps are kept.
     #[test]
     fn a_long_agent_keeps_its_latest_steps() {
         let said = |text: String| {
@@ -536,8 +533,6 @@ mod tests {
         .expect("an answer")
     }
 
-    /// A running command's output is asked for again once each answer is in, never twice at
-    /// once; after it ended, once more, and then no more.
     #[test]
     fn a_commands_output_is_asked_for_one_answer_at_a_time() {
         let mut output = CommandOutput::default();
@@ -561,7 +556,6 @@ mod tests {
         assert_eq!(output.text, "ok\nmore\ndone\n");
     }
 
-    /// It ending while a question is out still gets it a last question once that is answered.
     #[test]
     fn a_command_ending_meanwhile_is_asked_once_more() {
         let mut output = CommandOutput::default();
@@ -573,7 +567,6 @@ mod tests {
         assert!(output.finished());
     }
 
-    /// A refusal ends the asking, and says why; without a process, what was told stays.
     #[test]
     fn a_refused_or_unanswerable_output_is_asked_no_more() {
         let mut output = CommandOutput::default();
@@ -594,7 +587,6 @@ mod tests {
         );
     }
 
-    /// The transcript sits in the session's folder of subagents, named by the task.
     #[test]
     fn a_subagents_transcript_is_beside_its_sessions() {
         let session = Path::new("/home/u/.claude/projects/-p/0b8f.jsonl");

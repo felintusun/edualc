@@ -1000,9 +1000,6 @@ mod tests {
 
     use super::*;
 
-    /// A session keeps its name however often it is started: an adjective and a noun from its
-    /// id, its project, then two digits from its id; other ids get other names, but for rare
-    /// collisions.
     #[test]
     fn a_session_is_named_by_its_project_and_id() {
         let id = |text: &str| SessionId::try_from(text.to_owned()).expect("a session id");
@@ -1035,8 +1032,6 @@ mod tests {
         assert!(names.len() > 195, "only {} names of 200", names.len());
     }
 
-    /// A project's part of the name is its folder's, as Claude Code writes its own names, and
-    /// short; a folder with no Latin letters or digits is "project".
     #[test]
     fn a_project_is_named_after_its_folder() {
         assert_eq!(
@@ -1055,8 +1050,6 @@ mod tests {
         assert_eq!(project_part(Path::new("/")), "project");
     }
 
-    /// The browser demo's transcripts (`web/demo`) read as Claude Code's: every line parses, and
-    /// each has the title the demo's sidebar lists it by.
     #[test]
     fn the_browser_demos_transcripts_read_as_transcripts() {
         let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../web/demo");
@@ -1089,8 +1082,6 @@ mod tests {
         assert!(dir.ends_with("-home-someone-code-my-project-v2"));
     }
 
-    /// The review's finding: a project whose session moved into a worktree said it had no
-    /// sessions, as the transcript went to the worktree's folder.
     #[test]
     fn a_projects_sessions_include_its_worktrees() {
         let home = std::env::temp_dir().join(format!("edualc-homes-{}", std::process::id()));
@@ -1129,8 +1120,6 @@ mod tests {
         std::fs::remove_dir_all(&dir).expect("the scratch directory goes");
     }
 
-    /// A session's subagents run while their record isn't marked finished and their transcript
-    /// was written lately; one quiet for long, finished, or without a transcript doesn't count.
     #[test]
     fn running_subagents_are_counted_from_their_records() {
         let dir = std::env::temp_dir().join(format!("edualc-agents-{}", std::process::id()));
@@ -1162,8 +1151,6 @@ mod tests {
         std::fs::remove_dir_all(&dir).expect("the scratch directory goes");
     }
 
-    /// A session's transcript in a home is under its folder's project, or under the project it
-    /// moved to; under its folder's while not written.
     #[test]
     fn a_transcript_in_a_home_is_found_where_it_went() {
         let projects = std::env::temp_dir().join(format!("edualc-home-{}", std::process::id()));
@@ -1196,8 +1183,6 @@ mod tests {
         std::fs::remove_dir_all(&projects).expect("the scratch folder goes");
     }
 
-    /// A session to continue is found in whichever home keeps it, and goes on in the folder it
-    /// was started in, not one its later turns ran in; one no home has, isn't.
     #[test]
     fn a_session_goes_on_where_it_was_started() {
         let scratch = std::env::temp_dir().join(format!("edualc-started-{}", std::process::id()));
@@ -1244,8 +1229,6 @@ mod tests {
         std::fs::remove_dir_all(&dir).expect("the scratch directory goes");
     }
 
-    /// The name edualc gave a session's process, in each of its shapes so far, isn't taken for
-    /// its title, which Claude Code's own then is; a title the user gave it is.
     #[test]
     fn edualcs_name_for_a_session_is_no_title() {
         let id = "291365c8-6d45-4dba-ba19-41a5f0eccd6b";
@@ -1280,9 +1263,6 @@ mod tests {
         std::fs::remove_dir_all(&dir).expect("the scratch directory goes");
     }
 
-    /// A session another session started by writing to it is titled by that message, and so
-    /// listed, though the user's first prompt comes later than the head that is read; a
-    /// session the user started keeps its prompt, whatever reached it after.
     #[test]
     fn a_title_is_one_line() {
         let dir = std::env::temp_dir().join(format!("edualc-one-line-{}", std::process::id()));

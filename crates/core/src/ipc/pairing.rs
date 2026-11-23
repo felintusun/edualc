@@ -345,7 +345,6 @@ mod tests {
         }
     }
 
-    /// What edualcd prints, a window takes back whole, for names and both kinds of address.
     #[test]
     fn a_printed_address_pairs_back() {
         for host in ["box.local", "127.0.0.1", "::1"] {
@@ -356,8 +355,6 @@ mod tests {
         assert!(pairing("::1").url().starts_with("https://[::1]:7878/#"));
     }
 
-    /// A browser's fingerprint (upper case, colons) is the same one; the page's `dir` is passed
-    /// over.
     #[test]
     fn fingerprints_read_as_browsers_show_them() {
         let fingerprint = Fingerprint::of(b"a certificate");
@@ -400,8 +397,6 @@ mod tests {
         ));
     }
 
-    /// The token is in the address to pair with (its fragment, which no server is sent), and in
-    /// no line's address, which proxies and servers log.
     #[test]
     fn the_token_is_in_no_address_a_line_goes_to() {
         let pairing = pairing("box");
@@ -410,8 +405,6 @@ mod tests {
         assert!(!pairing.line_url().contains("to%20ken"));
     }
 
-    /// The demo's address reaches it in plain; a paired edualcd's pairs; each prints back as
-    /// it was read, and is kept so.
     #[test]
     fn a_demo_is_reached_by_its_plain_address() {
         let demo = Server::parse("http://10.0.2.2:7878/").expect("the demo's address");
@@ -441,7 +434,6 @@ mod tests {
         }
     }
 
-    /// A fragment's `+` is one, as a page's `dir` (`c++`) has it; a space comes escaped.
     #[test]
     fn a_plus_in_a_fragment_stays_one() {
         assert_eq!(decoded("c++%20x"), "c++ x");

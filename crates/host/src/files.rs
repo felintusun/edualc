@@ -1237,11 +1237,6 @@ fn forget_unused(
 mod tests {
     use super::*;
 
-    /// Found with a Haiku turn: Claude Code ignored a folder's allow rules, as only edualc had
-    /// trusted it. Recording its trust adds that folder's record, with Claude Code's defaults,
-    /// and changes nothing else in the file; a folder whose record says so already leaves the
-    /// file as it is, while one inside a trusted folder gets its own, as Claude Code reads only
-    /// the folder's own record.
     #[test]
     fn trust_is_recorded_for_claude_code_keeping_the_rest() {
         let dir = std::env::temp_dir().join(format!("edualc-claude-json-{}", std::process::id()));
@@ -1308,9 +1303,6 @@ mod tests {
         std::fs::remove_dir_all(&dir).expect("the scratch folder goes");
     }
 
-    /// The file is written under Claude Code's own lock: while Claude Code holds it, nothing is
-    /// written; one left behind longer than Claude Code waits is taken over; and the lock is
-    /// let go once the record is in.
     #[test]
     fn trust_is_recorded_under_claude_codes_lock() {
         let dir = std::env::temp_dir().join(format!("edualc-claude-lock-{}", std::process::id()));
@@ -1339,8 +1331,6 @@ mod tests {
         std::fs::remove_dir_all(&dir).expect("the scratch folder goes");
     }
 
-    /// A folder is known to Claude Code by the real path of the git repository it is in, or by
-    /// its own outside one.
     #[test]
     fn a_folder_is_keyed_as_claude_code_keys_it() {
         let dir = std::env::temp_dir().join(format!("edualc-claude-key-{}", std::process::id()));
@@ -1418,8 +1408,6 @@ mod tests {
         }
     }
 
-    /// A transcript goes to the window as text in pieces that each fit a message, a line longer
-    /// than one among them; put together, the pieces are the lines.
     #[test]
     fn a_transcripts_lines_come_in_pieces_that_fit_messages() {
         let lines = vec![
@@ -1443,7 +1431,6 @@ mod tests {
         assert_eq!(splitter.push(text.as_bytes()), lines);
     }
 
-    /// What the daemon reads in one message, at the most it reads, fits one.
     #[test]
     fn a_thousand_sessions_fit_a_message() {
         let session = |at: usize| sessions::SessionInfo {
@@ -1504,8 +1491,6 @@ mod tests {
         assert_eq!(collected.len(), total);
     }
 
-    /// A transcript is watched through its folder: its being made and written to are told,
-    /// and nothing is after it is unwatched.
     #[tokio::test]
     async fn a_transcript_is_watched_before_and_after_it_is_written() {
         let mut scene = Scene::watching("watch", "session.jsonl").await;
@@ -1532,9 +1517,6 @@ mod tests {
         scene.end().await;
     }
 
-    /// A transcript whose folder isn't there yet is watched from above it, and moves down as the
-    /// folder comes; written anew by a rename over it, it is told; another file in its folder
-    /// isn't.
     #[tokio::test]
     async fn a_transcript_is_followed_through_its_folder() {
         let mut scene = Scene::watching("follow", "project/session.jsonl").await;
@@ -1574,7 +1556,6 @@ mod tests {
         scene.end().await;
     }
 
-    /// Folders made at once, as `mkdir -p` makes them, are followed all the way down.
     #[tokio::test]
     async fn a_watch_moves_down_through_folders_made_at_once() {
         let mut scene = Scene::watching("deep", "p/s/subagents/agent.jsonl").await;
@@ -1595,7 +1576,6 @@ mod tests {
         scene.end().await;
     }
 
-    /// A folder watched that is moved away isn't followed: the one made in its place is.
     #[tokio::test]
     async fn a_folder_moved_away_is_let_go_of() {
         let mut scene = Scene::watching("moved", "project/session.jsonl").await;
@@ -1636,7 +1616,6 @@ mod tests {
         scene.end().await;
     }
 
-    /// A transcript with no folder near it to watch from is tried again until there is one.
     #[tokio::test]
     async fn a_watch_with_nowhere_to_be_is_tried_again() {
         let mut scene = Scene::watching("retry", "a/b/c/d/session.jsonl").await;
@@ -1656,8 +1635,6 @@ mod tests {
         scene.end().await;
     }
 
-    /// What is noticed in a folder is about a transcript if it names the transcript, or a folder
-    /// on the way to it; in the records' folder, anything is.
     #[test]
     fn what_is_noticed_concerns_a_transcript_on_its_way() {
         let file = PathBuf::from("/h/projects/p/s.jsonl");

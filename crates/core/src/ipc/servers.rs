@@ -178,8 +178,6 @@ mod tests {
         })
     }
 
-    /// The last paired is reached unless another is named; a name not paired is said, with
-    /// those that are.
     #[test]
     fn the_last_paired_is_the_default() {
         let mut servers = Servers::default();
@@ -207,7 +205,6 @@ mod tests {
         ));
     }
 
-    /// A server is named by its host, or by its address where another is paired by its host.
     #[test]
     fn a_name_taken_by_another_address_is_told_apart() {
         let mut servers = Servers::default();
@@ -238,7 +235,6 @@ mod tests {
         assert_eq!(servers.name_for(&there), "box:7878");
     }
 
-    /// Forgetting the default makes another the default; forgetting the last leaves none.
     #[test]
     fn forgetting_the_default_moves_it() {
         let mut servers = Servers::default();
@@ -255,8 +251,6 @@ mod tests {
         assert!(matches!(servers.chosen(None), Err(Error::Unpaired)));
     }
 
-    /// A name another edualcd is paired as is refused, its token kept; the same edualcd may
-    /// take its name again, with a token made anew.
     #[test]
     fn a_name_paired_already_is_refused() {
         let mut servers = Servers::default();

@@ -60,8 +60,6 @@ impl Folder {
 mod tests {
     use super::*;
 
-    /// A typed path opens the folder it names, `~` as the home folder; a missing one, or a
-    /// file, is told apart, with the path as typed, so the user can correct it.
     #[test]
     fn a_typed_path_names_a_folder_or_says_why_not() {
         let scratch = std::env::temp_dir().join(format!("edualc-folders-{}", std::process::id()));

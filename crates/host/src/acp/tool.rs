@@ -313,8 +313,6 @@ fn asked(socket: &std::path::Path, request: &Request) -> std::io::Result<Answer>
 mod tests {
     use super::*;
 
-    /// A call to a tool edualc doesn't have, or a message without its recipient, is answered
-    /// as an error without reaching the adapter.
     #[test]
     fn calls_the_tool_cant_carry_are_errors() {
         let nowhere = std::path::Path::new("/nonexistent/edualc.sock");

@@ -167,7 +167,6 @@ pub fn Blocks(blocks: Vec<MdBlock>) -> Element {
 mod tests {
     use super::*;
 
-    /// HTML in a message is shown, not taken; links open only to the web or mail.
     #[test]
     fn markdown_is_made_safe_html() {
         let html = markdown_html("a <script>alert(1)</script> and *this*");

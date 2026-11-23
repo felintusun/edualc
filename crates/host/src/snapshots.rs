@@ -819,8 +819,6 @@ mod tests {
         }
     }
 
-    /// What the plan asks of the view: Claude's edit and a command's are told apart, and what
-    /// `.gitignore` names, `.git`, and binary and large files are left out.
     #[test]
     fn a_turns_changes_say_who_made_them() {
         let bench = Bench::new("who");
@@ -868,8 +866,6 @@ mod tests {
         assert_eq!((left_out.large, left_out.binary), (1, 1));
     }
 
-    /// A file whose size and time are as before isn't read again: here its contents changed
-    /// under the same size and time, and the snapshot still takes it as it was.
     #[test]
     fn an_unchanged_file_is_not_read_again() {
         let bench = Bench::new("unread");
@@ -889,7 +885,6 @@ mod tests {
         assert!(bench.files(Scope::Turn).is_empty());
     }
 
-    /// Marked reviewed, a file stays so until it changes again.
     #[test]
     fn a_review_mark_comes_off_when_the_file_changes() {
         let bench = Bench::new("review");
@@ -917,8 +912,6 @@ mod tests {
         assert_eq!(review(), Some(Review::NotReviewed));
     }
 
-    /// The whole session spans its turns; "since you last looked" only what came after; a
-    /// change between turns is told as such.
     #[test]
     fn scopes_span_turns_and_the_last_look() {
         let bench = Bench::new("scopes");
@@ -990,8 +983,6 @@ mod tests {
         assert!(edited(r#"{"type":"result","subtype":"success"}"#).is_empty());
     }
 
-    /// Pruning forgets a session nobody looked at for long, and old contents no snapshot
-    /// names; contents a snapshot names, or new ones, stay.
     #[test]
     fn pruning_keeps_what_is_named_or_new() {
         let bench = Bench::new("prune");

@@ -319,7 +319,6 @@ mod tests {
             .collect()
     }
 
-    /// The user's complaint: running and earlier sessions in one list, told apart only by a dot.
     #[test]
     fn running_sessions_are_listed_apart_from_earlier_ones_and_once() {
         let saved = [saved(1, "Attach"), saved(2, "React"), saved(3, "Thread")];
@@ -368,7 +367,6 @@ mod tests {
         );
     }
 
-    /// The review's finding: the project page listed every project's running sessions.
     #[test]
     fn only_the_projects_running_sessions_are_listed() {
         let saved = [saved(5, "Moved to a worktree")];
@@ -405,8 +403,6 @@ mod tests {
         );
     }
 
-    /// A session edualc's daemon runs that no record lists yet is listed from what the daemon
-    /// says, in another window or in none; one a record lists, once.
     #[test]
     fn a_session_the_daemon_runs_is_running() {
         let saved = [
@@ -455,7 +451,6 @@ mod tests {
         );
     }
 
-    /// A session that starts or ends a turn keeps its place; only waiting moves it up.
     #[test]
     fn working_or_idle_a_session_keeps_its_place() {
         let order = |states: [LiveStatus; 2]| {
@@ -487,9 +482,6 @@ mod tests {
         );
     }
 
-    /// A running session is marked with what it runs: agy as its transcript's place says, and
-    /// Claude Code with the API key as the daemon that started it says; others are on the
-    /// user's own sign-in.
     #[test]
     fn a_running_session_is_marked_with_its_program() {
         let live = [
@@ -525,8 +517,6 @@ mod tests {
         assert!(programs.contains(&(id(3), Program::Claude)));
     }
 
-    /// A session that goes by its name has it once, as its title; one with a title of its own
-    /// shows its name beside it, to message it by.
     #[test]
     fn a_name_shows_once() {
         let saved = [saved(1, "From the folder's list")];

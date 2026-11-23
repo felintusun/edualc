@@ -334,7 +334,6 @@ fn Session() -> Element {
 mod tests {
     use super::*;
 
-    /// F6 goes round the areas shown, as in the native window; Shift+F6 the other way.
     #[test]
     fn f6_goes_round_the_areas_shown() {
         use Area::{Conversation, Side, Writing};

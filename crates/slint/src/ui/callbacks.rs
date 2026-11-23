@@ -474,8 +474,6 @@ mod tests {
         (text.into(), caret)
     }
 
-    /// A break goes in at the caret, or in place of the selection; the caret after it. Offsets
-    /// are bytes: one inside a character, or past the end, goes to the boundary before.
     #[test]
     fn a_line_break_replaces_the_selection_at_the_caret() {
         assert_eq!(broken("ab", 1, 1), ("a\nb".to_owned(), 2));

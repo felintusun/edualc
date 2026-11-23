@@ -1018,8 +1018,6 @@ mod tests {
 
     use super::*;
 
-    /// A prompt of the user's that starts with `<`, or quotes one of Claude Code's wrappers, is a
-    /// prompt; Claude Code's own texts for the model and its wrappers, at the start, are not.
     #[test]
     fn a_prompt_that_starts_with_a_tag_is_a_prompt() {
         for prompt in [
@@ -1073,8 +1071,6 @@ mod tests {
         }
     }
 
-    /// The pinned prompt is the user's own newest message: not another session's, nor what
-    /// came after it; none before the user wrote anything.
     #[test]
     fn the_last_prompt_is_the_users_newest_message() {
         let mut chat = Chat::default();
@@ -1184,8 +1180,6 @@ mod tests {
         assert_eq!(first_tool(&chat).state, ToolState::Done);
     }
 
-    /// An ACP agent's call ends as the agent says, with what it printed; one the user denied
-    /// stays denied, though the agent says it failed.
     #[test]
     fn an_acp_call_ends_with_its_own_update() {
         let call = |status, output: Option<&str>| AcpCall {
@@ -1241,8 +1235,6 @@ mod tests {
             .collect()
     }
 
-    /// `!` rows as Claude Code 2.1.316 replays them: each output ends the latest command still
-    /// running, so one refused while another runs is told of in its own card.
     #[test]
     fn shell_commands_run_until_their_output_comes() {
         let mut chat = Chat::default();
@@ -1286,8 +1278,6 @@ mod tests {
         );
     }
 
-    /// A command that failed shows its output, its errors and its exit code; one an interrupt
-    /// stopped is stopped; one whose process ended runs no more.
     #[test]
     fn shell_commands_end_as_they_ended() {
         let mut chat = Chat::default();
@@ -1328,9 +1318,6 @@ mod tests {
         );
     }
 
-    /// Another session's message shows as its own kind of entry, by the name the sender gave:
-    /// live, its body without the envelope, or the whole text when it came without one; from
-    /// a saved transcript, where Claude Code keeps it as a meta line, all the same.
     #[test]
     fn messages_from_other_sessions_show_who_sent_them() {
         let message = |content: &str| -> UserMessage {
@@ -1375,8 +1362,6 @@ mod tests {
         assert_eq!(peers(&saved), [(Some("b".to_owned()), "hi".to_owned())]);
     }
 
-    /// In a saved session, a call the user denied shows as denied, as it did live, and one
-    /// that failed as failed: only the text Claude Code gave Claude tells them apart there.
     #[test]
     fn a_saved_denied_call_shows_denied() {
         let call = |id: &str| {
@@ -1426,9 +1411,6 @@ mod tests {
         assert_eq!(states, [ToolState::Denied, ToolState::Failed]);
     }
 
-    /// Saved `!` rows: the terminal's, with no exit code, are commands that ended; edualc's,
-    /// sent ahead of a prompt in one message, come before it; one never told of ending, as a
-    /// session was saved, runs no more.
     #[test]
     fn saved_shell_commands_show_as_they_ran() {
         let lines: Vec<TranscriptLine> = [
@@ -1468,9 +1450,6 @@ mod tests {
         json!({ "type": "image", "source": { "type": "base64", "media_type": "image/png", "data": data } })
     }
 
-    /// Images the user sent are rows of their own, before the text they came with; those a
-    /// tool returned go into its card, which opens. Each is to be decoded once taken, known by
-    /// its content; one without its bytes says so.
     #[test]
     fn images_go_where_they_were_sent_and_are_decoded_by_content() {
         let lines: Vec<TranscriptLine> = [
@@ -1544,7 +1523,6 @@ mod tests {
         assert_eq!(chat.take_changes(), [Change::Updated(2)]);
     }
 
-    /// Escapes undone once: what a command printed as `&lt;` stays `&lt;`.
     #[test]
     fn rows_are_unescaped_once() {
         assert_eq!(
@@ -1623,9 +1601,6 @@ mod tests {
         assert_eq!(chat.take_changes(), [Change::Reset]);
     }
 
-    /// A turn's line is numbered by the prompts before it, those of the saved transcript
-    /// among them, which have no line; what a turn changed, said after it ended, goes on the
-    /// last one.
     #[test]
     fn turns_are_numbered_and_take_their_changes() {
         let mut chat = Chat::default();

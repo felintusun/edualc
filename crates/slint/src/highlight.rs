@@ -416,7 +416,6 @@ mod tests {
         }
     }
 
-    /// A block streamed in a piece at a time ends as it would if coloured at once.
     #[test]
     fn a_streamed_block_ends_as_a_whole_one() {
         let highlighter = Highlighter::new(&colours());
@@ -453,7 +452,6 @@ mod tests {
         );
     }
 
-    /// Adds the grammars' licenses to a report cargo-about has just made (see about.toml).
     #[test]
     #[ignore = "writes THIRD_PARTY_LICENSES.md, when it is regenerated"]
     fn add_the_grammars_licenses_to_the_report() {
@@ -467,8 +465,6 @@ mod tests {
         std::fs::write(path, report).expect("the report can be written");
     }
 
-    /// Whatever the code, the text shown is the code, as plain text would show it. One
-    /// highlighter for every case: each grammar's patterns are compiled as it is first used.
     #[test]
     fn the_text_is_the_code() {
         let highlighter = Highlighter::new(&colours());
@@ -481,9 +477,6 @@ mod tests {
         });
     }
 
-    /// Each line's colours open and close on it: a run across a line break, followed by text of
-    /// more than a byte a character, panicked in Slint's text layout (slint-ui/slint#13548), and
-    /// each line is its own paragraph.
     #[test]
     fn each_coloured_run_ends_on_its_line() {
         let highlighter = Highlighter::new(&colours());

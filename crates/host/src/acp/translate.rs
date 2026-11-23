@@ -2784,10 +2784,6 @@ mod tests {
         }
     }
 
-    /// Every line the adapter writes for the window reads as a line of Claude Code's, or as a
-    /// tool call as the agent gave it: through a turn with streamed thinking and text, a tool
-    /// call asked about and answered, a mode and a title, another session's message, a `!`
-    /// command, a failed turn and one that went well.
     #[test]
     fn the_window_reads_every_line() {
         let mut translator = translator_for(Agent::Agy, Start::New);
@@ -2878,8 +2874,6 @@ mod tests {
         translator
     }
 
-    /// The window's `initialize`, sent before the session is open, is answered once it is,
-    /// with agy's models; from then on the session goes by agy's id for it.
     #[test]
     fn initialize_waits_for_the_session() {
         let mut translator = translator(Start::New);
@@ -2969,8 +2963,6 @@ mod tests {
         serde_json::from_value(call).expect("a call the window reads")
     }
 
-    /// A turn reads as Claude Code's: init, streamed text, the assistant message, the tool
-    /// call as the agent gave it and again with its result, then the result of the turn.
     #[test]
     fn a_turn_reads_as_claude_codes() {
         let mut translator = opened();
@@ -3029,7 +3021,6 @@ mod tests {
         assert_eq!(result.get("is_error"), Some(&json!(false)));
     }
 
-    /// agy sends a call with its arguments: it is shown at once, before it completes.
     #[test]
     fn agys_call_shows_at_once() {
         let mut translator = opened();
@@ -3043,8 +3034,6 @@ mod tests {
         assert_eq!(call.input, Some(json!({"CommandLine": "ls"})));
     }
 
-    /// opencode names a tool before it sends its arguments: the call isn't shown until they
-    /// come, and then it is shown once, as opencode gives it.
     #[test]
     fn opencodes_call_shows_once_its_arguments_come() {
         let mut translator = opened_with(Agent::Opencode);
@@ -3066,8 +3055,6 @@ mod tests {
         assert_eq!(call.input, Some(json!({"command": "ls", "cwd": "/w"})));
     }
 
-    /// A permission request for a call kept without its arguments shows the call, with the
-    /// arguments the request has.
     #[test]
     fn a_permission_request_shows_a_kept_call() {
         let mut translator = opened_with(Agent::Opencode);
@@ -3087,8 +3074,6 @@ mod tests {
         assert_eq!(asked.pointer("/call/input/command"), Some(&json!("ls")));
     }
 
-    /// An edit shows as the agent gives it: its own name and title, its file, and the change
-    /// it makes.
     #[test]
     fn an_edit_shows_the_agents_change() {
         let call = ToolCall {
@@ -3125,8 +3110,6 @@ mod tests {
         );
     }
 
-    /// agy asks before edualc's own messaging tools too: the adapter allows them, and the
-    /// window isn't asked.
     #[test]
     fn edualcs_own_tools_go_without_asking() {
         let mut translator = opened();
@@ -3148,9 +3131,6 @@ mod tests {
         );
     }
 
-    /// agy's permission request is asked in the window with agy's choices, in agy's words; the
-    /// answer is the choice made, and the denied call ends as agy ends it (the window knows it
-    /// denied it).
     #[test]
     fn permissions_go_through_the_window() {
         let mut translator = opened();
@@ -3188,8 +3168,6 @@ mod tests {
         assert_eq!(call_of(&window_lines(&failed)).status, AcpStatus::Failed);
     }
 
-    /// The prompt goes to the agent as ACP names its parts: text as `text`, an image with its
-    /// `mimeType` and its base64 `data`, under the request's `method` and `params`.
     #[test]
     fn a_prompt_is_sent_as_acp_names_it() {
         let mut translator = opened();
@@ -3217,8 +3195,6 @@ mod tests {
         );
     }
 
-    /// A permission answer goes back under the id the request came with, its outcome the
-    /// option the user chose, as `selected` with that option's `optionId`.
     #[test]
     fn a_permission_answer_is_acps() {
         let mut translator = opened();
@@ -3238,7 +3214,6 @@ mod tests {
         );
     }
 
-    /// A choice the agent didn't offer isn't passed on as one: the request is cancelled.
     #[test]
     fn a_choice_the_agent_didnt_offer_cancels() {
         let mut translator = opened();
@@ -3256,8 +3231,6 @@ mod tests {
         );
     }
 
-    /// A turn the agent ends by refusing, or that an answer edualc can't read ends, ends as
-    /// failed with the reason in the conversation; one it ends as done ends as a success.
     #[test]
     fn a_turn_cut_short_ends_as_failed_saying_why() {
         let ended_with = |answer: &str| {
@@ -3299,9 +3272,6 @@ mod tests {
         assert!(said.is_empty(), "{said}");
     }
 
-    /// A turn that fails because Google's API refused agy's sign-in ends with a 401 in its
-    /// result, for the window to offer signing in and trying again, and agy's words aren't shown
-    /// as a message. Any other failure is shown in agy's words.
     #[test]
     fn a_refused_sign_in_ends_the_turn_as_a_401() {
         let failed_with = |error: &str| {
@@ -3350,7 +3320,6 @@ mod tests {
         assert!(said(&other), "agy's words are shown");
     }
 
-    /// A message from another session is shown as one, and prompts agy once its turn ends.
     #[test]
     fn a_peer_message_waits_for_its_turn() {
         let mut translator = opened();
@@ -3385,9 +3354,6 @@ mod tests {
         );
     }
 
-    /// A message from a sender the user hasn't let in waits while the window asks, offering
-    /// to let the sender in. Turned down, the agent never sees it; let in with its sender, it
-    /// comes in, and so does the sender's next message, unasked. Another sender is asked about.
     #[test]
     fn a_new_senders_message_waits_to_be_let_in() {
         let mut translator = opened();
@@ -3468,9 +3434,6 @@ mod tests {
     /// a question taking one option, one taking several, each with a field for words beside.
     const FORM: &str = r#"{"jsonrpc":"2.0","id":"1","method":"elicitation/create","params":{"sessionId":"s","toolCallId":"call_1","mode":"form","message":"The agent has 2 questions.","requestedSchema":{"type":"object","properties":{"q1":{"type":"string","title":"Tabs or spaces?","oneOf":[{"const":"1","title":"(Recommended) Spaces"},{"const":"2","title":"Tabs"}]},"q1_other":{"type":"string","title":"Other","description":"Optional free-form answer to: Tabs or spaces?"},"q2":{"type":"array","title":"Which colours?","items":{"anyOf":[{"const":"1","title":"(Recommended) Red"},{"const":"2","title":"Green"},{"const":"3","title":"Blue"}]}},"q2_other":{"type":"string","title":"Other","description":"Optional free-form answer to: Which colours?"}}}}}"#;
 
-    /// agy's form is asked as Claude Code's questions are, on its tool call, in its order; the
-    /// labels picked go back as the options' values, typed words in the field for words beside,
-    /// and turning the questions down declines the form.
     #[test]
     fn agys_form_is_asked_as_questions() {
         let answer = |request: &Value, response: Value| {
@@ -3566,7 +3529,6 @@ mod tests {
         );
     }
 
-    /// agy's messaging tool sends at once: nothing is asked in the window.
     #[test]
     fn messages_go_without_asking() {
         let mut translator = opened();
@@ -3580,8 +3542,6 @@ mod tests {
         );
     }
 
-    /// agy says nothing of what an MCP tool gave: the call's result is what edualc's tool
-    /// answered it.
     #[test]
     fn the_tools_answer_is_the_calls_result() {
         let mut translator = opened();
@@ -3608,9 +3568,6 @@ mod tests {
         );
     }
 
-    /// A file or command tool keeps the agent's name and arguments, named or not: an append of
-    /// agy's (1.5.6's arguments, as logged), a command by ACP's kind and its title, a read of
-    /// its location.
     #[test]
     fn file_and_command_tools_show_as_the_agent_gives_them() {
         let appended = ToolCall {
@@ -3651,9 +3608,6 @@ mod tests {
         assert_eq!(call.locations, [PathBuf::from("/w/f.txt")]);
     }
 
-    /// agy's swarm tools that edualc acts on go by the names the window knows, with arguments
-    /// as agy 1.5.9 gives them: a post to the board as a message, a member joining as an agent
-    /// with its brief, its questions as AskUserQuestion's; what else `swarm` does is agy's own.
     #[test]
     fn agys_swarm_tools_read_as_claude_codes() {
         let shown = |name: &str, args: Value| {
@@ -3699,8 +3653,6 @@ mod tests {
         );
     }
 
-    /// agy's subagents are looked at as a turn ends, under agy's id for the conversation;
-    /// opencode keeps no records of them, and its are never looked for.
     #[test]
     fn subagents_are_looked_at_as_a_turn_ends() {
         let looked = |agent| {
@@ -3727,8 +3679,6 @@ mod tests {
         assert!(looked(Agent::Opencode).is_empty());
     }
 
-    /// What a command printed, as agy gives it in the call's raw output, is the call's result;
-    /// a raw output of another shape isn't.
     #[test]
     fn a_commands_printed_output_is_its_result() {
         let ended = |raw_output| {
@@ -3745,8 +3695,6 @@ mod tests {
         assert_eq!(ended(json!({ "files": ["a"] })), "Done.");
     }
 
-    /// A `!` command is told as not run, in the rows the window reads a command's run from,
-    /// and nothing reaches agy.
     #[test]
     fn shell_commands_are_refused() {
         let mut translator = opened();
@@ -3766,8 +3714,6 @@ mod tests {
         assert!(rows.get(1).is_some_and(|row| row.contains("Not run")));
     }
 
-    /// A request the window writes that the adapter doesn't do is answered with a failure, so
-    /// the window isn't left waiting on it.
     #[test]
     fn a_request_the_adapter_doesnt_do_is_failed() {
         let mut translator = opened_with(Agent::Opencode);
@@ -3784,8 +3730,6 @@ mod tests {
         );
     }
 
-    /// How full the context is, as the agent tells it, reaches the window at once, answers
-    /// `get_context_usage`, and gives the turn's result the window's size.
     #[test]
     fn the_contexts_use_reaches_the_window() {
         let mut translator = opened_with(Agent::Opencode);
@@ -3850,9 +3794,6 @@ mod tests {
         .data
     }
 
-    /// agy is asked for its quotas for the window's `get_usage` and as each turn ends; the
-    /// sidebar's bars are the quotas of the group the session's model draws on, and the Usage
-    /// panel lists every group's, each named.
     #[test]
     fn agys_quotas_are_the_plans_limits() {
         let mut translator = opened();
@@ -3918,7 +3859,6 @@ mod tests {
         );
     }
 
-    /// Quotas agy couldn't say fail the window's `get_usage` with why, and leave the bars.
     #[test]
     fn quotas_that_cant_be_read_fail_the_request() {
         let mut translator = opened();
@@ -3941,8 +3881,6 @@ mod tests {
         );
     }
 
-    /// A line the window wrote that edualc can't read, but that is a control request, is
-    /// answered with a failure under its request id, saying edualc can't read it.
     #[test]
     fn a_control_request_edualc_cant_read_is_failed_under_its_id() {
         let mut translator = opened();
@@ -3964,8 +3902,6 @@ mod tests {
         );
     }
 
-    /// A loaded session's replayed history isn't shown again: the window read it from agy's
-    /// records.
     #[test]
     fn a_loaded_sessions_history_isnt_repeated() {
         let mut translator = translator(Start::Resume("s".to_owned()));
@@ -3984,8 +3920,6 @@ mod tests {
         assert!(replayed.is_empty());
     }
 
-    /// The window is told agy's own modes and the one agy is in, picks one by agy's id, and
-    /// hears when agy changes mode; Claude Code's modes are refused.
     #[test]
     fn agys_modes_reach_the_window() {
         let mut translator = translator(Start::New);
@@ -4076,8 +4010,6 @@ mod tests {
         );
     }
 
-    /// Authentication failures while opening a session emit `authentication_failed`, and a failed
-    /// model switch leaves the previous model intact.
     #[test]
     fn open_auth_failure_and_failed_set_model_preserve_state() {
         let mut first = translator(Start::New);
@@ -4225,8 +4157,6 @@ mod tests {
         );
     }
 
-    /// What an update adds to a call shown reaches the window as the call, changed, its end
-    /// included.
     #[test]
     fn a_calls_update_shows_what_it_adds() {
         let mut translator = opened_with(Agent::Opencode);
@@ -4246,7 +4176,6 @@ mod tests {
         assert_eq!((call.status, call.output), (AcpStatus::Completed, None));
     }
 
-    /// The agent's "always" is offered as its own choice, and chosen by its id.
     #[test]
     fn the_agents_always_is_a_choice_of_its_own() {
         let mut translator = opened();

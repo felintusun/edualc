@@ -287,7 +287,6 @@ mod tests {
         assert!(hunks(&old, &old).is_empty());
     }
 
-    /// A diff a window gets fits one message: a long file's lines, and a long line, are cut.
     #[test]
     fn a_diff_is_cut_to_fit_a_message() {
         let old = "same\n".repeat(10);

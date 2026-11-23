@@ -547,7 +547,6 @@ mod tests {
         );
     }
 
-    /// A text's paragraphs are apart as Markdown has them, with no break Slint alone needs.
     #[test]
     fn paragraphs_are_apart_by_a_blank_line_alone() {
         let blocks = blocks("one\n\ntwo\n\n- x\n\nthree");
@@ -561,7 +560,6 @@ mod tests {
         assert!(!text.contains("\\\n"), "no hard break in {text:?}");
     }
 
-    /// Slint draws a paragraph after the first with a hard break, to put space between them.
     #[test]
     fn slint_is_given_the_hard_breaks_it_needs() {
         assert_eq!(
@@ -617,8 +615,6 @@ mod tests {
             .collect()
     }
 
-    /// One text, so a selection spans it; as Slint draws it (`spaced_for_slint`), an empty line
-    /// before each paragraph after the first, none before a list.
     #[test]
     fn a_run_of_paragraphs_and_lists_is_one_text() {
         let src =
@@ -642,8 +638,6 @@ mod tests {
         assert_eq!(drawn_lines(alone), ["Alone."]);
     }
 
-    /// Task list items show boxes, checked or not, not the brackets they are written with; a
-    /// bracket elsewhere stays as written.
     #[test]
     fn task_list_items_show_boxes() {
         let src = "Steps:\n\n- [ ] a task\n- [x] a done task\n- [X] also done\n- a [ ] in the text";
@@ -671,8 +665,6 @@ mod tests {
         assert_eq!(plan.get(range.clone()), Some("- [x] Add the handle"));
     }
 
-    /// A box stands in for the bullet in a list of tasks; where anything else is in the list,
-    /// the items keep their bullets and it stays a list.
     #[test]
     fn a_list_of_tasks_has_boxes_instead_of_bullets() {
         let drawn = |src: &str| {
@@ -692,7 +684,6 @@ mod tests {
         );
     }
 
-    /// In a run, text Slint refuses would turn all of it into plain text, its joins included.
     #[test]
     fn text_slint_refuses_stands_alone() {
         for refused in ["A stray <T> here.", "==="] {
@@ -709,7 +700,6 @@ mod tests {
         }
     }
 
-    /// A plan's parts are commented on one by one.
     #[test]
     fn plan_sections_stay_apart() {
         let src = "First.\n\nSecond.";
@@ -749,7 +739,6 @@ mod tests {
         assert!(table.source.ends_with("long/path) |"), "{}", table.source);
     }
 
-    /// GFM: a `\|` in a cell is a pipe, in inline code too.
     #[test]
     fn an_escaped_pipe_in_a_cell_is_a_pipe() {
         let table = only_table("| Shell |\n|---|\n| `ls \\| wc -l`, a \\| b |\n");
@@ -760,7 +749,6 @@ mod tests {
         );
     }
 
-    /// Every cell is an element of the window.
     #[test]
     fn tables_are_cut_to_rows_and_columns_and_say_so() {
         let header = "| h ".repeat(TABLE_COLUMNS + 6) + "|\n";
@@ -781,7 +769,6 @@ mod tests {
         );
     }
 
-    /// A very wide cell is wrapped in the window, so it is kept whole.
     #[test]
     fn long_cells_are_kept_whole() {
         let long = "word ".repeat(2_000);

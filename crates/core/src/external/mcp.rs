@@ -57,7 +57,6 @@ pub enum CalledTool {
 mod tests {
     use super::*;
 
-    /// A call, and a notification, which has no id.
     #[test]
     fn calls_read() {
         let call: Incoming = serde_json::from_str(

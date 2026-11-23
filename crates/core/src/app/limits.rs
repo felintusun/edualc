@@ -151,8 +151,6 @@ mod tests {
             .expect("a usage report")
     }
 
-    /// The turn waits for the reached limit that resets last; limits not reached don't hold
-    /// it up, and with none reached, or none saying when, there is nothing to wait for.
     #[test]
     fn a_turn_waits_for_the_last_reached_limit_to_reset() {
         let both = report(&json!([

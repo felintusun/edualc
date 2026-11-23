@@ -264,14 +264,11 @@ mod tests {
         Args::try_parse_from(std::iter::once("edualc").chain(line.split_whitespace()))
     }
 
-    /// The command line as clap checks it in debug builds: no clashing names or broken values.
     #[test]
     fn the_command_line_holds_together() {
         Args::command().debug_assert();
     }
 
-    /// Help and the version are asked for as anywhere, wherever they stand: shown, and nothing
-    /// else done.
     #[test]
     fn help_and_version_are_asked_for() {
         for line in ["--help", "-h", "--model haiku --help"] {
@@ -311,8 +308,6 @@ mod tests {
         assert_eq!(joined.mode, Some(app::PermissionMode::AcceptEdits));
     }
 
-    /// A folder that can't be worked in is said as the folder list says it; a lone word that
-    /// names none may be a prompt, given first as `claude` takes it, and is told where it goes.
     #[test]
     fn a_wrong_folder_is_said_before_anything_starts() {
         let said = |argument: &str| {
@@ -340,7 +335,6 @@ mod tests {
         );
     }
 
-    /// Help lists every permission mode by the name Claude Code takes, with what it lets through.
     #[test]
     fn help_lists_the_permission_modes() {
         let help = Args::command().render_long_help().to_string();

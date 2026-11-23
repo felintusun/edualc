@@ -772,8 +772,6 @@ mod tests {
         );
     }
 
-    /// The review's finding: a new session the daemon runs, with no transcript yet, was listed
-    /// twice, as "Running session" and by the name in Claude Code's record of it.
     #[test]
     fn a_session_the_daemon_runs_is_listed_once_by_its_name() {
         let projects = [project("/code/beep", 100, Vec::new())];
@@ -832,8 +830,6 @@ mod tests {
         assert_eq!(names, ["project (ux)", "project (work)", "edualc"]);
     }
 
-    /// The review's finding: two sessions' scratch folders were named by their whole paths from
-    /// the session ids down, cut off on the card.
     #[test]
     fn a_parent_named_by_a_uuid_shows_its_first_part() {
         let names = distinct_names(&[

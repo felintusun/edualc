@@ -2408,10 +2408,6 @@ mod tests {
         }
     }
 
-    /// A folder trusted nowhere: the daemon is asked whether the terminal trusted it, and the
-    /// session waits; told no, the window shows what the folder would run; trusted, the folder
-    /// is kept as trusted (the change alone, so another window's changes stay), and only then
-    /// does the session start.
     #[test]
     fn a_folder_is_trusted_before_its_session_starts() {
         let mut driven = Driven::new();
@@ -2469,9 +2465,6 @@ mod tests {
         assert!(driven.commands().contains(&present::Command::FocusComposer));
     }
 
-    /// A folder trusted here before that trusted it for Claude Code too: asked once whether to
-    /// trust it for Claude Code, nothing recorded without that; "not for this folder" is kept,
-    /// and then nothing is asked.
     #[test]
     fn a_folder_trusted_before_is_asked_about_once_for_claude_code() {
         let mut driven = Driven::new();
@@ -2554,8 +2547,6 @@ mod tests {
         (driven, generation)
     }
 
-    /// A turn whose result the window can't read ends as failed, saying so, instead of the
-    /// session showing as working for ever.
     #[test]
     fn a_turn_whose_result_cant_be_read_ends() {
         let (mut driven, generation) = started();
@@ -2582,9 +2573,6 @@ mod tests {
         );
     }
 
-    /// An ACP agent's request is answered with the agent's own choices: Allow with its
-    /// "allow once", the always button with its "allow always", and Deny with its "reject"
-    /// alone: the agent goes on from it as it would without edualc.
     #[test]
     fn an_agents_request_is_answered_with_its_choices() {
         let (mut driven, generation) = started();
@@ -2658,8 +2646,6 @@ mod tests {
         assert!(!driven.app.status.stop_asked);
     }
 
-    /// A request Claude Code says to offer no rule for is asked without one, as its own
-    /// dialog does; the same request without the flag offers it.
     #[test]
     fn no_rule_is_offered_where_claude_code_offers_none() {
         let offered = |suppress: bool| {
@@ -2691,8 +2677,6 @@ mod tests {
         assert_eq!(offered(true), 0);
     }
 
-    /// Another session's message, turned down during a turn, is turned down alone: the turn
-    /// isn't stopped, as a bare Deny of a tool call stops it.
     #[test]
     fn a_message_turned_down_stops_nothing() {
         let (mut driven, generation) = started();
@@ -2737,8 +2721,6 @@ mod tests {
         assert!(driven.session().busy, "the turn goes on");
     }
 
-    /// A message Claude Code holds is said in the conversation, with why, and so is its end:
-    /// the session can't let it in, so the user would otherwise never know it came.
     #[test]
     fn a_held_message_is_told() {
         let (mut driven, generation) = started();
@@ -2774,16 +2756,12 @@ mod tests {
         );
     }
 
-    /// A pasted API key is left out of what an action's `Debug` writes.
     #[test]
     fn a_pasted_key_isnt_written_out() {
         let action = Action::StoreApiKey(PastedKey::new("sk-ant-abc_DEF"));
         assert!(!format!("{action:?}").contains("abc_DEF"));
     }
 
-    /// A turn counts as under way whoever started it: one this window prompted, or one a
-    /// message from another session started, which the window sees only as the session
-    /// working. Leaving such a session lets it run on rather than ending it.
     #[test]
     fn a_turn_a_message_started_counts_as_under_way() {
         let mut status = Status::default();
@@ -2798,9 +2776,6 @@ mod tests {
         assert!(status.in_turn(), "a turn the window prompted");
     }
 
-    /// Claude Code's plan limits show for a Claude Code session on the user's own sign-in only,
-    /// and agy's for an agy session: the API key and opencode have none, and one program's
-    /// limits would mislead in another's session.
     #[test]
     fn each_session_shows_its_own_plans_limits() {
         let used = LimitUse {
@@ -2830,9 +2805,6 @@ mod tests {
         assert!(status.limits_mut().is_none());
     }
 
-    /// A model picked for one program is started with that program's sessions only: a new
-    /// session running the other program gets its own default, and one running the first
-    /// again gets the pick back.
     #[test]
     fn a_model_is_kept_for_the_program_it_was_picked_for() {
         let mut status = Status {
@@ -2850,9 +2822,6 @@ mod tests {
         assert_eq!(status.chosen_model(), Some("sonnet"));
     }
 
-    /// A mode picked in an agy session is asked for by agy's id, one in a Claude Code session
-    /// as Claude Code's mode. A session's modes take only a mode of their own kind, and a
-    /// mode agy reports as it changes is read as agy's.
     #[test]
     fn a_mode_is_asked_for_in_its_programs_terms() {
         let initialized: wire::Initialized = serde_json::from_value(serde_json::json!({
@@ -2922,9 +2891,6 @@ mod tests {
         ));
     }
 
-    /// Up steps back from the newest prompt to the oldest and stops there; Down steps forward
-    /// and, past the newest, gives back what was being written. With no prompts, Up does
-    /// nothing; while writing, Down does nothing.
     #[test]
     fn up_and_down_step_through_the_prompts() {
         let mut recall = Recall::Writing;
@@ -2957,7 +2923,6 @@ mod tests {
         assert_eq!(recall, Recall::Writing);
     }
 
-    /// Being signed out brings up how to sign in, as does `/login`.
     #[test]
     fn a_refused_sign_in_asks_the_user() {
         let refused = SignIn::Refused {
@@ -2972,9 +2937,6 @@ mod tests {
         assert!(!SignIn::Unknown.waits_for_user());
     }
 
-    /// A prompt sent while the folder's trust is read (the command line's first prompt is
-    /// always sent then) goes once the terminal is found to trust it; once the user is asked,
-    /// it waits for them; the answer to an older check changes nothing.
     #[test]
     fn a_prompt_sent_while_trust_is_read_goes_once_trusted() {
         let first = ActId::default();
@@ -3024,8 +2986,6 @@ mod tests {
         );
     }
 
-    /// A shell command starts with `!`, or the `！` a Japanese or Chinese input method types; a
-    /// Markdown image doesn't run. `／` opens commands as `/` does.
     #[test]
     fn a_draft_is_read_by_how_it_starts() {
         let shell = |draft: &str| shell_command(&normalized(draft)).map(str::to_owned);
@@ -3041,8 +3001,6 @@ mod tests {
         ));
     }
 
-    /// Silence is told only while Claude Code works on an answer and nothing waits for the user,
-    /// after half a minute, in whole seconds; a tool, compacting or a retry say what they do.
     #[test]
     fn silence_is_told_while_an_answer_is_awaited() {
         let half_a_minute_on = Duration::from_millis(31_400);
@@ -3080,8 +3038,6 @@ mod tests {
         );
     }
 
-    /// A retry says which it is, of how many, and why, in words; a failed connection has no
-    /// status to give.
     #[test]
     fn a_retry_says_why() {
         let retry = |status, cause| Retry {
@@ -3104,8 +3060,6 @@ mod tests {
         );
     }
 
-    /// A command's hint shows while the draft is the command and a space, and goes once anything
-    /// follows; a command that takes nothing, or none known, hints nothing.
     #[test]
     fn a_command_hints_what_it_takes_until_something_follows() {
         let commands: Vec<wire::CommandInfo> = serde_json::from_value(serde_json::json!([
@@ -3122,8 +3076,6 @@ mod tests {
         assert_eq!(argument_hint("compact ", &commands), "");
     }
 
-    /// A session is named by its prompt's first line with text, trimmed; a slash command, in
-    /// either width, names nothing.
     #[test]
     fn the_first_prompt_names_a_session() {
         assert_eq!(
@@ -3139,8 +3091,6 @@ mod tests {
         assert_eq!(provisional_title(" \n "), None);
     }
 
-    /// Notes go with any answer; a preview only with a single option picked, the way
-    /// AskUserQuestion takes them; nothing is added where nothing was written or previewed.
     #[test]
     fn answers_carry_notes_and_the_picked_preview() {
         let asked: wire::Questions = serde_json::from_value(serde_json::json!({
@@ -3199,8 +3149,6 @@ mod tests {
         assert_eq!(given.annotations.get("Plain?"), None);
     }
 
-    /// A change while a read is under way makes one more read once it is done, and the next
-    /// change after that is read too: nothing stays stuck waiting for a read that never comes.
     #[test]
     fn changes_during_a_read_are_read_after_it() {
         let mut refresh = Refresh::default();
@@ -3373,8 +3321,6 @@ mod tests {
         }
     }
 
-    /// Opening without a folder stays on the start page and asks for an overview without trusting
-    /// or launching any folder yet.
     #[cfg(not(target_arch = "wasm32"))]
     #[test]
     fn starts_on_start_page_when_no_folder_is_given() {
@@ -3404,8 +3350,6 @@ mod tests {
         )));
     }
 
-    /// Opening a project shows its sessions without checking folder trust until you actually start
-    /// a session there.
     #[cfg(not(target_arch = "wasm32"))]
     #[test]
     fn entering_a_project_loads_its_sessions_before_checking_trust() {
@@ -3460,8 +3404,6 @@ mod tests {
         )));
     }
 
-    /// The line coming back while a project's page is shown leaves the page as it is: no
-    /// session is begun in its folder.
     #[cfg(not(target_arch = "wasm32"))]
     #[test]
     fn a_line_reached_again_keeps_a_projects_page() {
@@ -3490,7 +3432,6 @@ mod tests {
         );
     }
 
-    /// Stepping back leaves a session for its project page and leaves the project page for start.
     #[cfg(not(target_arch = "wasm32"))]
     #[test]
     fn back_steps_from_session_to_project_to_start() {
@@ -3517,8 +3458,6 @@ mod tests {
         assert!(!test.latest_nav().can_back);
     }
 
-    /// Creating a project reports validation errors inline and, once created, trusts the folder
-    /// and starts a session there immediately.
     #[cfg(not(target_arch = "wasm32"))]
     #[test]
     fn creating_a_project_trusts_it_and_starts_a_session() {
@@ -3617,7 +3556,6 @@ mod tests {
         );
     }
 
-    /// Clicking "N need you" jumps straight into the waiting session across projects.
     #[cfg(not(target_arch = "wasm32"))]
     #[test]
     fn next_waiting_jumps_to_the_waiting_session() {
@@ -3663,9 +3601,6 @@ mod tests {
         );
     }
 
-    /// The review's finding: a new session the daemon ran, opened from Claude Code's record of
-    /// it, was followed as another program's and said "Couldn't read the session". By its id
-    /// it is attached, and a transcript not written yet is no error; one that can't be read is.
     #[cfg(not(target_arch = "wasm32"))]
     #[test]
     fn a_new_session_the_daemon_runs_is_attached_without_an_error() {
@@ -3707,8 +3642,6 @@ mod tests {
         assert_eq!(test.app.chat.entries.len(), 1);
     }
 
-    /// The Changes view reads the session's changes, then the first file's diff; a comment on
-    /// a line is kept, and sending the comments closes the view, which marks it looked at.
     #[cfg(not(target_arch = "wasm32"))]
     #[test]
     fn the_changes_view_reads_shows_and_sends_comments() {
@@ -3789,8 +3722,6 @@ mod tests {
         )));
     }
 
-    /// Opening a session when an API key choice is required switches into the session view so the
-    /// sign-in bar is shown immediately rather than staying silently on the project page.
     #[cfg(not(target_arch = "wasm32"))]
     #[test]
     fn open_session_with_api_key_choice_enters_session_view() {
@@ -3819,8 +3750,6 @@ mod tests {
         assert_eq!(test.latest_nav().view, PlaceView::Session);
     }
 
-    /// Leaving a hosted session optimistically marks `attached = false` so reopening it right away
-    /// re-attaches instead of falling into a stale watch.
     #[cfg(not(target_arch = "wasm32"))]
     #[test]
     fn let_go_clears_attached_so_reopening_hosted_session_attaches() {
@@ -3879,8 +3808,6 @@ mod tests {
         )));
     }
 
-    /// Entering a project resets explicit API-key / alternate backend choices back to the default,
-    /// and `NewSessionInProject` opens a fresh session in that project cleanly.
     #[cfg(not(target_arch = "wasm32"))]
     #[test]
     fn entering_project_resets_backend_and_new_session_in_project_starts_cleanly() {
@@ -3909,8 +3836,6 @@ mod tests {
         )));
     }
 
-    /// Watching a live session keeps its actual backend and preserves Changes line comments if send
-    /// is triggered while read-only watching.
     #[cfg(not(target_arch = "wasm32"))]
     #[test]
     fn watch_live_preserves_backend_and_changes_keeps_comments_when_watching() {
@@ -3983,8 +3908,6 @@ mod tests {
         assert_eq!(test.app.line_comments.len(), 1);
     }
 
-    /// Sending a prompt while a permission or question prompt is waiting doesn't dispatch or clear
-    /// the composer draft.
     #[cfg(not(target_arch = "wasm32"))]
     #[test]
     fn send_keeps_draft_while_ask_is_pending() {
@@ -4016,8 +3939,6 @@ mod tests {
         assert!(!test.app.chat.entries.is_empty());
     }
 
-    /// Opening Usage from the start page queries every available provider and updates its tab on
-    /// answer.
     #[cfg(not(target_arch = "wasm32"))]
     #[test]
     fn provider_usage_read_populates_tabs_from_any_page() {
@@ -4069,8 +3990,6 @@ mod tests {
         assert!(test.app.usage.agy.error.is_none());
     }
 
-    /// Backing from a session into its project keeps `Earlier` intact instead of blanking to
-    /// `Running` alone, and entering another project seeds `Earlier` from overview.
     #[cfg(not(target_arch = "wasm32"))]
     #[test]
     fn back_and_enter_project_keep_earlier_sessions_visible() {
@@ -4115,8 +4034,6 @@ mod tests {
         assert_eq!(test.app.sessions.len(), 2);
     }
 
-    /// Watching an opencode session allows `ContinueHere` (fork), while agy refuses it, and
-    /// `System::Commands` updates the composer's slash commands.
     #[cfg(not(target_arch = "wasm32"))]
     #[test]
     fn opencode_can_fork_watched_session_and_takes_system_commands() {

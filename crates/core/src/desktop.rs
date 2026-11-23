@@ -371,7 +371,6 @@ mod tests {
         assert!(chain.len() > 1, "the test runner has a parent");
     }
 
-    /// A program that ends in time gives what it printed, or why it failed.
     #[test]
     fn a_program_run_gives_what_it_printed() {
         let said = run_within(Program::Git, "echo".as_ref(), &["hello"], RUN_LIMIT);
@@ -385,8 +384,6 @@ mod tests {
         assert!(matches!(failed, Err(Error::Failed { stderr, .. }) if stderr == "no"));
     }
 
-    /// One that hangs is killed at its limit, with what it started; one that ends, leaving a
-    /// process holding its output open, gives what it printed by then.
     #[test]
     fn a_program_that_hangs_is_given_up() {
         let limit = Duration::from_millis(300);

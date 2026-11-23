@@ -792,9 +792,6 @@ mod tests {
         std::fs::remove_dir_all(&dir).expect("cleaned up");
     }
 
-    /// An earlier version's `settings.json`, with the sandbox's keys, is read as it was, and
-    /// the first change, of the state alone, moves all of it into `config.toml` and
-    /// `state.json`.
     #[test]
     fn an_earlier_settings_json_moves_into_both_files() {
         let (dir, paths) = scratch("earlier-settings");
@@ -837,8 +834,6 @@ mod tests {
         std::fs::remove_dir_all(&dir).expect("cleaned up");
     }
 
-    /// A change of what `config.toml` holds keeps its comments, those after a value too, and a
-    /// change of the state leaves `config.toml` as it was.
     #[test]
     fn config_toml_keeps_its_comments() {
         let (dir, paths) = scratch("toml-comments");
@@ -878,7 +873,6 @@ new_projects_in = \"/work\"
         std::fs::remove_dir_all(&dir).expect("cleaned up");
     }
 
-    /// Each change of `config.toml` writes the key its field reads, so it reads back the same.
     #[test]
     fn every_config_key_reads_back() {
         let (dir, paths) = scratch("config-keys");
@@ -902,7 +896,6 @@ new_projects_in = \"/work\"
         std::fs::remove_dir_all(&dir).expect("cleaned up");
     }
 
-    /// A file that doesn't parse stays as it is; a missing one is written.
     #[test]
     fn a_file_that_doesnt_parse_isnt_written_over() {
         let (dir, paths) = scratch("bad-toml");
@@ -928,8 +921,6 @@ new_projects_in = \"/work\"
         std::fs::remove_dir_all(&dir).expect("cleaned up");
     }
 
-    /// Changes from two windows both stick, nothing is left beside the files, and only the
-    /// user can read them.
     #[test]
     fn changes_from_two_windows_are_both_kept() {
         let (dir, paths) = scratch("two-windows");
@@ -971,8 +962,6 @@ new_projects_in = \"/work\"
         assert_eq!(settings.project_mark(&alpha), Some(ProjectMark::Pinned));
     }
 
-    /// Opening folders keeps them newest first; removing one takes it off the list until it
-    /// is opened again.
     #[test]
     fn a_removed_folder_comes_back_when_opened() {
         let mut settings = Settings::default();

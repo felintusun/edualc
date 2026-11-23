@@ -190,8 +190,6 @@ async fn a_line_of_another_protocol_is_refused_before_it_opens() {
     }
 }
 
-/// A window paired with another certificate is told so, not let through, and isn't told the line
-/// was merely lost: its TLS trusts the one certificate it was paired with alone.
 #[tokio::test]
 async fn another_certificate_than_the_one_paired_with_is_refused() {
     use edualc_core::ipc::pairing::{Pairing, Server};
