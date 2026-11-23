@@ -9,14 +9,14 @@ use std::path::Path;
 use serde::de::DeserializeOwned;
 
 use super::Agent;
-use super::translate::as_claude_tool;
+use super::translate::named;
 use crate::external::acp::ToolCall;
 use crate::external::agy::{
     self, AgyTask, BoardPost, MemberRole, Step, StepKind, StepStatus, Subagent, SubagentState,
     Swarm,
 };
 use crate::external::wire::{
-    ApiMessage, BackgroundTask, ContentBlock, MessageId, SessionId, TaskKind, ToolUseId,
+    ApiMessage, BackgroundTask, ContentBlock, MessageId, SessionId, TaskKind, ToolName, ToolUseId,
     TranscriptLine, Usage, UserContent, UserMessage,
 };
 
@@ -154,7 +154,8 @@ pub(crate) fn step_lines(lines: &[String]) -> Vec<TranscriptLine> {
 }
 
 /// A line of a conversation's steps as a transcript line: a message to the model as a prompt,
-/// the model's answer with its tool calls by Claude Code's names, and any error step.
+/// the model's answer with its tool calls by agy's names (those edualc acts on by the window's),
+/// and any error step.
 pub(crate) fn step_line(line: &str) -> Option<TranscriptLine> {
     let step: Step = serde_json::from_str(line)
         .inspect_err(|error| tracing::debug!(%error, "an agy step edualc can't read"))
@@ -194,15 +195,15 @@ pub(crate) fn step_line(line: &str) -> Option<TranscriptLine> {
             }
             content.extend(step.tool_calls.into_iter().zip(0_u32..).map(|(call, n)| {
                 let id = format!("agy-{}-{n}", step.step_index);
-                let (name, input) = as_claude_tool(
-                    Agent::Agy,
-                    &ToolCall {
-                        tool_call_id: id.clone(),
-                        name: Some(call.name),
-                        raw_input: Some(call.args),
-                        ..ToolCall::default()
-                    },
-                );
+                let called = ToolCall {
+                    tool_call_id: id.clone(),
+                    name: Some(call.name.clone()),
+                    raw_input: Some(call.args.clone()),
+                    ..ToolCall::default()
+                };
+                // Read as a transcript, a call keeps agy's name and arguments.
+                let (name, input) =
+                    named(Agent::Agy, &called).unwrap_or((ToolName::Other(call.name), call.args));
                 ContentBlock::ToolUse {
                     id: ToolUseId::from(id),
                     name,
@@ -376,8 +377,8 @@ mod tests {
         );
     }
 
-    /// A member's steps read as its prompt and its answers, the tools by Claude Code's names;
-    /// a tool's result gives no line.
+    /// A member's steps read as its prompt and its answers, the tools by agy's names; a tool's
+    /// result gives no line.
     #[test]
     fn steps_read_as_a_transcript() {
         let told = step_line(
@@ -407,8 +408,8 @@ mod tests {
         assert_eq!(
             called,
             Some((
-                ToolName::Read,
-                serde_json::json!({ "file_path": "/w/notes.txt" })
+                ToolName::Other("read_file".to_owned()),
+                serde_json::json!({ "Path": "/w/notes.txt" })
             ))
         );
         assert!(

@@ -169,7 +169,7 @@ In `crates/core/src`:
 | `ipc/ws.rs`, `line.rs`, `ipc/servers.rs` | the Android app's connection over the network: the WebSocket's end, carrying it on a thread of its own and reaching edualcd again when it's lost, and the edualcds the app is paired with |
 | `link.rs` | the window's connection, whatever carries it: the channel its messages go on, the daemon's greeting, and the `Inbox` that turns the daemon's messages into `Event`s |
 | `claude.rs` | a session's process as the window sees it: what it is started with, what its output means, and the handle that writes to it |
-| `chat.rs`, `tools.rs`, `markdown.rs`, `plan.rs`, `grouping.rs`, `overview.rs`, `sidebar.rs` | the conversation as entries; how tool calls, Markdown and plan comments are shown; runs of tool calls folded into one line; project cards for the start page and session lists |
+| `chat.rs`, `call.rs`, `tools.rs`, `markdown.rs`, `plan.rs`, `grouping.rs`, `overview.rs`, `sidebar.rs` | the conversation as entries; a tool call in its program's terms (Claude Code's by name and input, an ACP agent's as it gives it); how tool calls, Markdown and plan comments are shown; runs of tool calls folded into one line; project cards for the start page and session lists |
 | `sessions.rs`, `trust.rs`, `settings.rs`, `folder.rs`, `process.rs`, `desktop.rs` | Claude Code's files, which folders are trusted, the settings, checking a folder you name, what `/proc` says about a process, notifications, other programs' windows and what a folder opens in. The daemon does the reading and writing. |
 | `decode.rs`, `decode/` | making images safe to show and send, and the locked-down process that decodes them |
 | `external/` | formats other programs write, as types: Claude Code's stream-json, transcripts and files, the inputs of its tools, the Agent Client Protocol, what agy keeps of its conversations, MCP as edualc's messaging tool reads it, and niri's IPC. These accept keys they don't know, since each release adds some. |
@@ -184,7 +184,7 @@ In `crates/host/src`:
 | `files.rs` | what the daemon reads and watches for windows (with inotify), and saving the settings; an agy session's or subagent's steps and a swarm's board, translated into transcript lines as they are read |
 | `snapshots.rs` | the snapshots of a session's folder before and after each turn, the contents they name kept once each by hash (`~/.local/state/edualc/changes/`), and the keeper task that alone writes them |
 | `net/` | the daemon's network side: its certificate and token (`state`), the TLS listener, and the route a connection comes in by (`line`), which lets it in by its first frame |
-| `acp.rs`, `acp/` | a session of an agent spoken to over the Agent Client Protocol (agy, opencode): the adapter (`edualcd --agy-adapter`) that speaks ACP to the agent and Claude Code's stream-json to the daemon; its inbox; the messages it sends to other sessions; agy's records of its subagents and swarm (`brain.rs`) |
+| `acp.rs`, `acp/` | a session of an agent spoken to over the Agent Client Protocol (agy, opencode): the adapter (`edualcd --agy-adapter`) that speaks ACP to the agent and Claude Code's stream-json to the daemon, with the agent's tool calls as it gives them; its inbox; the messages it sends to other sessions; agy's records of its subagents and swarm (`brain.rs`) |
 | `demo/` | `edualcd --demo`: the demo's daemon, which answers a connection as the daemon does |
 
 In `crates/server/src`:

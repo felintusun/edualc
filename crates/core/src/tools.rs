@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 use serde::de::DeserializeOwned;
 use serde_json::Value;
 
+use crate::call::AcpCall;
 use crate::external::tool_input::{
     AgentInput, BashInput, EditInput, GlobInput, GrepInput, IncomingMessageInput, MultiEditInput,
     NotebookEditInput, ReadInput, SendMessageInput, SkillInput, TodoStatus, TodoWriteInput,
@@ -270,12 +271,7 @@ pub fn describe(name: &ToolName, input: &Value, cwd: &Path, depth: Depth) -> Too
             }
         }
     }
-    if view.diff.len() > MAX_DIFF_LINES {
-        let cut = view.diff.len() - MAX_DIFF_LINES;
-        view.diff.truncate(MAX_DIFF_LINES);
-        view.diff
-            .push((DiffKind::Hunk, format!("… {cut} more lines")));
-    }
+    cut_long_diff(&mut view);
     view.summary_reads_as = match name {
         ToolName::WebSearch
         | ToolName::Task
@@ -305,6 +301,48 @@ pub fn describe(name: &ToolName, input: &Value, cwd: &Path, depth: Depth) -> Too
         | ToolName::Other(_) => Writing::Code,
     };
     view
+}
+
+/// An ACP agent's call, as clients of ACP show one: its title, the files it works on that the
+/// title doesn't name (a command's working folder, the session's, goes without saying), and,
+/// opened, the changes it makes or else its arguments.
+pub fn describe_acp(call: &AcpCall, cwd: &Path, depth: Depth) -> ToolView {
+    let mut view = ToolView {
+        title: call.title.clone(),
+        ..ToolView::default()
+    };
+    view.summary = call
+        .locations
+        .iter()
+        .filter(|place| place.as_path() != cwd)
+        .map(|place| short_path(place, cwd))
+        .filter(|place| !call.title.contains(place.as_str()))
+        .collect::<Vec<_>>()
+        .join(", ");
+    if depth == Depth::Full {
+        for change in &call.diffs {
+            match &change.old_text {
+                Some(old_text) => view.diff.extend(diff(old_text, &change.new_text)),
+                None => view.detail.push_str(&change.new_text),
+            }
+        }
+        if let Some(input) = call.input.as_ref().filter(|_| call.diffs.is_empty())
+            && !input.as_object().is_some_and(serde_json::Map::is_empty)
+        {
+            view.detail = pretty(input);
+        }
+    }
+    cut_long_diff(&mut view);
+    view
+}
+
+fn cut_long_diff(view: &mut ToolView) {
+    if view.diff.len() > MAX_DIFF_LINES {
+        let cut = view.diff.len() - MAX_DIFF_LINES;
+        view.diff.truncate(MAX_DIFF_LINES);
+        view.diff
+            .push((DiffKind::Hunk, format!("… {cut} more lines")));
+    }
 }
 
 /// The file a call reads, writes or edits.
@@ -712,5 +750,57 @@ mod tests {
     fn errors_lose_their_wrapper() {
         let content = UserContent::Text("<tool_use_error>File not found</tool_use_error>".into());
         assert_eq!(result_text(Some(&content)), "File not found");
+    }
+
+    /// opencode's calls, as opencode 2026-11 gives them: titled by opencode, with the file the
+    /// title doesn't name, a command without its folder, an edit with the change it makes.
+    #[test]
+    fn an_acp_call_reads_as_the_agent_gives_it() {
+        use crate::call::{AcpCall, AcpKind, Diff};
+        let cwd = Path::new("/work");
+        let call = |name: &str, title: &str, kind, location: &str, diffs| AcpCall {
+            name: Some(name.to_owned()),
+            title: title.to_owned(),
+            kind: Some(kind),
+            locations: vec![PathBuf::from(location)],
+            diffs,
+            input: Some(json!({ "path": "notes.txt" })),
+        };
+        let read = describe_acp(
+            &call("read", "read", AcpKind::Read, "/work/notes.txt", Vec::new()),
+            cwd,
+            Depth::Full,
+        );
+        assert_eq!(
+            (read.title.as_str(), read.summary.as_str()),
+            ("read", "notes.txt")
+        );
+        let command = describe_acp(
+            &call(
+                "shell",
+                "wc -l notes.txt",
+                AcpKind::Execute,
+                "/work",
+                Vec::new(),
+            ),
+            cwd,
+            Depth::Headline,
+        );
+        assert_eq!(command.title, "wc -l notes.txt");
+        assert_eq!(command.summary, "");
+        let changed = vec![Diff {
+            path: PathBuf::from("/work/notes.txt"),
+            old_text: Some("one\ntwo\n".to_owned()),
+            new_text: "one\nTWO\n".to_owned(),
+        }];
+        let edit = describe_acp(
+            &call("edit", "edit", AcpKind::Edit, "/work/notes.txt", changed),
+            cwd,
+            Depth::Full,
+        );
+        assert_eq!(edit.summary, "notes.txt");
+        assert!(edit.diff.contains(&(DiffKind::Removed, "two".to_owned())));
+        assert!(edit.diff.contains(&(DiffKind::Added, "TWO".to_owned())));
+        assert_eq!(edit.detail, "", "the change, not the arguments");
     }
 }

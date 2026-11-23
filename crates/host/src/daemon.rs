@@ -1384,17 +1384,29 @@ async fn keep(keeper: &mpsc::Sender<snapshots::Job>, job: snapshots::Job) {
 enum Doing {
     #[default]
     BetweenTurns,
-    /// With the files Claude's editing tools named so far.
+    /// With the files the agent's editing tools named so far.
     Turn { touched: BTreeSet<PathBuf> },
 }
 
 impl Doing {
     /// An agent event the process wrote: the files named, if a turn is under way.
     fn saw(&mut self, event: &agent::Event) {
-        if let Self::Turn { touched } = self
-            && let agent::Event::Assistant { message, .. } = event
-        {
-            touched.extend(snapshots::edited_in(&message.content));
+        let Self::Turn { touched } = self else {
+            return;
+        };
+        match event {
+            agent::Event::Assistant { message, .. } => {
+                touched.extend(snapshots::edited_in(&message.content));
+            }
+            agent::Event::ToolCall { call, .. } => touched.extend(snapshots::edited_by(call)),
+            agent::Event::Stream { .. }
+            | agent::Event::User(_)
+            | agent::Event::System(_)
+            | agent::Event::Result(_)
+            | agent::Event::RateLimits(_)
+            | agent::Event::ControlRequest { .. }
+            | agent::Event::ControlAnswered(_)
+            | agent::Event::RequestCancelled { .. } => {}
         }
     }
 
@@ -1883,11 +1895,16 @@ impl Pending {
                 // No foreground task outlives its turn, and the list names those that run on.
                 self.open_tasks.clear();
             }
-            agent::Event::Assistant { .. } | agent::Event::Stream { .. } if self.turns == 0 => {
+            agent::Event::Assistant { .. }
+            | agent::Event::Stream { .. }
+            | agent::Event::ToolCall { .. }
+                if self.turns == 0 =>
+            {
                 self.own_turn = true;
             }
             agent::Event::Stream { .. }
             | agent::Event::Assistant { .. }
+            | agent::Event::ToolCall { .. }
             | agent::Event::User(_)
             | agent::Event::System(_)
             | agent::Event::RateLimits(_)
@@ -2224,8 +2241,9 @@ mod tests {
         }
     }
 
-    /// A turn starts as the session becomes busy, with the files Claude's editing tools name
-    /// in it, and ends as it becomes idle; nothing is said while it stays either.
+    /// A turn starts as the session becomes busy, with the files the agent's editing tools name
+    /// in it (Claude Code's, and an ACP agent's), and ends as it becomes idle; nothing is said
+    /// while it stays either.
     #[test]
     fn a_session_tells_the_keeper_its_turns() {
         let (changed, _summaries) = mpsc::channel(1);
@@ -2251,11 +2269,27 @@ mod tests {
             r#"{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t1","name":"Edit","input":{"file_path":"/p/a.rs","old_string":"a","new_string":"b"}}]},"parent_tool_use_id":null}"#,
         );
         doing.saw(&edit);
+        // An ACP agent's edit, as opencode gives one.
+        doing.saw(&agent::Event::ToolCall {
+            id: wire::ToolUseId::from("c1".to_owned()),
+            call: crate::call::AcpCall {
+                name: Some("edit".to_owned()),
+                title: "edit".to_owned(),
+                kind: Some(crate::call::AcpKind::Edit),
+                locations: vec![PathBuf::from("/p/b.rs")],
+                diffs: Vec::new(),
+                input: None,
+            },
+            parent_tool_use_id: None,
+        });
         let Some(snapshots::Job::TurnEnded { touched, .. }) = doing.follow(false, &place, &changed)
         else {
             panic!("the turn ends");
         };
-        assert_eq!(touched, BTreeSet::from([PathBuf::from("/p/a.rs")]));
+        assert_eq!(
+            touched,
+            BTreeSet::from([PathBuf::from("/p/a.rs"), PathBuf::from("/p/b.rs")])
+        );
         assert_eq!(doing, Doing::BetweenTurns);
     }
 

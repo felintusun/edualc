@@ -9,6 +9,7 @@ use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use crate::call::AcpKind;
 use crate::external::wire::MediaType;
 
 /// A line from the agent: its answer to a request of ours, a request of its own, or news.
@@ -279,6 +280,22 @@ pub enum ToolKind {
     Fetch,
     #[serde(other)]
     Other,
+}
+
+impl From<ToolKind> for AcpKind {
+    fn from(kind: ToolKind) -> Self {
+        match kind {
+            ToolKind::Read => Self::Read,
+            ToolKind::Edit => Self::Edit,
+            ToolKind::Delete => Self::Delete,
+            ToolKind::Move => Self::Move,
+            ToolKind::Search => Self::Search,
+            ToolKind::Execute => Self::Execute,
+            ToolKind::Think => Self::Think,
+            ToolKind::Fetch => Self::Fetch,
+            ToolKind::Other => Self::Other,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]

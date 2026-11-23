@@ -34,13 +34,10 @@ use crate::agent;
 use crate::external::acp::{
     AgyArguments, AgyQuestion, ClientCall, ClientCapabilities, ClientInfo, ElicitationCapabilities,
     FileCapabilities, FormCapabilities, Incoming, InitializeParams, JsonRpc, ListSessionsParams,
-    ListSessionsResult, OpencodeArguments, Request as AcpRequest, RpcError, SwarmAction, ToolCall,
+    ListSessionsResult, Request as AcpRequest, RpcError, SwarmAction, ToolCall,
 };
 use crate::external::agy;
-use crate::external::tool_input::{
-    AgentInput, BashInput, EditInput, KnownCall, ListSessionsInput, ReadInput, SendMessageInput,
-    WriteInput,
-};
+use crate::external::tool_input::{AgentInput, KnownCall, ListSessionsInput, SendMessageInput};
 use crate::external::wire::{
     BackgroundTask, Question, QuestionOption, Questions, RequestId, SessionId, System,
 };
@@ -168,19 +165,13 @@ impl Agent {
             .map_err(|source| Error::Start(self, source))
     }
 
-    /// A tool call this agent named `name`, as the window knows Claude Code's: its file and
-    /// command tools as Read, Write, Edit and Bash, with their arguments by Claude Code's names.
-    /// None for a name it doesn't know.
+    /// A tool call this agent named `name` that edualc acts on, as the window knows it: a
+    /// message, a list of the sessions, a swarm's new member, a question. None for any other,
+    /// which the window shows as the agent gives it.
     fn tool(self, name: &str, call: &ToolCall) -> Option<KnownCall> {
-        let title = || call.title.clone().unwrap_or_default();
         match self {
             Self::Agy => {
                 let given: AgyArguments = arguments(name, call);
-                let path = given
-                    .path
-                    .or_else(|| first_location(call))
-                    .unwrap_or_else(|| PathBuf::from(title()));
-                let content = given.content.unwrap_or_default();
                 match name {
                     AGY_SEND => Some(KnownCall::SendMessage(SendMessageInput {
                         to: given.to.unwrap_or_default(),
@@ -200,50 +191,11 @@ impl Agent {
                         }))
                     }
                     "ask_question" => Some(KnownCall::Questions(questions(given.questions))),
-                    "run_command" => Some(KnownCall::Bash(BashInput::command(
-                        given.command_line.unwrap_or_else(title),
-                        given.tool_summary,
-                    ))),
-                    "read_file" | "view_file" => Some(KnownCall::Read(ReadInput::whole(path))),
-                    // Appending adds to the file: as an edit that adds the lines, not a Write,
-                    // which would read as the whole file.
-                    "write_file" if given.append == Some(true) => Some(KnownCall::Edit(
-                        EditInput::once(path, String::new(), content),
-                    )),
-                    "write_file" => Some(KnownCall::Write(WriteInput {
-                        file_path: path,
-                        content,
-                    })),
-                    "edit_file" => Some(KnownCall::Edit(EditInput::once(
-                        path,
-                        given.target.unwrap_or_default(),
-                        given.replacement.unwrap_or_default(),
-                    ))),
                     _ => None,
                 }
             }
-            Self::Opencode => {
-                let given: OpencodeArguments = arguments(name, call);
-                // Its paths are relative in the arguments and absolute in the locations.
-                let path = first_location(call).or(given.path).unwrap_or_default();
-                match name {
-                    "shell" => Some(KnownCall::Bash(BashInput::command(
-                        given.command.unwrap_or_default(),
-                        None,
-                    ))),
-                    "read" => Some(KnownCall::Read(ReadInput::whole(path))),
-                    "write" => Some(KnownCall::Write(WriteInput {
-                        file_path: path,
-                        content: given.content.unwrap_or_default(),
-                    })),
-                    "edit" => Some(KnownCall::Edit(EditInput::once(
-                        path,
-                        given.old_string.unwrap_or_default(),
-                        given.new_string.unwrap_or_default(),
-                    ))),
-                    _ => None,
-                }
-            }
+            // Its question, to-do list and subagents are read by the translator's names.
+            Self::Opencode => None,
         }
     }
 
@@ -609,14 +561,6 @@ fn questions(asked: Vec<AgyQuestion>) -> Questions {
         annotations: std::collections::BTreeMap::new(),
         rest: serde_json::Map::new(),
     }
-}
-
-/// The path of a tool call's first location, for a call whose input doesn't name one.
-fn first_location(call: &ToolCall) -> Option<PathBuf> {
-    call.locations
-        .as_ref()
-        .and_then(|locations| locations.first())
-        .map(|location| location.path.clone())
 }
 
 /// Why the plan's quotas couldn't be read.

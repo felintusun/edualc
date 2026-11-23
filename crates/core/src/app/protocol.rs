@@ -151,6 +151,16 @@ impl<F: Frontend> App<F> {
                     self.status.doing = Doing::Running(name.clone());
                 }
             }
+            agent::Event::ToolCall {
+                id,
+                call,
+                parent_tool_use_id,
+            } => {
+                self.chat.acp_call(&id, &call, parent_tool_use_id.as_ref());
+                if parent_tool_use_id.is_none() {
+                    self.status.doing = Doing::Calling(call.title);
+                }
+            }
             agent::Event::User(line) => match line.sender() {
                 Sender::Peer { name, body } => self.chat.peer_message(&line.message, name, body),
                 Sender::Replayed => {}

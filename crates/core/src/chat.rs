@@ -6,6 +6,7 @@ use std::collections::{HashMap, HashSet};
 
 use serde_json::{Map, Value};
 
+use crate::call::{AcpCall, Call};
 use crate::decode::Picture;
 use crate::external::wire::DENIED;
 use crate::external::wire::{
@@ -30,8 +31,7 @@ pub enum ToolState {
 
 #[derive(Debug, Clone)]
 pub struct Tool {
-    pub name: ToolName,
-    pub input: Value,
+    pub call: Call,
     partial_input: String,
     pub output: String,
     /// The images it returned (a file read, a screenshot).
@@ -318,18 +318,10 @@ impl Chat {
         self.push(Body::Error(text.into()), false);
     }
 
-    fn push_tool(
-        &mut self,
-        id: &ToolUseId,
-        name: &ToolName,
-        input: Value,
-        state: ToolState,
-        nested: bool,
-    ) -> usize {
-        let expanded = name.opens_expanded();
+    fn push_tool(&mut self, id: &ToolUseId, call: Call, state: ToolState, nested: bool) -> usize {
+        let expanded = call.opens_expanded();
         let tool = Tool {
-            name: name.clone(),
-            input,
+            call,
             partial_input: String::new(),
             output: String::new(),
             images: Vec::new(),
@@ -342,17 +334,64 @@ impl Chat {
 
     /// The tool call a permission request is about, showing the input asked about: made if the
     /// stream hasn't shown it yet, and taking that input if it differs from what streamed (a
-    /// hook may have changed it), so the card shows what is approved.
+    /// hook may have changed it), so the card shows what is approved. An ACP agent's call
+    /// shows as the agent gave it, which is what it asks about.
     pub fn show_asked(&mut self, id: &ToolUseId, name: &ToolName, input: &Value) {
         match self.tool_mut(id) {
             Some((index, tool)) => {
-                if tool.input != *input {
-                    tool.input = input.clone();
+                if let Call::Named { input: shown, .. } = &mut tool.call
+                    && shown != input
+                {
+                    shown.clone_from(input);
                     self.changes.push(Change::Updated(index));
                 }
             }
             None => {
-                self.push_tool(id, name, input.clone(), ToolState::Running, false);
+                let call = Call::Named {
+                    name: name.clone(),
+                    input: input.clone(),
+                };
+                self.push_tool(id, call, ToolState::Running, false);
+            }
+        }
+    }
+
+    /// The call a tool use is, if the conversation shows it.
+    pub fn call(&self, id: &ToolUseId) -> Option<&Call> {
+        let index = *self.tools.get(id)?;
+        match &self.entries.get(index)?.body {
+            Body::Tool { tool, .. } => Some(&tool.call),
+            Body::User(_)
+            | Body::Assistant(_)
+            | Body::Thinking { .. }
+            | Body::Shell { .. }
+            | Body::Image(_)
+            | Body::Peer { .. }
+            | Body::Info(_)
+            | Body::Error(_)
+            | Body::TurnEnd(_) => None,
+        }
+    }
+
+    /// An ACP agent's tool call, new or changed: it runs until its result comes.
+    pub fn acp_call(&mut self, id: &ToolUseId, call: &AcpCall, parent: Option<&ToolUseId>) {
+        match self.tool_mut(id) {
+            Some((index, tool)) => {
+                let changed = !matches!(&tool.call, Call::Acp(shown) if shown == call);
+                if changed {
+                    tool.call = Call::Acp(call.clone());
+                }
+                let started = tool.state == ToolState::Streaming;
+                if started {
+                    tool.state = ToolState::Running;
+                }
+                if changed || started {
+                    self.changes.push(Change::Updated(index));
+                }
+            }
+            None => {
+                let call = Call::Acp(call.clone());
+                self.push_tool(id, call, ToolState::Running, parent.is_some());
             }
         }
     }
@@ -642,13 +681,13 @@ impl Chat {
                         Some(self.push(Body::Assistant(text.clone()), nested))
                     }
                     ContentBlock::ToolUse { id, name, .. }
-                    | ContentBlock::ServerToolUse { id, name, .. } => Some(self.push_tool(
-                        id,
-                        name,
-                        Value::Object(Map::new()),
-                        ToolState::Streaming,
-                        nested,
-                    )),
+                    | ContentBlock::ServerToolUse { id, name, .. } => {
+                        let call = Call::Named {
+                            name: name.clone(),
+                            input: Value::Object(Map::new()),
+                        };
+                        Some(self.push_tool(id, call, ToolState::Streaming, nested))
+                    }
                     // Thinking gets an entry once it has text: often it arrives redacted.
                     ContentBlock::Thinking { .. }
                     | ContentBlock::ToolResult { .. }
@@ -703,7 +742,11 @@ impl Chat {
                 }) = self.entries.get_mut(entry)
                 {
                     match serde_json::from_str(&tool.partial_input) {
-                        Ok(input) => tool.input = input,
+                        Ok(streamed) => {
+                            if let Call::Named { input, .. } = &mut tool.call {
+                                *input = streamed;
+                            }
+                        }
                         Err(error) => {
                             tracing::debug!(%error, "a streamed tool input that doesn't parse");
                         }
@@ -743,7 +786,9 @@ impl Chat {
                 | ContentBlock::ServerToolUse { id, name, input } => {
                     match self.tool_mut(id) {
                         Some((index, tool)) => {
-                            tool.input = input.clone();
+                            if let Call::Named { input: shown, .. } = &mut tool.call {
+                                shown.clone_from(input);
+                            }
                             if tool.state == ToolState::Streaming {
                                 tool.state = ToolState::Running;
                             }
@@ -755,7 +800,11 @@ impl Chat {
                                 Origin::Transcript => ToolState::Cancelled,
                                 Origin::Live => ToolState::Running,
                             };
-                            self.push_tool(id, name, input.clone(), state, nested);
+                            let call = Call::Named {
+                                name: name.clone(),
+                                input: input.clone(),
+                            };
+                            self.push_tool(id, call, state, nested);
                         }
                     }
                 }
@@ -1118,7 +1167,11 @@ mod tests {
             &mut chat,
             json!({ "type": "content_block_stop", "index": 0 }),
         );
-        assert_eq!(first_tool(&chat).input, input);
+        let streamed = Call::Named {
+            name: ToolName::Bash,
+            input,
+        };
+        assert_eq!(first_tool(&chat).call, streamed);
         assert_eq!(first_tool(&chat).state, ToolState::Running);
 
         let result: UserMessage = serde_json::from_value(json!({

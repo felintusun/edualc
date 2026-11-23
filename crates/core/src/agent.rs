@@ -6,6 +6,7 @@ use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64;
 use serde::{Deserialize, Serialize};
 
+use crate::call::AcpCall;
 use crate::decode::Picture;
 use crate::external::wire::{
     ApiMessage, AssistantError, ControlRequest, ControlResponse, ImageBlock, IncomingRequest,
@@ -67,6 +68,13 @@ pub enum Event {
         message: ApiMessage,
         parent_tool_use_id: Option<ToolUseId>,
         error: Option<AssistantError>,
+    },
+    /// An ACP agent's tool call, new or changed, as the agent gives it. Its result comes as
+    /// a tool result for its id.
+    ToolCall {
+        id: ToolUseId,
+        call: AcpCall,
+        parent_tool_use_id: Option<ToolUseId>,
     },
     User(UserLine),
     System(System),

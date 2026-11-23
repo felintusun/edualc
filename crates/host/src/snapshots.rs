@@ -17,6 +17,7 @@ use serde::{Deserialize, Serialize};
 use sha2::Digest as _;
 use tokio::sync::mpsc;
 
+use crate::call::AcpCall;
 use crate::changes::{
     ChangeSet, ContentId, FileChange, Hunk, Kind, LARGEST_FILE, LeftOut, MOST_FILES, Review, Scope,
     Summary, Who,
@@ -549,6 +550,23 @@ fn write_json<T: Serialize>(path: &Path, value: &T) -> Result<(), Error> {
         return Ok(());
     };
     crate::files::write_atomically(folder, name, &bytes).map_err(io(path))
+}
+
+/// The files an ACP agent's call changes, if it edits or writes: those it shows changed, else
+/// those it works on.
+pub fn edited_by(call: &AcpCall) -> Vec<PathBuf> {
+    match call.kind() {
+        ToolKind::Edit | ToolKind::Write if call.diffs.is_empty() => call.locations.clone(),
+        ToolKind::Edit | ToolKind::Write => {
+            call.diffs.iter().map(|diff| diff.path.clone()).collect()
+        }
+        ToolKind::Read
+        | ToolKind::Command
+        | ToolKind::Search
+        | ToolKind::Web
+        | ToolKind::Agent
+        | ToolKind::Other => Vec::new(),
+    }
 }
 
 /// The files an editing tool call names inside an assistant message's blocks.

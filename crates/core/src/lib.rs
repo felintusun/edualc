@@ -7,6 +7,7 @@
 
 pub mod agent;
 pub mod app;
+pub mod call;
 pub mod changes;
 pub mod chat;
 pub mod cjk;

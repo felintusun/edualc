@@ -369,8 +369,10 @@ the window, **New session here**,
 **New session**, or **Ctrl+N** inside a project or session asks whether to start Claude Code, agy
 or opencode (on the start page, **Ctrl+N** opens New project). The window shows their sessions
 like Claude Code's: streamed text and thinking, tool cards, permission requests, and the model
-menu from the program. A model you pick stays with its program: a new session with another
-program starts with that program's default.
+menu from the program. A tool card shows a call as the program describes it: its own title for
+the call, the files it works on, and the change an edit makes. Questions, to-do lists, subagents
+and messages to other sessions show as Claude Code's do. A model you pick stays with its
+program: a new session with another program starts with that program's default.
 
 ### agy
 

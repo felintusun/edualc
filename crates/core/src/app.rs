@@ -878,6 +878,9 @@ pub enum Doing {
     Preparing(ToolName),
     #[display("Running {_0}")]
     Running(ToolName),
+    /// An ACP agent's call runs, told by what the agent says it does.
+    #[display("{_0}")]
+    Calling(String),
     /// Going on after the user answered.
     #[display("Working")]
     Working,
@@ -2135,7 +2138,7 @@ impl<F: Frontend> App<F> {
         }
         if redraw.prompt {
             self.view
-                .render_prompt(&self.asks, cwd, self.status.backend);
+                .render_prompt(&self.asks, &self.chat, cwd, self.status.backend);
         }
         if redraw.usage {
             self.view.render_usage(&self.usage, &self.status);

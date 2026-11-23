@@ -3,10 +3,12 @@
 //! to write where; the adapter's loop (see [`crate::acp`]) does it.
 //!
 //! A turn of the agent's becomes what a turn of Claude Code's looks like: an `init`, streamed
-//! text and thinking (`stream_event`s), an assistant message for each stretch of it with the
-//! tool calls that end it, a tool result for each call, and a `result`. Permission requests
-//! become `can_use_tool` requests, and the window's answers the agent's options. Nothing is
-//! kept: the agent keeps its sessions, and lists and loads them again.
+//! text and thinking (`stream_event`s), an assistant message for each stretch of it, a tool
+//! result for each call, and a `result`. Its tool calls go as the agent gives them
+//! ([`Event::ToolCall`]), but for those edualc acts on, which go by the names the window knows
+//! (see [`named`]). Permission requests become `can_use_tool` requests, and the window's
+//! answers the agent's options. Nothing is kept: the agent keeps its sessions, and lists and
+//! loads them again.
 
 use std::collections::{BTreeSet, HashMap, VecDeque};
 use std::path::PathBuf;
@@ -16,18 +18,14 @@ use serde_json::{Map, Value};
 
 use crate::agent::{Command, Event};
 use crate::app::Mode;
+use crate::call::{AcpCall, AcpKind, Call, Diff};
 use crate::external::acp::{
-    self, AgentMethod, AgyArguments, AvailableCommand, Change, Chunk, ConfigOption,
-    GenericArguments, Incoming, Notified, OpencodeArguments, OpencodeQuestionOption, OptionKind,
-    PermissionAsked, PlanEntry, PlanStatus, Prompted, RpcError, StopReason, ToolCall, ToolContent,
-    ToolKind, ToolStatus,
+    self, AgentMethod, AgyArguments, AvailableCommand, Change, Chunk, ConfigOption, Incoming,
+    Notified, OpencodeArguments, OpencodeQuestionOption, OptionKind, PermissionAsked, PlanEntry,
+    PlanStatus, Prompted, RpcError, StopReason, ToolCall, ToolContent, ToolStatus,
 };
 use crate::external::agy::{self, QuotaWindow};
-use crate::external::tool_input::{
-    AgentInput, BashInput, EditInput, GlobInput, GrepInput, KnownCall, MultiEditInput, OneEdit,
-    ReadInput, SkillInput, Todo, TodoStatus, TodoWriteInput, WebFetchInput, WebSearchInput,
-    WriteInput,
-};
+use crate::external::tool_input::{AgentInput, KnownCall, Todo, TodoStatus, TodoWriteInput};
 use crate::external::wire::{
     self, Account, ApiMessage, AssistantError, CommandInfo, ContentBlock, ControlResponse, DENIED,
     Delta, IncomingRequest, Initialized, LimitKind, MessageId, MessageStart, ModeId, ModelInfo,
@@ -37,8 +35,8 @@ use crate::external::wire::{
 };
 use crate::settings::PeerMessages;
 
+use super::Agent;
 use super::outbox::unwrapped;
-use super::{Agent, first_location};
 
 /// JSON-RPC's code for a method the receiver doesn't have.
 const METHOD_NOT_FOUND: i64 = -32601;
@@ -170,8 +168,7 @@ enum Entry {
 #[derive(Debug, Clone)]
 struct Shown {
     call: ToolCall,
-    name: ToolName,
-    input: Value,
+    drawn: Call,
     done: bool,
     denied: bool,
     /// What edualc's tool answered, for a call of it: the agent tells nothing of an MCP tool's
@@ -1036,9 +1033,11 @@ impl Translator {
     fn open_call(&self, tool: &ToolName) -> Option<String> {
         let told: Vec<&String> = self.calls.values().collect();
         self.entries.iter().find_map(|(id, entry)| match entry {
-            Entry::Shown(shown) if shown.name == *tool && !shown.done && !told.contains(&id) => {
-                Some(id.clone())
-            }
+            Entry::Shown(Shown {
+                drawn: Call::Named { name, .. },
+                done: false,
+                ..
+            }) if name == tool && !told.contains(&id) => Some(id.clone()),
             Entry::Kept(_) | Entry::Shown(_) => None,
         })
     }
@@ -1508,24 +1507,32 @@ impl Translator {
     }
 
     fn show_call(&mut self, call: &ToolCall) -> Vec<Effect> {
-        let (name, input) = as_claude_tool(self.agent, call);
+        let drawn = drawn(self.agent, call);
         self.entries.insert(
             call.tool_call_id.clone(),
             Entry::Shown(Shown {
                 call: call.clone(),
-                name: name.clone(),
-                input: input.clone(),
+                drawn: drawn.clone(),
                 done: false,
                 denied: false,
                 told: None,
             }),
         );
-        let tool_use = ContentBlock::ToolUse {
-            id: ToolUseId::from(call.tool_call_id.clone()),
-            name,
-            input,
+        let id = ToolUseId::from(call.tool_call_id.clone());
+        let mut effects = match drawn {
+            Call::Named { name, input } => {
+                self.message_done(Some(ContentBlock::ToolUse { id, name, input }))
+            }
+            Call::Acp(call) => {
+                let mut effects = self.message_done(None);
+                effects.push(Effect::ToWindow(Event::ToolCall {
+                    id,
+                    call,
+                    parent_tool_use_id: None,
+                }));
+                effects
+            }
         };
-        let mut effects = self.message_done(Some(tool_use));
         if is_done(call) {
             effects.extend(self.tool_call_update(call));
         }
@@ -1538,7 +1545,7 @@ impl Translator {
             return self.call_updated(merged);
         }
         let mut effects = Vec::new();
-        let mut updated_use = None;
+        let mut updated = None;
         let finished = {
             let Some(Entry::Shown(shown)) = self.entries.get_mut(&call.tool_call_id) else {
                 return Vec::new();
@@ -1547,14 +1554,21 @@ impl Translator {
                 return Vec::new();
             }
             shown.call = merged(&shown.call, call);
-            let (updated_name, updated_input) = as_claude_tool(self.agent, &shown.call);
-            if updated_name == shown.name && updated_input != shown.input {
-                shown.input = updated_input.clone();
-                updated_use = Some(ContentBlock::ToolUse {
-                    id: ToolUseId::from(call.tool_call_id.clone()),
-                    name: updated_name,
-                    input: updated_input,
-                });
+            // A call shows as it first did: one the window acts on by its name stays one.
+            let redrawn = drawn(self.agent, &shown.call);
+            let same_tool = match (&redrawn, &shown.drawn) {
+                (
+                    Call::Named { name, .. },
+                    Call::Named {
+                        name: shown_name, ..
+                    },
+                ) => name == shown_name,
+                (Call::Acp(_), Call::Acp(_)) => true,
+                (Call::Named { .. }, Call::Acp(_)) | (Call::Acp(_), Call::Named { .. }) => false,
+            };
+            if same_tool && redrawn != shown.drawn {
+                shown.drawn = redrawn.clone();
+                updated = Some(redrawn);
             }
             let failed = match call.status {
                 Some(ToolStatus::Completed) => Some(false),
@@ -1571,17 +1585,26 @@ impl Translator {
                 (text, failed || shown.denied)
             })
         };
-        if let Some(tool_use) = updated_use {
-            let message = ApiMessage {
-                id: MessageId::from(self.local_id("message")),
-                content: vec![tool_use],
-                usage: Usage::default(),
-            };
-            effects.push(Effect::ToWindow(Event::Assistant {
-                message,
+        let id = ToolUseId::from(call.tool_call_id.clone());
+        match updated {
+            Some(Call::Named { name, input }) => {
+                let message = ApiMessage {
+                    id: MessageId::from(self.local_id("message")),
+                    content: vec![ContentBlock::ToolUse { id, name, input }],
+                    usage: Usage::default(),
+                };
+                effects.push(Effect::ToWindow(Event::Assistant {
+                    message,
+                    parent_tool_use_id: None,
+                    error: None,
+                }));
+            }
+            Some(Call::Acp(call)) => effects.push(Effect::ToWindow(Event::ToolCall {
+                id,
+                call,
                 parent_tool_use_id: None,
-                error: None,
-            }));
+            })),
+            None => {}
         }
         let Some((text, is_error)) = finished else {
             return effects;
@@ -1611,9 +1634,18 @@ impl Translator {
             Some(Entry::Shown(_)) => {}
             None => effects.extend(self.show_call(&asked.tool_call)),
         }
-        let (name, input) = match self.entries.get(&tool) {
-            Some(Entry::Shown(shown)) => (shown.name.clone(), shown.input.clone()),
-            Some(Entry::Kept(_)) | None => as_claude_tool(self.agent, &asked.tool_call),
+        let drawn = match self.entries.get(&tool) {
+            Some(Entry::Shown(shown)) => shown.drawn.clone(),
+            Some(Entry::Kept(_)) | None => drawn(self.agent, &asked.tool_call),
+        };
+        // The window shows an ACP agent's call from its card; it is asked about by the
+        // agent's own name for the tool.
+        let (name, input) = match drawn {
+            Call::Named { name, input } => (name, input),
+            Call::Acp(call) => (
+                ToolName::Other(call.name.unwrap_or(call.title)),
+                call.input.unwrap_or_else(|| Value::Object(Map::new())),
+            ),
         };
         // The agent asks before every MCP tool, in every mode. edualc's own go without asking,
         // as a Claude Code session's messages do.
@@ -2179,7 +2211,11 @@ fn has_arguments(agent: Agent, call: &ToolCall) -> bool {
         .name
         .as_deref()
         .is_some_and(|name| matches!(name.to_ascii_lowercase().as_str(), "apply_patch" | "patch"))
-        && file_change(call).is_none()
+        && !call
+            .content
+            .iter()
+            .flatten()
+            .any(|part| matches!(part, ToolContent::Diff { .. }))
     {
         return false;
     }
@@ -2199,23 +2235,67 @@ fn is_done(call: &ToolCall) -> bool {
     )
 }
 
-/// A tool call as the window knows Claude Code's: by the agent's extended mappings and names
-/// (see [`Agent::tool`]), else by the file change it shows, else by ACP's kind and generic
-/// arguments; a tool none of these tells about keeps the agent's name.
-pub(super) fn as_claude_tool(agent: Agent, call: &ToolCall) -> (ToolName, Value) {
+/// A tool call as the window shows it: one edualc acts on by the name the window knows it by
+/// (see [`named`]), any other as the agent gives it.
+pub(super) fn drawn(agent: Agent, call: &ToolCall) -> Call {
+    match named(agent, call) {
+        Some((name, input)) => Call::Named { name, input },
+        None => Call::Acp(acp_call(call)),
+    }
+}
+
+/// The calls edualc acts on, by the names the window knows them by: a question it asks the
+/// user, a to-do list, a subagent whose steps nest under it, edualc's messaging tools.
+pub(super) fn named(agent: Agent, call: &ToolCall) -> Option<(ToolName, Value)> {
     let input = call.raw_input.clone().unwrap_or(Value::Null);
     if let Some(name) = normalized_tool_name(call)
         && let Some(mapped) = extra_tool(agent, &name, call, &input)
     {
-        return mapped;
+        return Some(mapped);
     }
-    if let Some(known) = call.name.as_deref().and_then(|name| agent.tool(name, call)) {
-        return as_known(&known, input);
+    let known = call
+        .name
+        .as_deref()
+        .and_then(|name| agent.tool(name, call))?;
+    Some(as_known(&known, input))
+}
+
+/// The call as the agent gives it, titled by the agent's words for it, else its name for the
+/// tool.
+fn acp_call(call: &ToolCall) -> AcpCall {
+    AcpCall {
+        name: call.name.clone(),
+        title: call
+            .title
+            .clone()
+            .or_else(|| call.name.clone())
+            .unwrap_or_else(|| "Tool".to_owned()),
+        kind: call.kind.map(AcpKind::from),
+        locations: call
+            .locations
+            .iter()
+            .flatten()
+            .map(|location| location.path.clone())
+            .collect(),
+        diffs: call
+            .content
+            .iter()
+            .flatten()
+            .filter_map(|part| match part {
+                ToolContent::Diff {
+                    path,
+                    old_text,
+                    new_text,
+                } => Some(Diff {
+                    path: path.clone(),
+                    old_text: old_text.clone(),
+                    new_text: new_text.clone(),
+                }),
+                ToolContent::Content { .. } | ToolContent::Other => None,
+            })
+            .collect(),
+        input: call.raw_input.clone(),
     }
-    if let Some(known) = file_change(call) {
-        return as_known(&known, input);
-    }
-    kind_fallback(call, input)
 }
 
 fn normalized_tool_name(call: &ToolCall) -> Option<String> {
@@ -2245,13 +2325,6 @@ fn encode_tool(name: ToolName, value: &impl serde::Serialize, raw: &Value) -> (T
     (name, encoded)
 }
 
-fn read_range(start_line: Option<u64>, end_line: Option<u64>) -> Option<u64> {
-    match (start_line, end_line) {
-        (Some(start), Some(end)) if end >= start => Some(end - start + 1),
-        _ => None,
-    }
-}
-
 fn extra_tool(agent: Agent, name: &str, call: &ToolCall, raw: &Value) -> Option<(ToolName, Value)> {
     match agent {
         Agent::Agy => agy_extra_tool(name, call, raw),
@@ -2262,97 +2335,7 @@ fn extra_tool(agent: Agent, name: &str, call: &ToolCall, raw: &Value) -> Option<
 fn agy_extra_tool(name: &str, call: &ToolCall, raw: &Value) -> Option<(ToolName, Value)> {
     let given: AgyArguments = parse_args(call);
     let title = || call.title.clone().unwrap_or_default();
-    let path = given
-        .target_file
-        .or(given.absolute_path)
-        .or(given.path)
-        .or_else(|| first_location(call));
     match name {
-        "read_file" | "view_file" | "view_file_outline" | "view_code_item" => {
-            let file_path = path.unwrap_or_else(|| PathBuf::from(title()));
-            let limit = read_range(given.start_line, given.end_line);
-            Some(encode_tool(
-                ToolName::Read,
-                &ReadInput {
-                    file_path,
-                    offset: given.start_line,
-                    limit,
-                },
-                raw,
-            ))
-        }
-        "write_to_file" => Some(as_known(
-            &KnownCall::Write(WriteInput {
-                file_path: path.unwrap_or_else(|| PathBuf::from(title())),
-                content: given.code_content.or(given.content).unwrap_or_default(),
-            }),
-            raw.clone(),
-        )),
-        "replace_file_content" => Some(as_known(
-            &KnownCall::Edit(EditInput::once(
-                path.unwrap_or_else(|| PathBuf::from(title())),
-                given.target_content.or(given.target).unwrap_or_default(),
-                given
-                    .replacement_content
-                    .or(given.replacement)
-                    .unwrap_or_default(),
-            )),
-            raw.clone(),
-        )),
-        "multi_replace_file_content" => {
-            let file_path = path.unwrap_or_else(|| PathBuf::from(title()));
-            let edits: Vec<OneEdit> = given
-                .replacement_chunks
-                .into_iter()
-                .map(|chunk| OneEdit {
-                    old_string: chunk.target_content,
-                    new_string: chunk.replacement_content,
-                })
-                .collect();
-            Some(encode_tool(
-                ToolName::MultiEdit,
-                &MultiEditInput { file_path, edits },
-                raw,
-            ))
-        }
-        "grep_search" => Some(as_known(
-            &KnownCall::Grep(GrepInput {
-                pattern: given.query.unwrap_or_else(title),
-                path: given.search_path.or_else(|| first_location(call)),
-                glob: given.includes.into_iter().next(),
-            }),
-            raw.clone(),
-        )),
-        "find_by_name" => Some(encode_tool(
-            ToolName::Glob,
-            &GlobInput {
-                pattern: given.pattern.unwrap_or_else(title),
-                path: given.search_directory.or_else(|| first_location(call)),
-            },
-            raw,
-        )),
-        "list_dir" => Some(encode_tool(
-            ToolName::Glob,
-            &GlobInput {
-                pattern: "*".to_owned(),
-                path: given.directory_path.or_else(|| first_location(call)),
-            },
-            raw,
-        )),
-        "read_url_content" => Some(as_known(
-            &KnownCall::WebFetch(WebFetchInput {
-                url: given.url.unwrap_or_else(title),
-                prompt: None,
-            }),
-            raw.clone(),
-        )),
-        "search_web" => Some(encode_tool(
-            ToolName::WebSearch,
-            &WebSearchInput {
-                query: given.query.unwrap_or_else(title),
-            },
-            raw,
-        )),
         "invoke_subagent" => Some(as_known(
             &KnownCall::Agent(AgentInput {
                 description: given.subagent_name.clone().unwrap_or_else(title),
@@ -2368,82 +2351,7 @@ fn agy_extra_tool(name: &str, call: &ToolCall, raw: &Value) -> Option<(ToolName,
 fn opencode_extra_tool(name: &str, call: &ToolCall, raw: &Value) -> Option<(ToolName, Value)> {
     let given: OpencodeArguments = parse_args(call);
     let title = || call.title.clone().unwrap_or_default();
-    let path = first_location(call).or(given.file_path).or(given.path);
     match name {
-        "bash" | "shell" => Some(as_known(
-            &KnownCall::Bash(BashInput::command(
-                given.command.unwrap_or_default(),
-                given.description,
-            )),
-            raw.clone(),
-        )),
-        "read" => Some(encode_tool(
-            ToolName::Read,
-            &ReadInput {
-                file_path: path.unwrap_or_default(),
-                offset: given.offset,
-                limit: given.limit,
-            },
-            raw,
-        )),
-        "write" => Some(as_known(
-            &KnownCall::Write(WriteInput {
-                file_path: path.unwrap_or_default(),
-                content: given.content.unwrap_or_default(),
-            }),
-            raw.clone(),
-        )),
-        "edit" => Some(encode_tool(
-            ToolName::Edit,
-            &EditInput {
-                file_path: path.unwrap_or_default(),
-                old_string: given.old_string.unwrap_or_default(),
-                new_string: given.new_string.unwrap_or_default(),
-                replace_all: given.replace_all,
-            },
-            raw,
-        )),
-        "multiedit" | "multi_edit" | "apply_patch" | "patch" => {
-            file_change(call).map(|known| as_known(&known, raw.clone()))
-        }
-        "glob" => Some(encode_tool(
-            ToolName::Glob,
-            &GlobInput {
-                pattern: given.pattern.unwrap_or_else(title),
-                path,
-            },
-            raw,
-        )),
-        "grep" => Some(as_known(
-            &KnownCall::Grep(GrepInput {
-                pattern: given.pattern.unwrap_or_else(title),
-                path,
-                glob: given.include,
-            }),
-            raw.clone(),
-        )),
-        "list" | "ls" => Some(encode_tool(
-            ToolName::Glob,
-            &GlobInput {
-                pattern: "*".to_owned(),
-                path,
-            },
-            raw,
-        )),
-        "webfetch" | "web_fetch" => Some(as_known(
-            &KnownCall::WebFetch(WebFetchInput {
-                url: given.url.unwrap_or_else(title),
-                prompt: given.prompt,
-            }),
-            raw.clone(),
-        )),
-        "websearch" | "web_search" => Some(encode_tool(
-            ToolName::WebSearch,
-            &WebSearchInput {
-                query: given.query.unwrap_or_else(title),
-            },
-            raw,
-        )),
         "todowrite" | "todo_write" => Some(encode_tool(
             ToolName::TodoWrite,
             &plan_todos(&given.todos),
@@ -2456,15 +2364,6 @@ fn opencode_extra_tool(name: &str, call: &ToolCall, raw: &Value) -> Option<(Tool
                 subagent_type: given.subagent_type,
             }),
             raw.clone(),
-        )),
-        "skill" => Some(encode_tool(
-            ToolName::Skill,
-            &SkillInput {
-                skill: given.name,
-                command: None,
-                name: None,
-            },
-            raw,
         )),
         "question" => {
             let questions = Questions {
@@ -2508,103 +2407,7 @@ fn opencode_extra_tool(name: &str, call: &ToolCall, raw: &Value) -> Option<(Tool
     }
 }
 
-fn kind_fallback(call: &ToolCall, raw: Value) -> (ToolName, Value) {
-    let args: GenericArguments = parse_args(call);
-    let title = || call.title.clone().unwrap_or_default();
-    let path = first_location(call).or(args.path);
-    match call.kind {
-        Some(ToolKind::Execute) => as_known(
-            &KnownCall::Bash(BashInput::command(
-                args.command.unwrap_or_else(title),
-                args.description,
-            )),
-            raw,
-        ),
-        Some(ToolKind::Read) => encode_tool(
-            ToolName::Read,
-            &ReadInput {
-                file_path: path.unwrap_or_else(|| PathBuf::from(title())),
-                offset: args.offset,
-                limit: args.limit,
-            },
-            &raw,
-        ),
-        Some(ToolKind::Edit | ToolKind::Delete | ToolKind::Move) => {
-            if let Some(file_path) = path {
-                if args.old_string.is_some() || args.new_string.is_some() {
-                    as_known(
-                        &KnownCall::Edit(EditInput::once(
-                            file_path,
-                            args.old_string.unwrap_or_default(),
-                            args.new_string.unwrap_or_default(),
-                        )),
-                        raw,
-                    )
-                } else if let Some(content) = args.content {
-                    as_known(&KnownCall::Write(WriteInput { file_path, content }), raw)
-                } else {
-                    as_known(
-                        &KnownCall::Edit(EditInput::once(file_path, String::new(), String::new())),
-                        raw,
-                    )
-                }
-            } else {
-                raw_tool_name(call, raw)
-            }
-        }
-        Some(ToolKind::Search) => as_known(
-            &KnownCall::Grep(GrepInput {
-                pattern: args.pattern.unwrap_or_else(title),
-                path,
-                glob: args.glob,
-            }),
-            raw,
-        ),
-        Some(ToolKind::Fetch) => as_known(
-            &KnownCall::WebFetch(WebFetchInput {
-                url: args.url.unwrap_or_else(title),
-                prompt: None,
-            }),
-            raw,
-        ),
-        Some(ToolKind::Think | ToolKind::Other) | None => raw_tool_name(call, raw),
-    }
-}
-
-fn raw_tool_name(call: &ToolCall, raw: Value) -> (ToolName, Value) {
-    let name = call
-        .name
-        .clone()
-        .or_else(|| call.title.clone())
-        .unwrap_or_else(|| "tool".to_owned());
-    (ToolName::from(name), raw)
-}
-
-/// The first file change a call shows, as an `Edit`, or a `Write` of a new file.
-fn file_change(call: &ToolCall) -> Option<KnownCall> {
-    call.content.iter().flatten().find_map(|part| match part {
-        ToolContent::Diff {
-            path,
-            old_text: Some(old_text),
-            new_text,
-        } => Some(KnownCall::Edit(EditInput::once(
-            path.clone(),
-            old_text.clone(),
-            new_text.clone(),
-        ))),
-        ToolContent::Diff {
-            path,
-            old_text: None,
-            new_text,
-        } => Some(KnownCall::Write(WriteInput {
-            file_path: path.clone(),
-            content: new_text.clone(),
-        })),
-        ToolContent::Content { .. } | ToolContent::Other => None,
-    })
-}
-
-/// A known call by Claude Code's name and input; one whose input can't be written (a path
+/// A known call by the window's name and input; one whose input can't be written (a path
 /// that isn't UTF-8) shows the agent's own input instead.
 fn as_known(known: &KnownCall, raw: Value) -> (ToolName, Value) {
     let input = known.input().unwrap_or_else(|error| {
@@ -2622,8 +2425,9 @@ fn result_text(call: &ToolCall, failed: bool) -> String {
             ToolContent::Content {
                 content: Chunk::Text { text },
             } => parts.push(text.clone()),
-            ToolContent::Diff { path, .. } => parts.push(format!("Changed {}", path.display())),
-            ToolContent::Content {
+            // The call's card shows the change itself.
+            ToolContent::Diff { .. }
+            | ToolContent::Content {
                 content: Chunk::Other,
             }
             | ToolContent::Other => {}
@@ -2697,6 +2501,17 @@ mod tests {
                 "message": message,
                 "parent_tool_use_id": parent_tool_use_id,
                 "error": error,
+            }),
+            // edualc's own: Claude Code has no line for a call as the agent gives it.
+            Event::ToolCall {
+                id,
+                call,
+                parent_tool_use_id,
+            } => json!({
+                "type": "tool_call",
+                "id": id,
+                "call": call,
+                "parent_tool_use_id": parent_tool_use_id,
             }),
             Event::User(user) => {
                 let mut value = serde_json::to_value(user).expect("user");
@@ -2822,6 +2637,12 @@ mod tests {
         use crate::external::wire::{
             ContentBlock, Delta, IncomingRequest, Message, StreamEvent, System, UserContent,
         };
+        if line.get("type") == Some(&json!("tool_call")) {
+            let call = line.get("call").cloned().expect("a call");
+            serde_json::from_value::<AcpCall>(call)
+                .unwrap_or_else(|error| panic!("the window can't read {line}: {error}"));
+            return;
+        }
         let message: Message = serde_json::from_value(line.clone())
             .unwrap_or_else(|error| panic!("the window can't read {line}: {error}"));
         let blocks_known = |blocks: &[ContentBlock]| {
@@ -2875,9 +2696,10 @@ mod tests {
         }
     }
 
-    /// Every line the adapter writes for the window reads as a line of Claude Code's: through a
-    /// turn with streamed thinking and text, a tool call asked about and answered, a mode and a
-    /// title, another session's message, a `!` command, a failed turn and one that went well.
+    /// Every line the adapter writes for the window reads as a line of Claude Code's, or as a
+    /// tool call as the agent gave it: through a turn with streamed thinking and text, a tool
+    /// call asked about and answered, a mode and a title, another session's message, a `!`
+    /// command, a failed turn and one that went well.
     #[test]
     fn the_window_reads_every_line() {
         let mut translator = translator_for(Agent::Agy, Start::New);
@@ -2947,6 +2769,7 @@ mod tests {
                 "stream_event:content_block_stop",
                 "stream_event:message_start",
                 "system",
+                "tool_call",
                 "user",
             ])
         );
@@ -3019,8 +2842,19 @@ mod tests {
         assert_eq!(init.get("session_id"), Some(&json!(agys.as_str())));
     }
 
-    /// A turn reads as Claude Code's: init, streamed text, the assistant message ending in the
-    /// tool call, its result, then the result of the turn.
+    /// The call among the window's lines, as the agent gave it.
+    fn call_of(window: &[Value]) -> AcpCall {
+        let call = window
+            .iter()
+            .find(|line| line.get("type") == Some(&json!("tool_call")))
+            .and_then(|line| line.get("call"))
+            .cloned()
+            .expect("a tool call");
+        serde_json::from_value(call).expect("a call the window reads")
+    }
+
+    /// A turn reads as Claude Code's: init, streamed text, the assistant message, the tool
+    /// call as the agent gave it, its result, then the result of the turn.
     #[test]
     fn a_turn_reads_as_claude_codes() {
         let mut translator = opened();
@@ -3059,6 +2893,7 @@ mod tests {
                 "stream_event:content_block_delta",
                 "stream_event:content_block_stop",
                 "assistant",
+                "tool_call",
                 "user",
                 "stream_event:message_start",
                 "stream_event:content_block_start",
@@ -3068,15 +2903,10 @@ mod tests {
                 "result",
             ]
         );
-        let tool_use = window
-            .iter()
-            .find_map(|line| line.pointer("/message/content/2"))
-            .expect("the tool call");
-        assert_eq!(tool_use.get("name"), Some(&json!("Bash")));
-        assert_eq!(
-            tool_use.pointer("/input/command"),
-            Some(&json!("wc -l notes.txt"))
-        );
+        let call = call_of(&window);
+        assert_eq!(call.title, "wc -l notes.txt");
+        assert_eq!(call.name.as_deref(), Some("run_command"));
+        assert_eq!(call.kind, Some(AcpKind::Execute));
         let result = window.last().expect("the result");
         assert_eq!(result.get("result"), Some(&json!("Let me count.Three.")));
         assert_eq!(result.get("is_error"), Some(&json!(false)));
@@ -3090,17 +2920,14 @@ mod tests {
             r#"{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"s","update":{"sessionUpdate":"tool_call","toolCallId":"c1","name":"run_command","kind":"execute","status":"pending","title":"ls","rawInput":{"CommandLine":"ls"}}}}"#,
         );
         let window = window_lines(&announced);
-        assert_eq!(kinds(&window), ["assistant"]);
-        let tool_use = window
-            .first()
-            .and_then(|line| line.pointer("/message/content/0"))
-            .expect("the tool call");
-        assert_eq!(tool_use.get("name"), Some(&json!("Bash")));
-        assert_eq!(tool_use.pointer("/input/command"), Some(&json!("ls")));
+        assert_eq!(kinds(&window), ["tool_call"]);
+        let call = call_of(&window);
+        assert_eq!(call.title, "ls");
+        assert_eq!(call.input, Some(json!({"CommandLine": "ls"})));
     }
 
     /// opencode names a tool before it sends its arguments: the call isn't shown until they
-    /// come, and then it is one Bash command.
+    /// come, and then it is shown once, as opencode gives it.
     #[test]
     fn opencodes_call_shows_once_its_arguments_come() {
         let mut translator = opened_with(Agent::Opencode);
@@ -3115,13 +2942,12 @@ mod tests {
             r#"{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"s","update":{"sessionUpdate":"tool_call_update","toolCallId":"c1","status":"in_progress","kind":"execute","title":"ls","locations":[{"path":"/w"}],"rawInput":{"command":"ls","cwd":"/w"}}}}"#,
         );
         let window = window_lines(&updated);
-        assert_eq!(kinds(&window), ["assistant"]);
-        let tool_use = window
-            .first()
-            .and_then(|line| line.pointer("/message/content/0"))
-            .expect("the tool call");
-        assert_eq!(tool_use.get("name"), Some(&json!("Bash")));
-        assert_eq!(tool_use.pointer("/input/command"), Some(&json!("ls")));
+        assert_eq!(kinds(&window), ["tool_call"]);
+        let call = call_of(&window);
+        assert_eq!(call.title, "ls");
+        assert_eq!(call.name.as_deref(), Some("shell"));
+        assert_eq!(call.locations, [PathBuf::from("/w")]);
+        assert_eq!(call.input, Some(json!({"command": "ls", "cwd": "/w"})));
     }
 
     /// A permission request for a call kept without its arguments shows the call, with the
@@ -3137,16 +2963,13 @@ mod tests {
             r#"{"jsonrpc":"2.0","method":"session/request_permission","params":{"sessionId":"s","toolCall":{"toolCallId":"c1","name":"shell","title":"ls","kind":"execute","status":"pending","rawInput":{"command":"ls","cwd":"/w"}},"options":[{"optionId":"allow","name":"Allow","kind":"allow_once"},{"optionId":"deny","name":"Deny","kind":"reject_once"}]},"id":"7"}"#,
         );
         let window = window_lines(&asked);
-        let tool_use = window
-            .iter()
-            .find_map(|line| line.pointer("/message/content/0"))
-            .expect("the call shown");
-        assert_eq!(tool_use.get("name"), Some(&json!("Bash")));
-        assert_eq!(tool_use.pointer("/input/command"), Some(&json!("ls")));
+        let call = call_of(&window);
+        assert_eq!(call.input, Some(json!({"command": "ls", "cwd": "/w"})));
         let request = window
             .iter()
             .find(|line| line.get("type") == Some(&json!("control_request")))
             .expect("the window asked");
+        assert_eq!(request.pointer("/request/tool_name"), Some(&json!("shell")));
         assert_eq!(
             request.pointer("/request/input/command"),
             Some(&json!("ls"))
@@ -3154,29 +2977,41 @@ mod tests {
         assert_eq!(request.pointer("/request/tool_use_id"), Some(&json!("c1")));
     }
 
-    /// opencode's file paths are relative in its arguments and absolute in its locations: the
-    /// edit reads as Claude Code's, with the absolute path.
+    /// An edit shows as the agent gives it: its own name and title, its file, and the change
+    /// it makes.
     #[test]
-    fn opencodes_edit_reads_as_claude_codes() {
+    fn an_edit_shows_the_agents_change() {
         let call = ToolCall {
             tool_call_id: "c4".to_owned(),
             name: Some("edit".to_owned()),
-            kind: Some(ToolKind::Edit),
+            title: Some("notes.txt".to_owned()),
+            kind: Some(acp::ToolKind::Edit),
             locations: Some(vec![Location {
                 path: PathBuf::from("/w/notes.txt"),
             }]),
-            raw_input: Some(json!({
-                "path": "notes.txt",
-                "oldString": "two",
-                "newString": "TWO",
-            })),
+            content: Some(vec![ToolContent::Diff {
+                path: PathBuf::from("/w/notes.txt"),
+                old_text: Some("two".to_owned()),
+                new_text: "TWO".to_owned(),
+            }]),
+            raw_input: Some(json!({"path": "notes.txt"})),
             ..ToolCall::default()
         };
-        let (name, input) = as_claude_tool(Agent::Opencode, &call);
-        assert_eq!(name, ToolName::Edit);
-        assert_eq!(input.get("file_path"), Some(&json!("/w/notes.txt")));
-        assert_eq!(input.get("old_string"), Some(&json!("two")));
-        assert_eq!(input.get("new_string"), Some(&json!("TWO")));
+        assert_eq!(
+            drawn(Agent::Opencode, &call),
+            Call::Acp(AcpCall {
+                name: Some("edit".to_owned()),
+                title: "notes.txt".to_owned(),
+                kind: Some(AcpKind::Edit),
+                locations: vec![PathBuf::from("/w/notes.txt")],
+                diffs: vec![Diff {
+                    path: PathBuf::from("/w/notes.txt"),
+                    old_text: Some("two".to_owned()),
+                    new_text: "TWO".to_owned(),
+                }],
+                input: Some(json!({"path": "notes.txt"})),
+            })
+        );
     }
 
     /// agy asks before edualc's own messaging tools too: the adapter allows them, and the
@@ -3215,7 +3050,10 @@ mod tests {
             .into_iter()
             .find(|line| line.get("type") == Some(&json!("control_request")))
             .expect("the window asked");
-        assert_eq!(request.pointer("/request/tool_name"), Some(&json!("Bash")));
+        assert_eq!(
+            request.pointer("/request/tool_name"),
+            Some(&json!("run_command"))
+        );
         let request_id = request
             .get("request_id")
             .and_then(Value::as_str)
@@ -3660,84 +3498,57 @@ mod tests {
         );
     }
 
-    /// agy's file tools read as Claude Code's, an append as the lines it adds (agy 1.5.6's
-    /// arguments, as logged).
+    /// A file or command tool keeps the agent's name and arguments, named or not: an append of
+    /// agy's (1.5.6's arguments, as logged), a command by ACP's kind and its title, a read of
+    /// its location.
     #[test]
-    fn file_tools_read_as_claude_codes() {
-        let call = |name: &str, input: Value| ToolCall {
+    fn file_and_command_tools_show_as_the_agent_gives_them() {
+        let appended = ToolCall {
             tool_call_id: "c".to_owned(),
-            name: Some(name.to_owned()),
-            raw_input: Some(input),
+            name: Some("write_file".to_owned()),
+            title: Some("Append to f.txt".to_owned()),
+            raw_input: Some(json!({"Append": true, "Content": "three\n", "Path": "/w/f.txt"})),
             ..ToolCall::default()
         };
-        let (name, input) = as_claude_tool(
-            Agent::Agy,
-            &call(
-                "write_file",
-                json!({"Append": true, "Content": "three\n", "Path": "/w/f.txt"}),
-            ),
-        );
-        assert_eq!(name, ToolName::Edit);
-        assert_eq!(input.get("old_string"), Some(&json!("")));
-        assert_eq!(input.get("new_string"), Some(&json!("three\n")));
-        let (name, input) = as_claude_tool(
-            Agent::Agy,
-            &call(
-                "write_file",
-                json!({"Content": "hi\n", "Overwrite": true, "Path": "/w/hello.txt"}),
-            ),
-        );
-        assert_eq!(name, ToolName::Write);
-        assert_eq!(input.get("content"), Some(&json!("hi\n")));
-        let (name, input) = as_claude_tool(
-            Agent::Agy,
-            &call(
-                "edit_file",
-                json!({"Path": "/w/f.txt", "Replacement": "two\nthree", "Target": "two"}),
-            ),
-        );
-        assert_eq!(name, ToolName::Edit);
-        assert_eq!(input.get("old_string"), Some(&json!("two")));
+        let Call::Acp(call) = drawn(Agent::Agy, &appended) else {
+            panic!("agy's own call");
+        };
+        assert_eq!(call.name.as_deref(), Some("write_file"));
+        assert_eq!(call.title, "Append to f.txt");
+        assert_eq!(call.input, appended.raw_input);
+        let command = ToolCall {
+            tool_call_id: "c".to_owned(),
+            title: Some("ls -la".to_owned()),
+            kind: Some(acp::ToolKind::Execute),
+            ..ToolCall::default()
+        };
+        let Call::Acp(call) = drawn(Agent::Agy, &command) else {
+            panic!("agy's own call");
+        };
+        assert_eq!(call.title, "ls -la");
+        assert_eq!(call.kind, Some(AcpKind::Execute));
+        let read = ToolCall {
+            tool_call_id: "c".to_owned(),
+            title: Some("Read f.txt".to_owned()),
+            kind: Some(acp::ToolKind::Read),
+            locations: Some(vec![Location {
+                path: PathBuf::from("/w/f.txt"),
+            }]),
+            ..ToolCall::default()
+        };
+        let Call::Acp(call) = drawn(Agent::Opencode, &read) else {
+            panic!("opencode's own call");
+        };
+        assert_eq!(call.locations, [PathBuf::from("/w/f.txt")]);
     }
 
-    /// A tool call without the agent's own name reads by ACP's kind: a command as Bash with its
-    /// title, a read as Read of its first location.
-    #[test]
-    fn unnamed_tools_read_by_their_kind() {
-        let (name, input) = as_claude_tool(
-            Agent::Agy,
-            &ToolCall {
-                tool_call_id: "c".to_owned(),
-                title: Some("ls -la".to_owned()),
-                kind: Some(ToolKind::Execute),
-                ..ToolCall::default()
-            },
-        );
-        assert_eq!(name, ToolName::Bash);
-        assert_eq!(input.get("command"), Some(&json!("ls -la")));
-        let (name, input) = as_claude_tool(
-            Agent::Agy,
-            &ToolCall {
-                tool_call_id: "c".to_owned(),
-                title: Some("Read f.txt".to_owned()),
-                kind: Some(ToolKind::Read),
-                locations: Some(vec![Location {
-                    path: PathBuf::from("/w/f.txt"),
-                }]),
-                ..ToolCall::default()
-            },
-        );
-        assert_eq!(name, ToolName::Read);
-        assert_eq!(input.get("file_path"), Some(&json!("/w/f.txt")));
-    }
-
-    /// agy's swarm tools read as Claude Code's, with arguments as agy 1.5.9 gives them: a post
-    /// to the board as a message, a member joining as an agent with its brief, its questions
-    /// as AskUserQuestion's; what else `swarm` does keeps agy's name.
+    /// agy's swarm tools that edualc acts on go by the names the window knows, with arguments
+    /// as agy 1.5.9 gives them: a post to the board as a message, a member joining as an agent
+    /// with its brief, its questions as AskUserQuestion's; what else `swarm` does is agy's own.
     #[test]
     fn agys_swarm_tools_read_as_claude_codes() {
         let shown = |name: &str, args: Value| {
-            as_claude_tool(
+            named(
                 Agent::Agy,
                 &ToolCall {
                     tool_call_id: "c".to_owned(),
@@ -3749,26 +3560,25 @@ mod tests {
         };
         assert_eq!(
             shown("post_message", json!({ "text": "@verifier Ready." })),
-            (
+            Some((
                 ToolName::EdualcSendMessage,
                 json!({ "to": "the board", "message": "@verifier Ready." })
-            )
+            ))
         );
         let (name, input) = shown(
             "swarm",
             json!({ "action": "add", "name": "monitor", "brief": "Watch for stalls." }),
-        );
+        )
+        .expect("a member joining");
         assert_eq!(name, ToolName::Agent);
         assert_eq!(input.get("subagent_type"), Some(&json!("monitor")));
         assert_eq!(input.get("prompt"), Some(&json!("Watch for stalls.")));
-        assert_eq!(
-            shown("swarm", json!({ "action": "status" })).0,
-            ToolName::from("swarm".to_owned())
-        );
+        assert_eq!(shown("swarm", json!({ "action": "status" })), None);
         let (name, input) = shown(
             "ask_question",
             json!({ "questions": [{ "question": "Which?", "options": ["A", "B"], "is_multi_select": true }] }),
-        );
+        )
+        .expect("a question");
         assert_eq!(name, ToolName::AskUserQuestion);
         assert_eq!(
             input,
@@ -3824,87 +3634,6 @@ mod tests {
         };
         assert_eq!(ended(json!({ "output": "3 notes.txt\n" })), "3 notes.txt\n");
         assert_eq!(ended(json!({ "files": ["a"] })), "Done.");
-    }
-
-    /// A tool whose name edualc doesn't know reads by the file change it shows, else by its
-    /// kind; one neither tells about keeps the agent's name.
-    #[test]
-    fn unknown_tools_read_by_their_change_or_kind() {
-        let shown = |name: &str, kind, rest: ToolCall| {
-            as_claude_tool(
-                Agent::Agy,
-                &ToolCall {
-                    tool_call_id: "c".to_owned(),
-                    name: Some(name.to_owned()),
-                    kind: Some(kind),
-                    ..rest
-                },
-            )
-        };
-        let changed = |old_text: Option<&str>| ToolCall {
-            content: Some(vec![ToolContent::Diff {
-                path: PathBuf::from("/w/a.rs"),
-                old_text: old_text.map(str::to_owned),
-                new_text: "new".to_owned(),
-            }]),
-            ..ToolCall::default()
-        };
-        assert_eq!(
-            shown("custom_edit", ToolKind::Edit, changed(Some("old"))),
-            (
-                ToolName::Edit,
-                json!({ "file_path": "/w/a.rs", "old_string": "old", "new_string": "new" })
-            )
-        );
-        assert_eq!(
-            shown("custom_create", ToolKind::Edit, changed(None)),
-            (
-                ToolName::Write,
-                json!({ "file_path": "/w/a.rs", "content": "new" })
-            )
-        );
-        assert_eq!(
-            shown(
-                "custom_search",
-                ToolKind::Search,
-                ToolCall {
-                    title: Some("needle".to_owned()),
-                    locations: Some(vec![Location {
-                        path: PathBuf::from("/w/src"),
-                    }]),
-                    ..ToolCall::default()
-                }
-            ),
-            (
-                ToolName::Grep,
-                json!({ "pattern": "needle", "path": "/w/src" })
-            )
-        );
-        assert_eq!(
-            shown(
-                "custom_fetch",
-                ToolKind::Fetch,
-                ToolCall {
-                    title: Some("https://example.com".to_owned()),
-                    ..ToolCall::default()
-                }
-            ),
-            (ToolName::WebFetch, json!({ "url": "https://example.com" }))
-        );
-        assert_eq!(
-            shown(
-                "custom_tool",
-                ToolKind::Other,
-                ToolCall {
-                    raw_input: Some(json!({ "foo": "bar" })),
-                    ..ToolCall::default()
-                }
-            ),
-            (
-                ToolName::from("custom_tool".to_owned()),
-                json!({ "foo": "bar" })
-            )
-        );
     }
 
     /// A `!` command is told as not run, in the rows the window reads a command's run from,
@@ -4387,77 +4116,23 @@ mod tests {
         );
     }
 
+    /// What an update adds to a call shown reaches the window as the call, changed; its end
+    /// as its result.
     #[test]
-    fn extended_opencode_and_agy_tools_and_diff_updates_map_cleanly() {
+    fn a_calls_update_shows_what_it_adds() {
         let mut translator = opened_with(Agent::Opencode);
         let shown = translator.agent_said(
-            r#"{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"s","update":{"sessionUpdate":"tool_call","toolCallId":"c1","name":"edit","kind":"edit","status":"in_progress","rawInput":{"filePath":"a.rs","oldString":"x","newString":"y"}}}}"#,
+            r#"{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"s","update":{"sessionUpdate":"tool_call","toolCallId":"c1","name":"edit","title":"edit","kind":"edit","status":"in_progress","rawInput":{"filePath":"a.rs","oldString":"x","newString":"y"}}}}"#,
         );
-        assert_eq!(
-            window_lines(&shown)
-                .first()
-                .and_then(|line| line.pointer("/message/content/0/input/file_path")),
-            Some(&json!("a.rs"))
-        );
+        let window = window_lines(&shown);
+        assert_eq!(kinds(&window), ["tool_call"]);
+        assert!(call_of(&window).locations.is_empty());
         let updated = translator.agent_said(
             r#"{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"s","update":{"sessionUpdate":"tool_call_update","toolCallId":"c1","status":"completed","locations":[{"path":"/w/a.rs"}]}}}"#,
         );
         let window = window_lines(&updated);
-        assert_eq!(kinds(&window), ["assistant", "user"]);
-        assert_eq!(
-            window
-                .first()
-                .and_then(|line| line.pointer("/message/content/0/input/file_path")),
-            Some(&json!("/w/a.rs"))
-        );
-
-        let (name, input) = as_claude_tool(
-            Agent::Opencode,
-            &ToolCall {
-                tool_call_id: "c2".to_owned(),
-                name: Some("grep".to_owned()),
-                raw_input: Some(json!({"pattern":"foo","path":"/w","include":"*.rs"})),
-                ..ToolCall::default()
-            },
-        );
-        assert_eq!(name, ToolName::Grep);
-        assert_eq!(input, json!({"pattern":"foo","path":"/w","glob":"*.rs"}));
-
-        let (name, input) = as_claude_tool(
-            Agent::Opencode,
-            &ToolCall {
-                tool_call_id: "c3".to_owned(),
-                name: Some("glob".to_owned()),
-                raw_input: Some(json!({"pattern":"**/*.rs","path":"/w"})),
-                ..ToolCall::default()
-            },
-        );
-        assert_eq!(name, ToolName::Glob);
-        assert_eq!(input, json!({"pattern":"**/*.rs","path":"/w"}));
-
-        let (name, input) = as_claude_tool(
-            Agent::Agy,
-            &ToolCall {
-                tool_call_id: "c4".to_owned(),
-                name: Some("read_file".to_owned()),
-                raw_input: Some(json!({"Path":"/w/a.rs","StartLine":5,"EndLine":10})),
-                ..ToolCall::default()
-            },
-        );
-        assert_eq!(name, ToolName::Read);
-        assert_eq!(input, json!({"file_path":"/w/a.rs","offset":5,"limit":6}));
-
-        let (name, input) = as_claude_tool(
-            Agent::Agy,
-            &ToolCall {
-                tool_call_id: "c5".to_owned(),
-                name: Some("grep_search".to_owned()),
-                raw_input: Some(json!({"Query":"needle","SearchPath":"/w/src"})),
-                ..ToolCall::default()
-            },
-        );
-        assert_eq!(name, ToolName::Grep);
-        assert_eq!(input, json!({"pattern":"needle","path":"/w/src"}));
+        assert_eq!(kinds(&window), ["tool_call", "user"]);
+        assert_eq!(call_of(&window).locations, [PathBuf::from("/w/a.rs")]);
     }
 
     #[test]

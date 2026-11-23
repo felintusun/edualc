@@ -108,7 +108,7 @@ fn line(tools: &[&Tool], open: bool, cwd: &Path) -> RunLine {
     }
     let state = match (working, failed) {
         (Some(tool), _) => {
-            let now = tools::describe(&tool.name, &tool.input, cwd, tools::Depth::Headline);
+            let now = tool.call.describe(cwd, tools::Depth::Headline);
             summary = format!("{summary}  ·  {} {}", now.title, now.summary);
             RunState::Working
         }
@@ -125,7 +125,7 @@ fn line(tools: &[&Tool], open: bool, cwd: &Path) -> RunLine {
 fn summary(tools: &[&Tool]) -> String {
     let mut kinds: Vec<ToolKind> = Vec::new();
     for tool in tools {
-        let found = tool.name.kind();
+        let found = tool.call.kind();
         if !kinds.contains(&found) {
             kinds.push(found);
         }
@@ -135,7 +135,7 @@ fn summary(tools: &[&Tool]) -> String {
         .map(|&wanted| {
             let of_kind: Vec<&&Tool> = tools
                 .iter()
-                .filter(|tool| tool.name.kind() == wanted)
+                .filter(|tool| tool.call.kind() == wanted)
                 .collect();
             phrase(wanted, &of_kind)
         })
@@ -173,7 +173,7 @@ fn phrase(kind: ToolKind, tools: &[&&Tool]) -> String {
 fn files_phrase(verb: &str, tools: &[&&Tool]) -> String {
     let mut files: Vec<String> = tools
         .iter()
-        .filter_map(|tool| tools::file_of(&tool.name, &tool.input))
+        .filter_map(|tool| tool.call.file())
         .filter_map(|path| {
             path.file_name()
                 .map(|name| name.to_string_lossy().into_owned())

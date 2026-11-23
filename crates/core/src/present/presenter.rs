@@ -22,6 +22,7 @@ use crate::app::{
     ProviderUsageState, Running, SideChat, SideView, SignIn, Status, Tasks, UsagePanel, Watch,
     comments_on, diff_rows,
 };
+use crate::call::{AcpCall, Call};
 use crate::changes;
 use crate::chat::{self, Body, Change, Chat, ImageKey};
 use crate::cjk::{CjkLanguage, CjkText, Standing};
@@ -554,7 +555,7 @@ impl<F: Frontend> Presenter<F> {
             }
             Body::Tool { tool, expanded } => {
                 let depth = card_depth(*expanded, row.hidden);
-                let view = tools::describe(&tool.name, &tool.input, cwd, depth);
+                let view = tool.call.describe(cwd, depth);
                 let state = tool_state(tool.state);
                 card(&mut row, view, state, &tool.output, *expanded, han);
                 if depth == tools::Depth::Full {
@@ -603,7 +604,7 @@ impl<F: Frontend> Presenter<F> {
             | Doing::Compacting
             | Doing::Retrying(_)
             | Doing::Silent(_) => Activity::Model,
-            Doing::Preparing(_) | Doing::Running(_) => Activity::Tool,
+            Doing::Preparing(_) | Doing::Running(_) | Doing::Calling(_) => Activity::Tool,
         };
         let doing = if waiting {
             "Waiting for you".to_owned()
@@ -1034,6 +1035,7 @@ impl<F: Frontend> Presenter<F> {
     pub fn render_prompt(
         &mut self,
         asks: &VecDeque<Ask>,
+        chat: &Chat,
         cwd: &Path,
         backend: crate::provider::Backend,
     ) {
@@ -1097,11 +1099,15 @@ impl<F: Frontend> Presenter<F> {
                 suggestions,
                 description,
             } => {
+                let shown = ask.tool_use.as_ref().and_then(|id| chat.call(id));
                 let ToolPrompt {
                     title,
                     summary,
                     summary_reads_as,
-                } = tool_prompt(ask, cwd, backend);
+                } = match shown {
+                    Some(Call::Acp(call)) => acp_prompt(call, cwd, backend),
+                    Some(Call::Named { .. }) | None => tool_prompt(ask, cwd, backend),
+                };
                 // The description often only repeats what the title or summary say.
                 let repeats =
                     title.contains(description.as_str()) || summary.contains(description.as_str());
@@ -1586,6 +1592,46 @@ struct ToolPrompt {
     summary: String,
     /// Words (a message to another session, an agent's task) or code, as on the tool's card.
     summary_reads_as: tools::Writing,
+}
+
+/// What the bar asks about an ACP agent's call: by its kind, showing what the agent says it
+/// does.
+fn acp_prompt(call: &AcpCall, cwd: &Path, backend: crate::provider::Backend) -> ToolPrompt {
+    let view = tools::describe_acp(call, cwd, tools::Depth::Headline);
+    let agent = backend.agent();
+    let (title, summary_reads_as) = match (call.kind(), call.file()) {
+        (ToolKind::Edit | ToolKind::Write, Some(file)) => (
+            format!("Allow {agent} to edit {}?", tools::short_path(file, cwd)),
+            tools::Writing::Prose,
+        ),
+        (ToolKind::Command, _) => (
+            format!("Allow {agent} to run this command?"),
+            tools::Writing::Code,
+        ),
+        (ToolKind::Web, _) => (
+            format!("Allow {agent} to fetch this page?"),
+            tools::Writing::Code,
+        ),
+        (
+            ToolKind::Read
+            | ToolKind::Edit
+            | ToolKind::Write
+            | ToolKind::Search
+            | ToolKind::Agent
+            | ToolKind::Other,
+            _,
+        ) => (format!("Allow {agent} to go ahead?"), tools::Writing::Prose),
+    };
+    let summary = [view.title, view.summary]
+        .into_iter()
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>()
+        .join("  ");
+    ToolPrompt {
+        title,
+        summary,
+        summary_reads_as,
+    }
 }
 
 fn tool_prompt(ask: &Ask, cwd: &Path, backend: crate::provider::Backend) -> ToolPrompt {
@@ -2580,6 +2626,35 @@ mod tests {
         assert_eq!(command.summary_reads_as, tools::Writing::Code);
     }
 
+    /// The bar asks about an ACP agent's call by its kind, in the agent's own words for it.
+    #[test]
+    fn the_bar_asks_about_an_acp_call_in_the_agents_words() {
+        let call = |title: &str, kind, location: &str| AcpCall {
+            name: None,
+            title: title.to_owned(),
+            kind: Some(kind),
+            locations: vec![std::path::PathBuf::from(location)],
+            diffs: Vec::new(),
+            input: None,
+        };
+        let cwd = Path::new("/work");
+        let command = acp_prompt(
+            &call("wc -l notes.txt", crate::call::AcpKind::Execute, "/work"),
+            cwd,
+            Backend::Opencode,
+        );
+        assert_eq!(command.title, "Allow opencode to run this command?");
+        assert_eq!(command.summary, "wc -l notes.txt");
+        assert_eq!(command.summary_reads_as, tools::Writing::Code);
+        let edit = acp_prompt(
+            &call("edit", crate::call::AcpKind::Edit, "/work/notes.txt"),
+            cwd,
+            Backend::Agy,
+        );
+        assert_eq!(edit.title, "Allow agy to edit notes.txt?");
+        assert_eq!(edit.summary, "edit  notes.txt");
+    }
+
     /// Counted by kind, agents first, each kind once however its tasks are interleaved.
     #[test]
     fn background_tasks_are_counted_by_kind() {
@@ -2818,7 +2893,12 @@ mod tests {
                 editing: None,
             },
         });
-        presenter.render_prompt(&asks, Path::new("/work"), Backend::Opencode);
+        presenter.render_prompt(
+            &asks,
+            &Chat::default(),
+            Path::new("/work"),
+            Backend::Opencode,
+        );
         assert!(
             presenter
                 .prompt
