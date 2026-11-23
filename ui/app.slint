@@ -338,7 +338,7 @@ component PromptBar inherits Rectangle {
                     clicked => { Prompt.allow(Prompt.request); }
                 }
                 // A long rule gives way in a narrow window, said in full on hover and to
-                // assistive technology; Allow and Deny keep their words.
+                // assistive technology; the other two keep their words.
                 if Prompt.always-label != "": TextButton {
                     enabled: root.armed;
                     text: Prompt.always-label;
@@ -356,12 +356,12 @@ component PromptBar inherits Rectangle {
                 }
             }
             // On a line of its own, so that a narrow or zoomed window doesn't push it out of
-            // sight beside a long "Always allow". Enter denies with what was written, as Deny
+            // sight beside a long rule to remember. Enter denies with what was written, as No
             // does: once armed like the buttons, and not with nothing written.
             if Prompt.takes-feedback: Field {
                 text <=> root.feedback;
                 property <int> grab: root.grab-serial;
-                placeholder: "Or tell " + Session.agent-name + " what to do instead";
+                placeholder: "No, and tell " + Session.agent-name + " what to do differently";
                 accepted(text) => {
                     if root.armed && text != "" {
                         Prompt.deny(Prompt.request, text);

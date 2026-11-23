@@ -73,9 +73,10 @@ If a file can't be read, the window says so rather than leaving it out.
 
 ![Claude's questions as choices, with a code preview beside the selected one](screenshots/questions.webp)
 
-- **Answering a request:** allow, deny, deny and say what to do instead, or remember a rule Claude
-  Code suggests, worded as Claude Code's own dialog words it: "Yes, and don't ask again for npm
-  test commands in ~/code/app". Where Claude Code offers no rule, neither does the window.
+- **Answering a request:** in Claude Code's own dialog words: Yes, No, "No, and tell Claude what
+  to do differently" in the field below them, or a rule Claude Code suggests, such as "Yes, and
+  don't ask again for npm test commands in ~/code/app". Where Claude Code offers no rule, neither
+  does the window.
 - **Guarding against misclicks:** the buttons respond only 0.7 seconds after a request appears.
   Every answer names the request it was given for, so a click can't answer a different request.
   The tool card shows exactly the input you approve.
@@ -333,7 +334,7 @@ continue a Claude Code session while a key is kept, edualc asks which of the two
   Project, and opens the session switcher inside a session. **Alt+Left** or **Alt+Up** navigates
   back to the project or start page.
 - **In the conversation,** the arrow keys, Page Up, Page Down, Home and End scroll.
-- **When Claude asks something,** the focus moves into the question, never onto Allow, unless
+- **When Claude asks something,** the focus moves into the question, never onto the button that allows, unless
   you're writing a draft. Up and Down move through the options, and Space picks one. Enter goes
   to the next question, picking the option you're on when the question takes one answer. On the
   last question, Enter sends your answers. Left and Right move between questions. After you

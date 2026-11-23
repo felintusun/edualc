@@ -220,9 +220,10 @@ export global Prompt {
     // prose, as on the tool's card.
     in property <bool> summary-prose;
     in property <string> detail;
-    // "Allow" and "Deny", or an ACP agent's words for them ("Allow once", "Reject").
-    in property <string> allow-label: "Allow";
-    in property <string> deny-label: "Deny";
+    // Each program's words: Claude Code's "Yes" and "No", or an ACP agent's ("Allow once",
+    // "Reject").
+    in property <string> allow-label: "Yes";
+    in property <string> deny-label: "No";
     // Whether a denial can say what to do instead: Claude Code takes it, ACP's answer has no
     // place for it.
     in property <bool> takes-feedback: true;

@@ -207,15 +207,15 @@ fn ToolPrompt(armed: bool, grab: Grab) -> Element {
                 }
             }
             // On a line of its own, so that a narrow or zoomed window doesn't push it out of
-            // sight beside a long "Always allow". Enter denies with what was written, as Deny
+            // sight beside a long rule to remember. Enter denies with what was written, as No
             // does: once armed like the buttons, and not with nothing written.
             if takes_feedback {
                 input {
                     id: "prompt-feedback",
                     class: "field prompt-field",
                     r#type: "text",
-                    placeholder: "Or tell {agent} what to do instead",
-                    "aria-label": "Or tell {agent} what to do instead",
+                    placeholder: "No, and tell {agent} what to do differently",
+                    "aria-label": "No, and tell {agent} what to do differently",
                     value: "{feedback}",
                     oninput: move |event| feedback.set(event.value()),
                     onkeydown: move |event| {

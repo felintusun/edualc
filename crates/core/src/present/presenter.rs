@@ -1114,8 +1114,9 @@ impl<F: Frontend> Presenter<F> {
                 prompt.summary = summary;
                 prompt.summary_prose = summary_reads_as == tools::Writing::Prose;
                 detail.clone_into(&mut prompt.detail);
-                "Allow".clone_into(&mut prompt.allow_label);
-                "Deny".clone_into(&mut prompt.deny_label);
+                // Claude Code's dialog words for them.
+                "Yes".clone_into(&mut prompt.allow_label);
+                "No".clone_into(&mut prompt.deny_label);
                 prompt.takes_feedback = true;
                 // Only a rule the window can say in full is offered.
                 prompt.always_label = suggestions
@@ -2750,6 +2751,42 @@ mod tests {
             })),
             "Yes, and always allow access to /srv/a and /srv/b from this project"
         );
+    }
+
+    /// Claude Code's request gets its dialog's choices, and the field for what to do instead.
+    #[test]
+    fn claude_codes_request_is_answered_in_its_dialogs_words() {
+        let suggestion = serde_json::json!({
+            "type": "addRules", "destination": "localSettings",
+            "rules": [{"toolName": "Bash", "ruleContent": "npm test:*"}],
+        });
+        let mut asks = VecDeque::new();
+        asks.push_back(Ask {
+            request: wire::RequestId::from("r1".to_owned()),
+            tool_use: None,
+            kind: AskKind::Tool {
+                tool: ToolName::Bash,
+                input: serde_json::json!({"command": "npm test"}),
+                suggestions: vec![wire::Offered::read(suggestion)],
+                description: String::new(),
+            },
+        });
+        let mut presenter = Presenter::new(NavSpy::default(), &[], false);
+        presenter.render_prompt(&asks, Path::new("/work/app"), Backend::Claude);
+        let prompt = &presenter.prompt;
+        assert_eq!(
+            (
+                prompt.allow_label.as_str(),
+                prompt.always_label.as_str(),
+                prompt.deny_label.as_str()
+            ),
+            (
+                "Yes",
+                "Yes, and don't ask again for npm test commands in /work/app",
+                "No"
+            )
+        );
+        assert!(prompt.takes_feedback);
     }
 
     /// The bar asks about an ACP agent's call by its kind, in the agent's own words for it.
