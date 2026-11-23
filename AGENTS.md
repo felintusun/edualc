@@ -38,6 +38,11 @@ docs/, never only in one agent's own memory: the other agent can't see it there.
 - **edualc runs several programs** (Claude Code, agy, opencode). Code that isn't about one of them
   is named for what it does, not for Claude; what differs between them is a `Backend` match or the
   program's own module.
+- **Each program behaves as it does without edualc,** as far as it can, and the window shows it
+  as the program's own app does. Each reaches the window in its own protocol's terms (Claude
+  Code's stream-json, ACP for agy and opencode), never translated into another program's.
+  edualc adds only what is its own: the sessions across programs, attention, messages between
+  sessions, what a turn changed.
 - **No copies of a program's data.** Sessions, transcripts and settings are read where the
   program keeps them (`~/.claude`, agy's `~/.gemini`, opencode's own storage) or asked for through
   its protocol. edualc keeps only what is its own: `config.toml`, `state.json`, `changes/`.
