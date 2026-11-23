@@ -541,7 +541,12 @@ fn read_for(request: ActId, read: Read, pieces: &Outbox, external: &[ExternalSes
                     send_lines(request, &lines, pieces);
                     Ok(offset)
                 }
-                Err(error) => Err(ipc::Unread::from(error)),
+                Err(error) => {
+                    // A window shows nothing for a session whose transcript isn't there: where
+                    // it was looked for says why.
+                    tracing::info!(%error, path = %source.path().display(), "a transcript a window asked for wasn't read");
+                    Err(ipc::Unread::from(error))
+                }
             };
             Answer::Transcript {
                 path: source.path().to_owned(),
