@@ -1,0 +1,405 @@
+//! A window's connection: its hello, its requests to the hub and the desktop, and what is said
+//! back to it.
+
+use std::collections::BTreeMap;
+use std::path::PathBuf;
+
+use tokio::sync::mpsc;
+
+use crate::desktop;
+use crate::external::wire::SessionId;
+use crate::ipc::{
+    self, Act, ActId, Deframer, FromDaemon, Generation, HostedId, StartFailure, ToDaemon,
+};
+use crate::provider::Launch;
+use crate::{files, sessions, settings, snapshots};
+
+use super::acts::act_for;
+use super::hub::ToHub;
+use super::{HELLO, Line, QUEUE, Reach, keep, tell};
+
+/// A window's connection by the socket: its two directions pumped into a [`Line`].
+pub(super) async fn window(
+    channel: ipc::AsyncChannel,
+    id: WindowId,
+    hub: mpsc::Sender<ToHub>,
+    keeper: mpsc::Sender<snapshots::Job>,
+    settings_keeper: mpsc::Sender<files::SettingsChange>,
+    catalog: files::Catalog,
+) {
+    let (mut reading, writing) = channel.split();
+    let (line, requests, answers) = Line::pair();
+    let mut deframer = Deframer::default();
+    // The socket's two directions: pumps, not actors.
+    let reader = tokio::spawn(async move {
+        loop {
+            match ipc::recv::<ToDaemon>(&mut reading, &mut deframer).await {
+                Ok(request) => {
+                    if requests.send(request).await.is_err() {
+                        return;
+                    }
+                }
+                Err(error) => {
+                    tracing::info!(%error, "a window hung up");
+                    return;
+                }
+            }
+        }
+    });
+    let writer = tokio::spawn(write(writing, answers));
+    window_over(
+        line,
+        Reach::Local,
+        id,
+        hub,
+        keeper,
+        settings_keeper,
+        catalog,
+    )
+    .await;
+    reader.abort();
+    if let Err(error) = writer.await {
+        tracing::debug!(%error, "the writer ended");
+    }
+}
+
+/// A window's connection, over whatever carries its line: hello, then its requests to its
+/// [`Connection`], and what the hub, sessions and the desktop say back, until it hangs up.
+pub(super) async fn window_over(
+    line: Line,
+    reach: Reach,
+    id: WindowId,
+    hub: mpsc::Sender<ToHub>,
+    keeper: mpsc::Sender<snapshots::Job>,
+    settings_keeper: mpsc::Sender<files::SettingsChange>,
+    catalog: files::Catalog,
+) {
+    let Line {
+        mut requests,
+        outbox,
+    } = line;
+    match tokio::time::timeout(HELLO, requests.recv()).await {
+        Ok(Some(ToDaemon::Hello { protocol })) => {
+            let local = reach == Reach::Local;
+            let (settings, openers, live, backends) = tokio::task::spawn_blocking(move || {
+                (
+                    settings::load().map_err(|error| error.to_string()),
+                    // Editors and windows are the desktop's the window is on.
+                    if local {
+                        desktop::openers()
+                    } else {
+                        Vec::new()
+                    },
+                    sessions::live(),
+                    crate::usage::available_backends(),
+                )
+            })
+            .await
+            .unwrap_or_else(|error| (Err(error.to_string()), Vec::new(), Vec::new(), Vec::new()));
+            let answer = FromDaemon::Hello {
+                protocol: ipc::PROTOCOL,
+                settings,
+                openers,
+                live,
+                finds_windows: local && std::env::var_os("NIRI_SOCKET").is_some(),
+                local,
+                home: dirs::home_dir().unwrap_or_else(|| std::path::PathBuf::from("/")),
+                backends,
+            };
+            if outbox.send(answer).await.is_err() {
+                tracing::warn!("a window left as it came");
+                return;
+            }
+            if protocol != ipc::PROTOCOL {
+                tracing::warn!(protocol, "a window of another version");
+                return;
+            }
+        }
+        Ok(Some(_) | None) | Err(_) => {
+            tracing::warn!("a connection that didn't say hello");
+            return;
+        }
+    }
+    let connection = Connection::new(id, reach)
+        .event_loop(requests, outbox, hub, keeper, settings_keeper, catalog)
+        .await;
+    tracing::info!(window = ?connection.id, "a window's connection ended");
+}
+
+/// Writes what is queued for a window, until everything that could queue more is gone.
+pub(super) async fn write(mut writing: ipc::Writing, mut answers: mpsc::Receiver<FromDaemon>) {
+    while let Some(answer) = answers.recv().await {
+        if let Err(error) = ipc::send(&mut writing, &answer).await {
+            tracing::info!(%error, "a window stopped listening");
+            return;
+        }
+    }
+}
+
+/// What a window's requests come to.
+#[derive(Debug, PartialEq, Eq)]
+pub(super) enum Effect {
+    /// For the hub.
+    Hub(Ask),
+    /// For the desktop, answered to the window.
+    Act { request: ActId, act: Act },
+    /// What was asked can't be done; the window is told.
+    Refuse {
+        key: Generation,
+        failure: StartFailure,
+    },
+    /// For the files, answered to the window.
+    Read { request: ActId, read: ipc::Read },
+    /// For the settings' keeper.
+    ChangeSettings(crate::settings::Change),
+    /// For the window's watches.
+    Watch(files::Order),
+    /// For the changes' keeper.
+    Looked { session: SessionId },
+    Reviewed {
+        session: SessionId,
+        path: PathBuf,
+        mark: snapshots::Mark,
+    },
+}
+
+/// What a window asks of the hub, by its keys.
+#[derive(Debug, PartialEq, Eq)]
+pub(super) enum Ask {
+    Start {
+        key: Generation,
+        launch: Launch,
+    },
+    Line {
+        key: Generation,
+        line: String,
+    },
+    End {
+        key: Generation,
+    },
+    Attach {
+        key: Generation,
+        hosted: HostedId,
+    },
+    Detach {
+        key: Generation,
+    },
+    Identify {
+        key: Generation,
+        session: SessionId,
+    },
+    /// Every session ends, and then the daemon.
+    ShutDown,
+}
+
+/// The daemon's id for a window's connection.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord)]
+pub(super) struct WindowId(pub(super) u64);
+
+impl WindowId {
+    pub(super) fn next(self) -> Self {
+        Self(self.0 + 1)
+    }
+}
+
+/// A window: the keys it shows sessions under, and the line it is sending each in pieces.
+#[derive(Debug, PartialEq, Eq)]
+pub(super) struct Connection {
+    pub(super) id: WindowId,
+    pub(super) reach: Reach,
+    pub(super) keys: BTreeMap<Generation, String>,
+}
+
+impl Connection {
+    pub(super) fn new(id: WindowId, reach: Reach) -> Self {
+        Self {
+            id,
+            reach,
+            keys: BTreeMap::new(),
+        }
+    }
+
+    pub(super) async fn event_loop(
+        mut self,
+        mut requests: mpsc::Receiver<ToDaemon>,
+        outbox: mpsc::Sender<FromDaemon>,
+        hub: mpsc::Sender<ToHub>,
+        keeper: mpsc::Sender<snapshots::Job>,
+        settings_keeper: mpsc::Sender<files::SettingsChange>,
+        catalog: files::Catalog,
+    ) -> Self {
+        let window = self.id;
+        if hub
+            .send(ToHub::Joined {
+                window,
+                outbox: outbox.clone(),
+            })
+            .await
+            .is_err()
+        {
+            return self;
+        }
+        let (watching, watch_orders) = mpsc::channel(QUEUE);
+        tokio::spawn(files::watch(watch_orders, outbox.clone()));
+        while let Some(request) = requests.recv().await {
+            for effect in self.handle(request) {
+                match effect {
+                    Effect::Read { request, read } => {
+                        tokio::spawn(files::answer(
+                            request,
+                            read,
+                            outbox.clone(),
+                            catalog.clone(),
+                        ));
+                    }
+                    Effect::ChangeSettings(change) => {
+                        let change = files::SettingsChange {
+                            change,
+                            outbox: outbox.clone(),
+                        };
+                        if settings_keeper.send(change).await.is_err() {
+                            tell(
+                                &outbox,
+                                FromDaemon::SettingsNotKept(
+                                    "the daemon's keeper of the settings has stopped".to_owned(),
+                                ),
+                            )
+                            .await;
+                        }
+                    }
+                    Effect::Watch(order) => {
+                        if watching.send(order).await.is_err() {
+                            tracing::debug!("a window's watches ended");
+                        }
+                    }
+                    Effect::Hub(ask) => {
+                        let outbox = outbox.clone();
+                        if hub
+                            .send(ToHub::Asked {
+                                window,
+                                ask,
+                                outbox,
+                            })
+                            .await
+                            .is_err()
+                        {
+                            return self;
+                        }
+                    }
+                    Effect::Act { request, act } => {
+                        let outbox = outbox.clone();
+                        tokio::spawn(act_for(request, act, self.reach, outbox));
+                    }
+                    Effect::Refuse { key, failure } => {
+                        tell(&outbox, FromDaemon::Failed { key, failure }).await;
+                    }
+                    Effect::Looked { session } => {
+                        keep(&keeper, snapshots::Job::Looked { session }).await;
+                    }
+                    Effect::Reviewed {
+                        session,
+                        path,
+                        mark,
+                    } => {
+                        keep(
+                            &keeper,
+                            snapshots::Job::Reviewed {
+                                session,
+                                path,
+                                mark,
+                            },
+                        )
+                        .await;
+                    }
+                }
+            }
+        }
+        // The window hung up: its sessions run on, shown nowhere.
+        if hub.send(ToHub::Left { window }).await.is_err() {
+            tracing::debug!("the hub was gone as a window left");
+        }
+        self
+    }
+
+    /// What a request comes to (sans-io).
+    pub(super) fn handle(&mut self, request: ToDaemon) -> Vec<Effect> {
+        match request {
+            ToDaemon::Start { key, .. } | ToDaemon::Attach { key, .. }
+                if self.keys.contains_key(&key) =>
+            {
+                vec![Effect::Refuse {
+                    key,
+                    failure: StartFailure::KeyInUse,
+                }]
+            }
+            ToDaemon::Start { key, launch } => {
+                self.keys.insert(key, String::new());
+                vec![Effect::Hub(Ask::Start { key, launch })]
+            }
+            ToDaemon::Attach { key, hosted } => {
+                self.keys.insert(key, String::new());
+                vec![Effect::Hub(Ask::Attach { key, hosted })]
+            }
+            ToDaemon::Command { key, text, last } => {
+                let Some(line) = self.keys.get_mut(&key) else {
+                    return Vec::new();
+                };
+                if line.len() + text.len() > ipc::MAX_LINE {
+                    line.clear();
+                    return vec![Effect::Refuse {
+                        key,
+                        failure: StartFailure::LineTooLong,
+                    }];
+                }
+                line.push_str(&text);
+                if last {
+                    let line = std::mem::take(line);
+                    vec![Effect::Hub(Ask::Line { key, line })]
+                } else {
+                    Vec::new()
+                }
+            }
+            ToDaemon::End { key } => match self.keys.remove(&key) {
+                Some(_) => vec![Effect::Hub(Ask::End { key })],
+                None => Vec::new(),
+            },
+            ToDaemon::Detach { key } => match self.keys.remove(&key) {
+                Some(_) => vec![Effect::Hub(Ask::Detach { key })],
+                None => Vec::new(),
+            },
+            ToDaemon::Identify { key, session } if self.keys.contains_key(&key) => {
+                vec![Effect::Hub(Ask::Identify { key, session })]
+            }
+            // A second hello, or a key not in use.
+            ToDaemon::Hello { .. } | ToDaemon::Identify { .. } => Vec::new(),
+            ToDaemon::Act {
+                act: Act::ChangesLooked { session },
+                ..
+            } => vec![Effect::Looked { session }],
+            ToDaemon::Act {
+                act: Act::MarkReviewed { session, path, now },
+                ..
+            } => vec![Effect::Reviewed {
+                session,
+                path,
+                mark: snapshots::Mark::On(now),
+            }],
+            ToDaemon::Act {
+                act: Act::UnmarkReviewed { session, path },
+                ..
+            } => vec![Effect::Reviewed {
+                session,
+                path,
+                mark: snapshots::Mark::Off,
+            }],
+            ToDaemon::Act { request, act } => vec![Effect::Act { request, act }],
+            ToDaemon::ShutDown => vec![Effect::Hub(Ask::ShutDown)],
+            ToDaemon::Read { request, read } => vec![Effect::Read { request, read }],
+            ToDaemon::ChangeSettings(change) => vec![Effect::ChangeSettings(change)],
+            ToDaemon::Watch { watched, target } => {
+                vec![Effect::Watch(files::Order::Watch(watched, target))]
+            }
+            ToDaemon::Unwatch(watched) => vec![Effect::Watch(files::Order::Unwatch(watched))],
+        }
+    }
+}
