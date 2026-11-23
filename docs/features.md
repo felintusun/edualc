@@ -73,9 +73,9 @@ If a file can't be read, the window says so rather than leaving it out.
 
 ![Claude's questions as choices, with a code preview beside the selected one](screenshots/questions.webp)
 
-- **Answering a request:** allow, deny, deny and say what to do instead, or "always allow". "Always
-  allow" names the exact rule Claude Code suggests and where it is kept, for example "… in this
-  project".
+- **Answering a request:** allow, deny, deny and say what to do instead, or remember a rule Claude
+  Code suggests, worded as Claude Code's own dialog words it: "Yes, and don't ask again for npm
+  test commands in ~/code/app". Where Claude Code offers no rule, neither does the window.
 - **Guarding against misclicks:** the buttons respond only 0.7 seconds after a request appears.
   Every answer names the request it was given for, so a click can't answer a different request.
   The tool card shows exactly the input you approve.

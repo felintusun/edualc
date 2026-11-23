@@ -195,14 +195,23 @@ impl<F: Frontend> App<F> {
                     permission_suggestions,
                     description,
                     tool_use_id,
-                } => self.ask(
-                    request_id,
-                    tool_name,
-                    input,
-                    permission_suggestions,
-                    description,
-                    tool_use_id,
-                ),
+                    suppress_always_allow_rule,
+                } => {
+                    // Claude Code's own dialog then offers no rule to remember either.
+                    let offered = if suppress_always_allow_rule {
+                        Vec::new()
+                    } else {
+                        permission_suggestions
+                    };
+                    self.ask(
+                        request_id,
+                        tool_name,
+                        input,
+                        offered,
+                        description,
+                        tool_use_id,
+                    );
+                }
                 IncomingRequest::Other => {
                     self.write(|process| {
                         process.refuse(&request_id, "not supported by this client")

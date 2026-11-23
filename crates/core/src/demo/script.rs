@@ -492,6 +492,7 @@ impl Turn {
                 permission_suggestions: suggestions.iter().map(self::input).collect(),
                 description: String::new(),
                 tool_use_id: Some(id.clone()),
+                suppress_always_allow_rule: false,
             },
         });
         match self.inbox.recv().await {

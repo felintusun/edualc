@@ -90,6 +90,18 @@ impl PermissionMode {
         }
     }
 
+    /// The mode as Claude Code's permission dialog names it in "Yes, and switch to …"
+    /// (Claude Code 2.1.329).
+    pub fn claude_code_words(self) -> &'static str {
+        match self {
+            Self::Default => "default (ask each time)",
+            Self::AcceptEdits => "accept edits (auto-approve file edits and common file commands)",
+            Self::Plan => "plan mode (research and propose changes without making them)",
+            Self::Auto => "auto (no routine prompts; a reviewer model screens actions)",
+            Self::BypassPermissions => "BYPASS PERMISSIONS (no further prompts)",
+        }
+    }
+
     /// What the mode lets through, for its menu.
     pub fn description(self) -> &'static str {
         match self {
@@ -4882,6 +4894,39 @@ mod tests {
         assert_eq!(chosen(&denied), "reject");
         assert_eq!(denied.len(), 1, "the reject alone: {denied:?}");
         assert!(!driven.app.status.stop_asked);
+    }
+
+    /// A request Claude Code says to offer no rule for is asked without one, as its own
+    /// dialog does; the same request without the flag offers it.
+    #[test]
+    fn no_rule_is_offered_where_claude_code_offers_none() {
+        let offered = |suppress: bool| {
+            let (mut driven, generation) = started();
+            let line = serde_json::json!({
+                "type": "control_request",
+                "request_id": "p1",
+                "request": {
+                    "subtype": "can_use_tool",
+                    "tool_name": "Bash",
+                    "input": {"command": "npm test"},
+                    "permission_suggestions": [{
+                        "type": "addRules", "destination": "localSettings",
+                        "rules": [{"toolName": "Bash", "ruleContent": "npm test:*"}],
+                    }],
+                    "suppress_always_allow_rule": suppress,
+                },
+            });
+            driven.take(Event::Agent {
+                generation,
+                output: crate::claude::output_of_line(line.to_string()),
+            });
+            match driven.app.asks.front().map(|ask| &ask.kind) {
+                Some(AskKind::Tool { suggestions, .. }) => suggestions.len(),
+                other => panic!("a tool's request, not {other:?}"),
+            }
+        };
+        assert_eq!(offered(false), 1);
+        assert_eq!(offered(true), 0);
     }
 
     /// Another session's message, turned down during a turn, is turned down alone: the turn

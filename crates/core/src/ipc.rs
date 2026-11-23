@@ -153,7 +153,7 @@ pub fn chunks(text: &str) -> impl Iterator<Item = &str> {
 
 /// Bumped with any change to the messages below, or to their framing: postcard isn't
 /// self-describing, so both ends must agree on every type.
-pub const PROTOCOL: u32 = 33;
+pub const PROTOCOL: u32 = 34;
 
 /// A window's key for a process it shows, new for each one: what an earlier one still says is
 /// dropped.

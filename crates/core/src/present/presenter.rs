@@ -1121,7 +1121,7 @@ impl<F: Frontend> Presenter<F> {
                 prompt.always_label = suggestions
                     .first()
                     .and_then(|offered| offered.rule.as_ref())
-                    .map_or_default(always_label);
+                    .map_or_default(|rule| always_label(rule, cwd));
             }
             // The agent's choices, in its words.
             AskKind::Acp { call, options } => {
@@ -1718,17 +1718,12 @@ fn tool_prompt(
     }
 }
 
-/// The button for remembering a rule the CLI suggests, naming all of it and where it's kept,
-/// e.g. "Always allow Bash(npm test) in this project".
-fn always_label(rule: &wire::Suggestion) -> String {
-    let kept = |destination: wire::RuleDestination| match destination {
-        wire::RuleDestination::Session => " this session",
-        wire::RuleDestination::LocalSettings => " in this project",
-        wire::RuleDestination::ProjectSettings => " in this project, for everyone",
-        wire::RuleDestination::UserSettings => " in every project",
-        wire::RuleDestination::Other => "",
-    };
+/// The button for remembering a rule Claude Code suggests, in the words of Claude Code's own
+/// permission dialog (2.1.329): "Yes, and don't ask again for npm test commands in ~/code/app".
+fn always_label(rule: &wire::Suggestion, cwd: &Path) -> String {
     let incoming = ToolName::EdualcIncomingMessage.to_string();
+    let bash = ToolName::Bash.to_string();
+    let web_fetch = ToolName::WebFetch.to_string();
     match rule {
         // edualc's own offer, for a message waiting to come in: its sender, for the session.
         wire::Suggestion::AddRules { rules, .. }
@@ -1740,34 +1735,92 @@ fn always_label(rule: &wire::Suggestion) -> String {
                 rule.rule_content.as_deref().unwrap_or("this sender")
             )
         }
-        wire::Suggestion::AddRules { rules, destination } => {
-            let named: Vec<String> = rules
+        // Commands, by the start they share: `npm test:*` is "npm test".
+        wire::Suggestion::AddRules { rules, .. }
+            if !rules.is_empty() && rules.iter().all(|rule| rule.tool_name == bash) =>
+        {
+            let starts: Option<Vec<&str>> = rules
                 .iter()
-                .map(|rule| match &rule.rule_content {
-                    Some(content) => format!("{}({content})", rule.tool_name),
-                    None => rule.tool_name.clone(),
+                .map(|rule| {
+                    let content = rule.rule_content.as_deref()?;
+                    Some(
+                        content
+                            .strip_suffix(":*")
+                            .or_else(|| content.strip_suffix(" *"))
+                            .unwrap_or(content),
+                    )
                 })
                 .collect();
-            format!("Always allow {}{}", named.join(", "), kept(*destination))
+            match starts {
+                Some(starts) => format!(
+                    "Yes, and don't ask again for {} commands in {}",
+                    listed(&starts),
+                    tools::home_relative(cwd)
+                ),
+                None => format!("Yes, and don't ask again for {}", rules_named(rules)),
+            }
+        }
+        // A site, by its domain.
+        wire::Suggestion::AddRules { rules, destination }
+            if let [rule] = rules.as_slice()
+                && rule.tool_name == web_fetch
+                && let Some(domain) = rule
+                    .rule_content
+                    .as_deref()
+                    .and_then(|content| content.strip_prefix("domain:")) =>
+        {
+            let everywhere = match destination {
+                wire::RuleDestination::UserSettings => " in any project (user settings)",
+                wire::RuleDestination::Session
+                | wire::RuleDestination::LocalSettings
+                | wire::RuleDestination::ProjectSettings
+                | wire::RuleDestination::Other => "",
+            };
+            format!("Yes, and don't ask again for {domain}{everywhere}")
+        }
+        wire::Suggestion::AddRules { rules, .. } => {
+            format!("Yes, and don't ask again for {}", rules_named(rules))
         }
         wire::Suggestion::SetMode {
-            mode: Mode::Known(PermissionMode::AcceptEdits),
-        } => "Allow all edits this session".into(),
-        wire::Suggestion::SetMode {
             mode: Mode::Known(mode),
-        } => format!("Switch to {}", mode.label()),
+        } => format!(
+            "Yes, and switch to {} for this session",
+            mode.claude_code_words()
+        ),
         wire::Suggestion::SetMode {
             mode: Mode::Unknown(mode),
-        } => format!("Switch to {mode}"),
-        wire::Suggestion::AddDirectories {
-            directories,
-            destination,
-        } => format!(
-            "Always allow in {}{}",
-            directories.join(", "),
-            kept(*destination)
-        ),
+        } => format!("Yes, and switch to {mode} for this session"),
+        wire::Suggestion::AddDirectories { directories, .. } => {
+            let folders: Vec<&str> = directories.iter().map(String::as_str).collect();
+            format!(
+                "Yes, and always allow access to {} from this project",
+                listed(&folders)
+            )
+        }
         wire::Suggestion::Other => String::new(),
+    }
+}
+
+/// Rules as Claude Code writes them, `Tool(content)`, listed.
+fn rules_named(rules: &[wire::Rule]) -> String {
+    let named: Vec<String> = rules
+        .iter()
+        .map(|rule| match &rule.rule_content {
+            Some(content) => format!("{}({content})", rule.tool_name),
+            None => rule.tool_name.clone(),
+        })
+        .collect();
+    let named: Vec<&str> = named.iter().map(String::as_str).collect();
+    listed(&named)
+}
+
+/// Items in a sentence as Claude Code lists them: "a", "a and b", "a, b, and c".
+fn listed(items: &[&str]) -> String {
+    match items {
+        [] => String::new(),
+        [one] => (*one).to_owned(),
+        [first, second] => format!("{first} and {second}"),
+        [rest @ .., last] => format!("{}, and {last}", rest.join(", ")),
     }
 }
 
@@ -2650,6 +2703,53 @@ mod tests {
         let command = asked(ToolName::Bash, serde_json::json!({"command": "ls -l"}));
         assert_eq!(command.summary, "ls -l");
         assert_eq!(command.summary_reads_as, tools::Writing::Code);
+    }
+
+    /// A rule to remember is offered in the words of Claude Code's own dialog.
+    #[test]
+    fn a_rule_to_remember_reads_as_claude_codes_dialog_says_it() {
+        let cwd = Path::new("/work/app");
+        let label = |suggestion: serde_json::Value| {
+            let suggestion: wire::Suggestion =
+                serde_json::from_value(suggestion).expect("a suggestion");
+            always_label(&suggestion, cwd)
+        };
+        let bash = |content: &str| serde_json::json!({"toolName": "Bash", "ruleContent": content});
+        assert_eq!(
+            label(serde_json::json!({
+                "type": "addRules", "destination": "localSettings",
+                "rules": [bash("npm test:*")],
+            })),
+            "Yes, and don't ask again for npm test commands in /work/app"
+        );
+        assert_eq!(
+            label(serde_json::json!({
+                "type": "addRules", "destination": "session",
+                "rules": [bash("cargo build:*"), bash("cargo test:*"), bash("ls")],
+            })),
+            "Yes, and don't ask again for cargo build, cargo test, and ls commands in /work/app"
+        );
+        assert_eq!(
+            label(serde_json::json!({
+                "type": "addRules", "destination": "userSettings",
+                "rules": [{"toolName": "WebFetch", "ruleContent": "domain:docs.rs"}],
+            })),
+            "Yes, and don't ask again for docs.rs in any project (user settings)"
+        );
+        assert_eq!(
+            label(serde_json::json!({
+                "type": "setMode", "mode": "acceptEdits", "destination": "session",
+            })),
+            "Yes, and switch to accept edits (auto-approve file edits and common file commands) \
+             for this session"
+        );
+        assert_eq!(
+            label(serde_json::json!({
+                "type": "addDirectories", "destination": "session",
+                "directories": ["/srv/a", "/srv/b"],
+            })),
+            "Yes, and always allow access to /srv/a and /srv/b from this project"
+        );
     }
 
     /// The bar asks about an ACP agent's call by its kind, in the agent's own words for it.

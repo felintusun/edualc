@@ -949,6 +949,10 @@ pub enum IncomingRequest {
         #[serde(default)]
         description: String,
         tool_use_id: Option<ToolUseId>,
+        /// Claude Code asks that no rule be offered to remember: the one it would save is
+        /// broader than this request, or nothing is saved from the answer.
+        #[serde(default)]
+        suppress_always_allow_rule: bool,
     },
     #[serde(other)]
     Other,
@@ -980,6 +984,7 @@ impl IncomingRequest {
             permission_suggestions: offered.into_iter().collect(),
             description: String::new(),
             tool_use_id: None,
+            suppress_always_allow_rule: false,
         })
     }
 }

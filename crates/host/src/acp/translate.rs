@@ -433,6 +433,7 @@ impl Translator {
                 permission_suggestions: Vec::new(),
                 description: form.message,
                 tool_use_id: form.tool_call_id.map(ToolUseId::from),
+                suppress_always_allow_rule: false,
             },
         })]
     }
@@ -1755,6 +1756,7 @@ impl Translator {
                 permission_suggestions,
                 description: asked.tool_call.title.unwrap_or_default(),
                 tool_use_id: Some(ToolUseId::from(tool)),
+                suppress_always_allow_rule: false,
             },
         }));
         effects
