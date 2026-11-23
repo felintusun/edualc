@@ -6,7 +6,6 @@ use std::collections::{BTreeMap, HashMap};
 use crate::agent::Output;
 use crate::app::Event;
 use crate::decode;
-use crate::desktop::Opener;
 use crate::ipc::{self, Generation, ToDaemon};
 
 use crate::ipc::{
@@ -64,8 +63,6 @@ pub struct Greeting {
     pub live: Vec<LiveSession>,
     /// The settings, or why they can't be read.
     pub settings: Result<Settings, String>,
-    /// What folders open in, besides the window.
-    pub openers: Vec<Opener>,
     /// Other programs' windows can be found.
     pub finds_windows: bool,
     /// The window is on the daemon's machine (see `FromDaemon::Hello`).
@@ -97,7 +94,6 @@ pub fn greeted(hello: FromDaemon, hosted: FromDaemon) -> Result<Greeting, NotGre
     let FromDaemon::Hello {
         protocol,
         settings,
-        openers,
         live,
         finds_windows,
         local,
@@ -117,7 +113,6 @@ pub fn greeted(hello: FromDaemon, hosted: FromDaemon) -> Result<Greeting, NotGre
         hosted,
         live,
         settings,
-        openers,
         finds_windows,
         local,
         home,

@@ -1,8 +1,6 @@
-//! The desktop around the window: notifications, other programs' windows, and what a folder
-//! opens in.
+//! The desktop around the window: notifications, links, and other programs' windows.
 
 use std::io::Read;
-use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
@@ -23,105 +21,9 @@ use crate::external::niri;
 #[strum(serialize_all = "kebab-case")]
 pub enum Program {
     NotifySend,
-    XdgOpen,
-    /// Zed, as Arch and others name it.
-    Zeditor,
-    Zed,
-    Code,
-    Codium,
-    Ghostty,
-    Foot,
-    Alacritty,
-    Kitty,
-    Wezterm,
-    Konsole,
-    GnomeTerminal,
-    Claude,
     FcList,
     FcMatch,
     Gsettings,
-    Git,
-}
-
-/// Something a folder can be opened in.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub enum Opener {
-    Editor(Program),
-    Terminal(Program),
-    Files,
-}
-
-impl Opener {
-    pub fn label(self) -> String {
-        match self {
-            Self::Editor(Program::Zeditor | Program::Zed) => "Zed".into(),
-            Self::Editor(Program::Code) => "VS Code".into(),
-            Self::Editor(Program::Codium) => "VSCodium".into(),
-            Self::Editor(program) | Self::Terminal(program) => program.to_string(),
-            Self::Files => "File manager".into(),
-        }
-    }
-}
-
-/// What this machine has to open a folder in: Zed, VS Code, a terminal, the file manager.
-pub fn openers() -> Vec<Opener> {
-    let first =
-        |candidates: &[Program]| candidates.iter().copied().find(|program| on_path(*program));
-    let editors = [
-        &[Program::Zeditor, Program::Zed][..],
-        &[Program::Code, Program::Codium][..],
-    ];
-    let terminals = [
-        Program::Ghostty,
-        Program::Foot,
-        Program::Alacritty,
-        Program::Kitty,
-        Program::Wezterm,
-        Program::Konsole,
-        Program::GnomeTerminal,
-    ];
-    let mut found: Vec<Opener> = editors
-        .iter()
-        .filter_map(|names| first(names))
-        .map(Opener::Editor)
-        .collect();
-    found.extend(first(&terminals).map(Opener::Terminal));
-    if on_path(Program::XdgOpen) {
-        found.push(Opener::Files);
-    }
-    found
-}
-
-fn on_path(program: Program) -> bool {
-    let name = program.to_string();
-    std::env::var_os("PATH").is_some_and(|path| {
-        std::env::split_paths(&path).any(|dir: PathBuf| dir.join(&name).is_file())
-    })
-}
-
-/// Opens `folder` in `opener`, and waits for the program so it is reaped when it ends.
-pub fn open_in(opener: Opener, folder: &Path) -> Result<(), Error> {
-    let program = match opener {
-        Opener::Editor(program) | Opener::Terminal(program) => program,
-        Opener::Files => Program::XdgOpen,
-    };
-    let mut command = Command::new(program.to_string());
-    match opener {
-        // Terminals start where they are started.
-        Opener::Terminal(_) => command.current_dir(folder),
-        Opener::Editor(_) | Opener::Files => command.arg(folder),
-    };
-    let mut child = command
-        .spawn()
-        .map_err(|source| Error::Run { program, source })?;
-    match child.wait() {
-        Ok(status) if status.success() => Ok(()),
-        Ok(status) => Err(Error::Failed {
-            program,
-            stderr: format!("ended with {status}"),
-        }),
-        Err(source) => Err(Error::Run { program, source }),
-    }
 }
 
 /// Whether a link Claude wrote may open: a web page's, or mail. A file or another app's scheme
@@ -154,9 +56,8 @@ pub enum Error {
     NoWindow(u32),
 }
 
-/// How long a program edualc runs gets to end. Each is quick (`claude stop`, git's
-/// configuration, fonts, a notification): one that takes longer has hung, and is killed, with
-/// what it started, rather than holding its thread, and what waits on it, forever.
+/// How long a program edualc runs gets to end. Each is quick; one that takes longer has hung,
+/// and we kill it and what it started rather than hold its thread forever.
 pub(crate) const RUN_LIMIT: Duration = Duration::from_secs(30);
 
 /// How long what a program printed is waited for once it ended: a process it started may hold
@@ -165,12 +66,7 @@ const OUTPUT_GRACE: Duration = Duration::from_millis(500);
 
 /// Runs a program to its end, for at most [`RUN_LIMIT`]; what it printed, if it succeeded.
 pub fn run(program: Program, args: &[&str]) -> Result<Vec<u8>, Error> {
-    let name = if program == Program::Claude {
-        crate::claude::program()
-    } else {
-        program.to_string().into()
-    };
-    run_within(program, &name, args, RUN_LIMIT)
+    run_within(program, program.to_string().as_ref(), args, RUN_LIMIT)
 }
 
 /// Runs `name`, as `program`, for at most `limit`.
@@ -372,10 +268,10 @@ mod tests {
 
     #[test]
     fn a_program_run_gives_what_it_printed() {
-        let said = run_within(Program::Git, "echo".as_ref(), &["hello"], RUN_LIMIT);
+        let said = run_within(Program::NotifySend, "echo".as_ref(), &["hello"], RUN_LIMIT);
         assert_eq!(said.ok(), Some(b"hello\n".to_vec()));
         let failed = run_within(
-            Program::Git,
+            Program::NotifySend,
             "sh".as_ref(),
             &["-c", "echo no >&2; exit 3"],
             RUN_LIMIT,
@@ -388,7 +284,7 @@ mod tests {
         let limit = Duration::from_millis(300);
         let started = Instant::now();
         let hung = run_within(
-            Program::Claude,
+            Program::NotifySend,
             "sh".as_ref(),
             &["-c", "sleep 30 & wait"],
             limit,
@@ -396,13 +292,13 @@ mod tests {
         assert!(matches!(
             hung,
             Err(Error::TimedOut {
-                program: Program::Claude
+                program: Program::NotifySend
             })
         ));
         assert!(started.elapsed() < Duration::from_secs(2));
         let started = Instant::now();
         let left_open = run_within(
-            Program::Git,
+            Program::NotifySend,
             "sh".as_ref(),
             &["-c", "echo done; sleep 30 &"],
             limit,

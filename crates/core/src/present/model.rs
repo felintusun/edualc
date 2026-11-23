@@ -585,7 +585,6 @@ pub struct Session {
     pub can_go_to_window: bool,
     pub worktree_name: String,
     pub worktree_branch: String,
-    pub openers: Vec<String>,
 }
 
 /// The `Composer` global's state.

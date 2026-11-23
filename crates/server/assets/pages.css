@@ -112,8 +112,6 @@
 .dialog-label { color: var(--text-secondary); font-size: var(--small); margin-top: var(--space-xs); }
 .dialog-hint { margin: 0; overflow-wrap: anywhere; }
 .dialog-problem { color: var(--danger-text); font-size: var(--small); overflow-wrap: anywhere; }
-.dialog-check { display: flex; align-items: center; gap: var(--space-s); min-height: var(--control); cursor: pointer; }
-.dialog-check input { accent-color: var(--accent); width: 1.1em; height: 1.1em; }
 .dialog-actions { display: flex; justify-content: flex-end; gap: var(--space-s); margin-top: var(--space-s); }
 .dialog-row { display: flex; align-items: center; gap: var(--space-s); }
 .dialog-row .field { flex: 1; min-width: 0; }

@@ -334,14 +334,13 @@ mod tests {
         .expect("sent");
         let Some(FromDaemon::Hello {
             local,
-            openers,
             finds_windows,
             ..
         }) = says.recv().await
         else {
             panic!("the daemon greets the window");
         };
-        assert!(!local && !finds_windows && openers.is_empty());
+        assert!(!local && !finds_windows);
         drop(asks);
         window
             .await
@@ -1082,7 +1081,7 @@ mod tests {
     }
 
     #[test]
-    fn create_project_refuses_bad_inputs_and_initialises_when_asked() {
+    fn create_project_makes_a_new_folder_inside_an_existing_one() {
         let root = std::env::temp_dir().join(format!("edualc-create-proj-{}", std::process::id()));
         if root.exists() {
             std::fs::remove_dir_all(&root).expect("clean stale temp dir");
@@ -1092,20 +1091,17 @@ mod tests {
 
         let missing = root.join("missing-parent");
         assert_eq!(
-            create_project(&missing, &name("ok"), false),
+            create_project(&missing, &name("ok")),
             Err(CreateProjectError::NoParent(missing))
         );
 
-        let plain = create_project(&root, &name("plain-proj"), false).expect("creates folder");
+        let plain = create_project(&root, &name("plain-proj")).expect("creates folder");
         assert!(plain.is_dir());
         assert!(!plain.join(".git").exists());
         assert_eq!(
-            create_project(&root, &name("plain-proj"), false),
+            create_project(&root, &name("plain-proj")),
             Err(CreateProjectError::AlreadyExists(plain))
         );
-
-        let repo = create_project(&root, &name("git-proj"), true).expect("creates git repo");
-        assert!(repo.join(".git").is_dir());
 
         std::fs::remove_dir_all(&root).expect("clean temp dir");
     }

@@ -969,15 +969,6 @@ pub(super) fn apply_session(
     if old.is_none_or(|old| old.worktree_branch != new.worktree_branch) {
         global.set_worktree_branch(new.worktree_branch.to_slint(images));
     }
-    match old {
-        Some(old) if old.openers != new.openers => {
-            if let Some(model) = resync(&global.get_openers(), &old.openers, &new.openers, images) {
-                global.set_openers(model);
-            }
-        }
-        Some(_) => {}
-        None => global.set_openers(new.openers.to_slint(images)),
-    }
 }
 
 /// Brings the `Composer` global in line with `new`, setting what differs from `old` (all,

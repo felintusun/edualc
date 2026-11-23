@@ -203,11 +203,6 @@ fn model_name(model: &str) -> Result<&str, Error> {
     }
 }
 
-/// Whether `path` names an existing folder, for checks before a request is taken.
-pub fn is_folder(path: &Path) -> bool {
-    path.is_absolute() && path.is_dir()
-}
-
 impl From<Error> for crate::ipc::StartFailure {
     fn from(error: Error) -> Self {
         match error {

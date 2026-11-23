@@ -137,7 +137,7 @@ Opening `edualc` without a folder opens the start page:
 - **Filter:** type in the filter box, or press **Ctrl+K**, to narrow projects by name, path, or
   recent output.
 - **New project…** (**Ctrl+N** on the start page) makes a new folder in your projects folder (you
-  set it in Settings), starts a git repository there if you like, and opens a new session in it.
+  set it in Settings) and opens a new session in it.
   **Open a folder…** lets you pick any recent folder, or type a path.
 
 ## Sessions
@@ -258,8 +258,8 @@ prompt, as in the terminal.
 ## Worktrees
 
 When a session works in a git worktree (`claude --worktree`, or the EnterWorktree tool), the top bar
-shows the worktree's name and branch, and the session lists mark it. **Open in** offers this
-window, Zed, VS Code, a terminal or the file manager, whichever you have installed.
+shows the worktree's name and branch, and the session lists mark it. Click it to open the worktree
+in this window.
 
 ## The composer
 

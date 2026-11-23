@@ -160,7 +160,7 @@ impl<F: Frontend> App<F> {
         });
     }
 
-    pub(super) fn create_project(&mut self, parent: &str, typed: String, git: bool) {
+    pub(super) fn create_project(&mut self, parent: &str, typed: String) {
         let name = match ProjectName::try_from(typed) {
             Ok(name) => name,
             Err(refused) => {
@@ -178,7 +178,6 @@ impl<F: Frontend> App<F> {
             Act::CreateProject {
                 parent: parent_path,
                 name,
-                git,
             },
             Acting::CreatingProject,
         );

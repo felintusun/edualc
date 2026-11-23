@@ -93,12 +93,11 @@ export global Session {
     in property <bool> can-go-to-window;
     callback continue-here;
     callback go-to-window;
-    // The git worktree the session works in (empty if none), and what it can be opened in:
-    // the first entry is this window.
+    // The git worktree the session works in; empty if none.
     in property <string> worktree-name;
     in property <string> worktree-branch;
-    in property <[string]> openers;
-    callback open-worktree(int);
+    // Opens the worktree in this window.
+    callback open-worktree;
     // A web page, in the browser.
     callback open-url(string);
     // The text bigger (1), smaller (-1), or back to the desktop's size (0).
@@ -377,8 +376,8 @@ export global Nav {
     callback next-waiting;
     callback back;
     callback browse-new-project-parent;
-    // In the parent folder, by the name, starting a git repository or not.
-    callback create-project(string, string, bool);
+    // In the parent folder, by the name.
+    callback create-project(string, string);
     callback clear-new-project-error;
     callback toggle-pin-project(string);
     callback toggle-hide-project(string);

@@ -158,8 +158,7 @@ fn acted(events: &Sender<Event>, request: ActId, act: Act) {
         Act::ChangesLooked { .. } | Act::MarkReviewed { .. } | Act::UnmarkReviewed { .. } => {
             return;
         }
-        Act::OpenIn { .. }
-        | Act::OpenUrl(_)
+        Act::OpenUrl(_)
         | Act::Notify { .. }
         | Act::FocusWindowOf { .. }
         | Act::TrustForClaudeCode { .. } => Event::Acted {

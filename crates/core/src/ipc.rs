@@ -24,7 +24,7 @@ pub mod ws;
 pub use token::{Auth, Token};
 
 use crate::decode::{Picture, Refusal};
-use crate::desktop::{Opener, Program};
+use crate::desktop::Program;
 use crate::external::wire::TaskId;
 use crate::ids::SessionId;
 use crate::provider::Launch;
@@ -141,7 +141,7 @@ pub fn chunks(text: &str) -> impl Iterator<Item = &str> {
 
 /// Bumped with any change to the messages below, or to their framing: postcard isn't
 /// self-describing, so both ends must agree on every type.
-pub const PROTOCOL: u32 = 34;
+pub const PROTOCOL: u32 = 35;
 
 /// A window's key for a process it shows, new for each one: what an earlier one still says is
 /// dropped.
@@ -420,12 +420,11 @@ pub enum Answer {
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub enum FromDaemon {
-    /// With the settings (or why they can't be read), what folders open in here, and the
-    /// sessions running now. `Hosted` follows, before anything else.
+    /// With the settings (or why they can't be read) and the sessions running now. `Hosted`
+    /// follows, before anything else.
     Hello {
         protocol: u32,
         settings: Result<Settings, String>,
-        openers: Vec<Opener>,
         live: Vec<LiveSession>,
         /// Other programs' windows can be found (niri runs).
         finds_windows: bool,
@@ -696,8 +695,7 @@ impl ProjectName {
     }
 }
 
-/// Why the daemon didn't make a new project's folder. The reasons are the system's or git's
-/// own words.
+/// Why the daemon didn't make a new project's folder, the reasons in the system's own words.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, thiserror::Error)]
 #[serde(deny_unknown_fields)]
 pub enum CreateProjectError {
@@ -707,10 +705,6 @@ pub enum CreateProjectError {
     AlreadyExists(PathBuf),
     #[error("Couldn't make {folder}: {reason}")]
     Create { folder: PathBuf, reason: String },
-    #[error("Couldn't run git: {reason}")]
-    GitNotRun { reason: String },
-    #[error("git init failed: {stderr}")]
-    GitFailed { stderr: String },
     #[error("The daemon failed making the folder.")]
     Crashed,
     #[error("The browser demo makes no folders.")]
@@ -758,8 +752,6 @@ pub enum ActFailure {
     NoWindow(u32),
     #[error("finding a session's window needs niri (NIRI_SOCKET is unset)")]
     NoNiri,
-    #[error("{0} isn't a folder")]
-    NotAFolder(PathBuf),
     #[error("not opened: {0}\nOnly web links open from here; copy it to open it yourself.")]
     NotAWebLink(String),
     #[error("couldn't open {link}: {reason}")]
@@ -847,10 +839,6 @@ impl std::fmt::Debug for ApiKey {
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub enum Act {
-    OpenIn {
-        opener: Opener,
-        folder: PathBuf,
-    },
     /// A link from the conversation: only web pages and mail are opened.
     OpenUrl(String),
     /// The desktop's folder picker, for a folder to open; answered by `Picked`.
@@ -884,12 +872,10 @@ pub enum Act {
     RemoveApiKey,
     /// Whether the keyring holds a key; answered by `ApiKeyStored`.
     CheckApiKey,
-    /// Creates a new project folder inside `parent` and optionally runs `git init`; answered by
-    /// `FromDaemon::Created`.
+    /// Creates a new project folder inside `parent`; answered by `FromDaemon::Created`.
     CreateProject {
         parent: PathBuf,
         name: ProjectName,
-        git: bool,
     },
     /// You looked at a session's changes: "since you last looked" starts now. Not answered.
     ChangesLooked {
@@ -915,8 +901,7 @@ impl Act {
     #[must_use]
     pub fn needs_its_desktop(&self) -> bool {
         match self {
-            Self::OpenIn { .. }
-            | Self::OpenUrl(_)
+            Self::OpenUrl(_)
             | Self::PickFolder
             | Self::PasteImage
             | Self::Notify { .. }

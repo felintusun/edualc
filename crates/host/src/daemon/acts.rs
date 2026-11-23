@@ -11,7 +11,7 @@ use crate::desktop;
 use crate::ipc::{
     self, Act, ActFailure, ActId, CreateProjectError, FromDaemon, PasteFailure, ProjectName,
 };
-use crate::{files, spawn, trust};
+use crate::{files, trust};
 
 use super::{CLIPBOARD, MAX_CLIPBOARD_TYPES_BYTES, Reach, tell};
 
@@ -37,8 +37,7 @@ pub(super) async fn act_for(
                 .await
             }
             Act::PasteImage => tell_pasted(&outbox, request, &Err(PasteFailure::NoImage)).await,
-            Act::OpenIn { .. }
-            | Act::OpenUrl(_)
+            Act::OpenUrl(_)
             | Act::Notify { .. }
             | Act::FocusWindowOf { .. }
             | Act::CheckTrust { .. }
@@ -109,8 +108,7 @@ pub(super) async fn act_for(
             tell(&outbox, FromDaemon::Done { request, result }).await;
             return;
         }
-        act @ (Act::OpenIn { .. }
-        | Act::OpenUrl(_)
+        act @ (Act::OpenUrl(_)
         | Act::PickFolder
         | Act::PasteImage
         | Act::CheckTrust { .. }
@@ -122,9 +120,8 @@ pub(super) async fn act_for(
             return;
         }
     };
-    if let Act::CreateProject { parent, name, git } = act {
-        let created =
-            tokio::task::spawn_blocking(move || create_project(&parent, &name, git)).await;
+    if let Act::CreateProject { parent, name } = act {
+        let created = tokio::task::spawn_blocking(move || create_project(&parent, &name)).await;
         let result = created.unwrap_or_else(|error| {
             tracing::error!(%error, "making the project folder failed");
             Err(CreateProjectError::Crashed)
@@ -281,12 +278,6 @@ pub(super) async fn tell_pasted(
 /// Does what the desktop is asked (it may take a while: a session stopping elsewhere).
 pub(super) fn perform(act: Act) -> Result<(), ActFailure> {
     match act {
-        Act::OpenIn { opener, folder } => {
-            if !spawn::is_folder(&folder) {
-                return Err(ActFailure::NotAFolder(folder));
-            }
-            desktop::open_in(opener, &folder)?;
-        }
         Act::Notify { summary, body } => desktop::notify(&summary, &body)?,
         Act::OpenUrl(link) => {
             // Claude writes the links: a file or another app's scheme could run what it wrote.
@@ -333,12 +324,10 @@ pub(super) fn claude_trust_failure(error: &files::ClaudeTrustError) -> ActFailur
     ActFailure::ClaudeCodeTrust(words)
 }
 
-/// Makes a new project folder inside `parent`, running `git init` when `git` is set. A folder
-/// whose `git init` failed is removed again if it is still empty.
+/// Makes a new project folder inside `parent`.
 pub(super) fn create_project(
     parent: &Path,
     name: &ProjectName,
-    git: bool,
 ) -> Result<PathBuf, CreateProjectError> {
     if !parent.is_dir() {
         return Err(CreateProjectError::NoParent(parent.to_path_buf()));
@@ -354,31 +343,5 @@ pub(super) fn create_project(
             }
         }
     })?;
-    if !git {
-        return Ok(target);
-    }
-    let failed = match std::process::Command::new("git")
-        .arg("init")
-        .current_dir(&target)
-        .output()
-    {
-        Ok(output) if output.status.success() => return Ok(target),
-        Ok(output) => {
-            let stderr = String::from_utf8_lossy(&output.stderr).trim().to_owned();
-            CreateProjectError::GitFailed {
-                stderr: if stderr.is_empty() {
-                    output.status.to_string()
-                } else {
-                    stderr
-                },
-            }
-        }
-        Err(error) => CreateProjectError::GitNotRun {
-            reason: error.to_string(),
-        },
-    };
-    if let Err(cleanup) = std::fs::remove_dir(&target) {
-        tracing::debug!(%cleanup, folder = %target.display(), "the folder stays after git init failed");
-    }
-    Err(failed)
+    Ok(target)
 }

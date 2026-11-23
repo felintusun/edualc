@@ -387,14 +387,13 @@ fn Modal(
     }
 }
 
-/// A new project: a folder made by its name inside another, a git repository started in it or
-/// not. What is wrong with it is said here, the dialog still open; made, it closes.
+/// Shows the New project dialog; it stays open while the name is refused and closes once the
+/// folder is made.
 #[component]
 fn NewProject(onclose: EventHandler<()>) -> Element {
     let view = use_context::<View>();
     let mut name = use_signal(String::new);
     let mut parent = use_signal(|| view.nav.peek().new_project_parent.clone());
-    let mut git = use_signal(|| true);
     // Made since the dialog opened: it closes.
     use_bumped(|page| page.project_created, move || onclose.call(()));
     let submit = move || {
@@ -402,7 +401,6 @@ fn NewProject(onclose: EventHandler<()>) -> Element {
             view.act(Action::CreateProject {
                 parent: parent(),
                 name: name(),
-                git: git(),
             });
         }
     };
@@ -467,14 +465,6 @@ fn NewProject(onclose: EventHandler<()>) -> Element {
                     onkeydown: entered,
                 }
                 p { class: "caption dialog-hint", "edualc creates {inside}{slash}{named}" }
-                label { class: "dialog-check",
-                    input {
-                        r#type: "checkbox",
-                        checked: git(),
-                        onchange: move |event| git.set(event.checked()),
-                    }
-                    "Start a git repository"
-                }
                 div { class: "dialog-actions",
                     Button { onclick: move |_| onclose.call(()), "Cancel" }
                     Button { primary: true, disabled: !ready, onclick: move |_| submit(), "Create project" }

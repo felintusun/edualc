@@ -247,81 +247,24 @@ pub fn Header() -> Element {
     }
 }
 
-/// The git worktree the session works in, and its branch where that's named otherwise; its
-/// menu opens it here or elsewhere.
+/// Shows the session's git worktree and its branch, and opens the worktree when clicked.
 #[component]
 fn Worktree() -> Element {
     let view = use_context::<View>();
-    let mut open = use_signal(|| false);
     let session = view.session.read();
     let branch_differs =
         !session.worktree_branch.is_empty() && session.worktree_branch != session.worktree_name;
-    let mut close = move || {
-        open.set(false);
-        crate::web::dom::focus(WORKTREE);
-    };
     rsx! {
         div { class: "worktree",
             button {
                 id: WORKTREE,
                 class: "worktree-button",
-                "aria-haspopup": "menu",
-                "aria-expanded": "{open}",
-                onclick: move |_| open.toggle(),
-                onkeydown: move |event| {
-                    if event.key() == Key::ArrowDown && !open() {
-                        event.prevent_default();
-                        open.set(true);
-                    }
-                },
+                "aria-label": "Open the worktree {session.worktree_name}",
+                onclick: move |_| view.act(Action::OpenWorktree),
                 Icon { icon: Lucide::GitBranch, class: "small worktree-icon" }
                 span { class: "worktree-name", "{session.worktree_name}" }
                 if branch_differs {
                     span { class: "caption", "{session.worktree_branch}" }
-                }
-                Icon { icon: Lucide::ChevronDown, class: "small" }
-            }
-            if open() {
-                div { class: "menu-backdrop", onclick: move |_| open.set(false) }
-                div {
-                    class: "worktree-menu",
-                    role: "menu",
-                    "aria-label": "Open the worktree in",
-                    // Up and Down go through the openers; Esc closes the menu.
-                    onkeydown: move |event| {
-                        let key = event.key();
-                        if key == Key::ArrowDown || key == Key::ArrowUp {
-                            event.prevent_default();
-                            crate::web::dom::focus_next(key == Key::ArrowDown);
-                        } else if key == Key::Escape {
-                            event.prevent_default();
-                            event.stop_propagation();
-                            close();
-                        } else if key == Key::Tab {
-                            open.set(false);
-                        }
-                    },
-                    div { class: "caption worktree-menu-heading", "aria-hidden": "true",
-                        "Open the worktree in"
-                    }
-                    for (index, opener) in session.openers.iter().enumerate() {
-                        button {
-                            key: "{index}",
-                            class: "worktree-opener",
-                            role: "menuitem",
-                            tabindex: "-1",
-                            onmounted: move |event| async move {
-                                if index == 0 && event.set_focus(true).await.is_err() {
-                                    tracing::debug!("the worktree's menu took no focus");
-                                }
-                            },
-                            onclick: move |_| {
-                                view.act(Action::OpenWorktree(index));
-                                close();
-                            },
-                            "{opener}"
-                        }
-                    }
                 }
             }
         }

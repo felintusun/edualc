@@ -11,7 +11,6 @@ use async_channel::{Receiver, Sender};
 use crate::agent::{Agent, Output};
 use crate::chat::{Change, Chat, ImageKey};
 use crate::decode::{Picture, Pixels};
-use crate::desktop;
 use crate::external::wire::{self, ControlRequest, ToolName, TranscriptLine};
 use crate::folder::Folder;
 use crate::ids::{RequestId, SessionId};
@@ -332,7 +331,6 @@ pub enum Action {
     CreateProject {
         parent: String,
         name: String,
-        git: bool,
     },
     ClearNewProjectError,
     /// A folder typed into the list of folders, to open.
@@ -408,8 +406,8 @@ pub enum Action {
     StopAllTasks,
     SideToConversation,
     BranchSide,
-    /// Opens the session's worktree with the opener at this place in the menu (0: here).
-    OpenWorktree(usize),
+    /// Opens the session's worktree in this window.
+    OpenWorktree,
     Zoom(Zoom),
     /// The other look (Gruvbox or plain).
     SwitchLook,
@@ -1072,8 +1070,6 @@ pub struct App<F: Frontend> {
     /// The watch on the running sessions' records.
     records: Option<Watched>,
     side: SideChat,
-    /// What a worktree can be opened in here, as the menu lists them after "this window".
-    openers: Vec<desktop::Opener>,
     /// The session the frontend was last told it shows (`Command::SessionShown`).
     told_shown: Option<SessionId>,
     /// The window is on the daemon's machine (see `Desktop`).
@@ -1154,13 +1150,12 @@ impl<F: Frontend> App<F> {
             model,
         } = start;
         let Desktop {
-            openers,
             finds_windows,
             local,
             text_size: desktop_text_size,
             backends: available_backends,
         } = desktop_found;
-        let mut view = Presenter::new(frontend, &openers, finds_windows);
+        let mut view = Presenter::new(frontend, finds_windows);
         let (settings, settings_problem) = match settings {
             Ok(settings) => (settings, None),
             Err(problem) => {
@@ -1230,7 +1225,6 @@ impl<F: Frontend> App<F> {
             settings_problem,
             records: None,
             side: SideChat::default(),
-            openers,
             told_shown: None,
             local,
             settings,
@@ -1542,7 +1536,7 @@ impl<F: Frontend> App<F> {
                 Act::PickFolder,
                 Acting::Picking(PickingTarget::NewProjectParent),
             ),
-            Action::CreateProject { parent, name, git } => self.create_project(&parent, name, git),
+            Action::CreateProject { parent, name } => self.create_project(&parent, name),
             Action::ClearNewProjectError => self.view.set_new_project_error(""),
             Action::OpenProject(typed) => self.read_folder(Read::TypedFolder(typed), true),
             Action::BrowseProject => {
@@ -1603,7 +1597,7 @@ impl<F: Frontend> App<F> {
             Action::ClosePeek => self.close_peek(),
             Action::StopTask(task) => self.stop_task(task),
             Action::StopAllTasks => self.stop_all_tasks(),
-            Action::OpenWorktree(index) => self.open_worktree(index),
+            Action::OpenWorktree => self.open_worktree(),
             Action::ShowUsage => self.show_usage(),
             Action::RefreshUsage => self.refresh_usage(),
             Action::SelectUsageTab(index) => self.select_usage_tab(index),
@@ -1999,10 +1993,9 @@ impl<F: Frontend> App<F> {
                 Act::OpenUrl(url) => self.view.seat(Seat::OpenUrl(url)),
                 Act::Notify { summary, body } => self.view.seat(Seat::Notify { summary, body }),
                 Act::PasteImage => self.view.seat(Seat::PasteImage),
-                // Not on this desktop to do: editors, other programs' windows and a folder to
-                // pick are the daemon's machine's. A window doesn't offer them.
-                Act::OpenIn { .. }
-                | Act::PickFolder
+                // Other programs' windows and a folder to pick are the daemon's machine's; a
+                // window elsewhere doesn't offer them.
+                Act::PickFolder
                 | Act::FocusWindowOf { .. }
                 | Act::CheckTrust { .. }
                 | Act::CheckClaudeTrust { .. }
@@ -2215,7 +2208,6 @@ pub struct Start {
 /// What the desktop has and says: the daemon's word, and what the window's desktop says.
 #[derive(Debug)]
 pub struct Desktop {
-    openers: Vec<desktop::Opener>,
     /// Other programs' windows can be found, as the daemon says.
     finds_windows: bool,
     /// The window is on the daemon's machine: the daemon does what the desktop is asked.
@@ -2231,7 +2223,6 @@ impl Desktop {
     /// pixels.
     pub fn of(greeting: &link::Greeting, text_size: f32) -> Self {
         Self {
-            openers: greeting.openers.clone(),
             finds_windows: greeting.finds_windows,
             local: greeting.local,
             text_size,
@@ -2243,7 +2234,6 @@ impl Desktop {
     #[cfg(target_arch = "wasm32")]
     pub fn in_the_browser(text_size: f32) -> Self {
         Self {
-            openers: Vec::new(),
             finds_windows: false,
             local: true,
             text_size,
@@ -2359,7 +2349,6 @@ mod tests {
                 events,
                 link,
                 Desktop {
-                    openers: Vec::new(),
                     finds_windows: false,
                     text_size: 14.0,
                     backends: vec![provider::Backend::Claude],
@@ -3275,7 +3264,6 @@ mod tests {
                 events_tx,
                 link_tx,
                 Desktop {
-                    openers: Vec::new(),
                     finds_windows: false,
                     text_size: 14.0,
                     backends: vec![provider::Backend::Claude],
@@ -3469,7 +3457,6 @@ mod tests {
         test.send(Event::Action(Action::CreateProject {
             parent: "/tmp".to_owned(),
             name: " .. ".to_owned(),
-            git: true,
         }));
         assert!(
             !test
@@ -3485,7 +3472,6 @@ mod tests {
         test.send(Event::Action(Action::CreateProject {
             parent: "/tmp".to_owned(),
             name: " fresh-app ".to_owned(),
-            git: true,
         }));
         assert_eq!(test.latest_nav().new_project_error, "");
         let first_request = test
@@ -3494,12 +3480,11 @@ mod tests {
             .find_map(|msg| {
                 if let ToDaemon::Act {
                     request,
-                    act: Act::CreateProject { parent, name, git },
+                    act: Act::CreateProject { parent, name },
                 } = msg
                 {
                     assert_eq!(parent, Path::new("/tmp"));
                     assert_eq!(name.as_str(), "fresh-app");
-                    assert!(git);
                     Some(request)
                 } else {
                     None
@@ -3518,7 +3503,6 @@ mod tests {
         test.send(Event::Action(Action::CreateProject {
             parent: "/tmp".to_owned(),
             name: "fresh-app".to_owned(),
-            git: true,
         }));
         let second_request = test
             .drain_daemon()

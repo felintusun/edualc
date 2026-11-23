@@ -70,7 +70,7 @@ fn greet(outbox: &Sender<FromDaemon>) {
         FromDaemon::Hello {
             protocol: PROTOCOL,
             settings: Ok(settings),
-            openers: Vec::new(),
+
             live: demo::running(),
             finds_windows: false,
             local: false,
@@ -195,12 +195,10 @@ fn acted(outbox: &Sender<FromDaemon>, request: ActId, act: Act) {
                 .unwrap_or_default(),
             last: true,
         },
-        Act::OpenIn { .. } | Act::OpenUrl(_) | Act::Notify { .. } | Act::FocusWindowOf { .. } => {
-            FromDaemon::Done {
-                request,
-                result: Err(ActFailure::NotHere),
-            }
-        }
+        Act::OpenUrl(_) | Act::Notify { .. } | Act::FocusWindowOf { .. } => FromDaemon::Done {
+            request,
+            result: Err(ActFailure::NotHere),
+        },
         // The demo has no keyring to keep a key in.
         Act::CheckApiKey => FromDaemon::ApiKeyStored {
             request,

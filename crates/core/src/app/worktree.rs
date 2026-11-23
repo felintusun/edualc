@@ -1,5 +1,4 @@
-//! The worktree a session works in, and opening it: in this window, an editor, a terminal or
-//! the file manager.
+//! The worktree a session works in.
 
 use std::path::Path;
 
@@ -20,26 +19,13 @@ impl<F: Frontend> App<F> {
         }
     }
 
-    /// Opens the current worktree with the opener at `index` in the menu; 0 is this window.
-    pub(super) fn open_worktree(&mut self, index: usize) {
+    /// Opens the current worktree in this window.
+    pub(super) fn open_worktree(&mut self) {
         let Some(worktree) = self.current_worktree().cloned() else {
             return;
         };
-        let Some(opener_index) = index.checked_sub(1) else {
-            // A worktree may be gone since it was read.
-            self.read_folder(crate::ipc::Read::Folder(worktree.path), false);
-            return;
-        };
-        let Some(&opener) = self.openers.get(opener_index) else {
-            return;
-        };
-        self.ask_desktop(
-            crate::ipc::Act::OpenIn {
-                opener,
-                folder: worktree.path,
-            },
-            super::Acting::Desktop,
-        );
+        // We read the folder first: the worktree may be gone since it was read.
+        self.read_folder(crate::ipc::Read::Folder(worktree.path), false);
     }
 
     /// Looks for the worktree the session entered, as its transcript says after a turn.

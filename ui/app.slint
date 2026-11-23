@@ -2226,13 +2226,13 @@ export component AppWindow inherits Window {
                                             }
                                         }
                                     }
-                                    if Session.worktree-name != "": worktree := Pressable {
+                                    if Session.worktree-name != "": Pressable {
                                         height: Theme.chip;
                                         border-radius: Theme.radius-m;
                                         border-width: 1px;
                                         border-color: Theme.divider;
-                                        accessible-label: "Worktree " + Session.worktree-name;
-                                        clicked => { openers.show(); }
+                                        accessible-label: "Open the worktree " + Session.worktree-name;
+                                        clicked => { Session.open-worktree(); }
                                         HorizontalLayout {
                                             padding-left: Theme.space-s;
                                             padding-right: Theme.space-s;
@@ -2258,55 +2258,6 @@ export component AppWindow inherits Window {
                                                 overflow: elide;
                                                 min-width: 0px;
                                                 max-width: 8rem;
-                                            }
-                                            Icon {
-                                                source: @image-url("@lucide/chevron-down.svg");
-                                                width: Theme.icon-small;
-                                                y: (parent.height - self.height) / 2;
-                                            }
-                                        }
-                                        openers := PopupWindow {
-                                            x: max(-worktree.absolute-position.x + Theme.space-s, min(0px, worktree.width - self.width));
-                                            y: worktree.height + Theme.space-xs;
-                                            width: 220px;
-                                            height: menu.preferred-height;
-                                            close-policy: close-on-click-outside;
-                                            FocusScope {
-                                                init => { self.focus(); }
-                                                key-pressed(event) => {
-                                                    if event.text == Key.Escape {
-                                                        openers.close();
-                                                        return accept;
-                                                    }
-                                                    return reject;
-                                                }
-                                            }
-                                            Rectangle {
-                                                background: Theme.surface;
-                                                border-radius: Theme.radius-m;
-                                                border-width: 1px;
-                                                border-color: Theme.divider;
-                                                drop-shadow-blur: 12px;
-                                                drop-shadow-color: Theme.shadow;
-                                                menu := VerticalLayout {
-                                                    padding: Theme.space-xs;
-                                                    Caption {
-                                                        text: "Open the worktree in";
-                                                    }
-                                                    for opener[index] in Session.openers: Pressable {
-                                                        height: Theme.control;
-                                                        clicked => {
-                                                            Session.open-worktree(index);
-                                                            openers.close();
-                                                        }
-                                                        Text {
-                                                            x: Theme.space-s;
-                                                            text: opener;
-                                                            color: Theme.text;
-                                                            vertical-alignment: center;
-                                                        }
-                                                    }
-                                                }
                                             }
                                         }
                                     }

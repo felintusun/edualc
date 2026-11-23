@@ -1,4 +1,4 @@
-// Making a new project: a folder, with a git repository in it if you like.
+// Making a new project folder.
 
 import { ScrollView } from "std-widgets.slint";
 import { Theme } from "theme.slint";
@@ -11,7 +11,6 @@ export component NewProjectDialog inherits Rectangle {
 
     property <string> project-name;
     property <string> saved-parent: Nav.new-project-parent;
-    property <bool> git-init: true;
     property <int> created: Nav.created-serial;
     property <bool> can-create: root.project-name != "" && parent-field.text != "";
 
@@ -20,7 +19,7 @@ export component NewProjectDialog inherits Rectangle {
 
     function submit() {
         if root.can-create {
-            Nav.create-project(parent-field.text, root.project-name, root.git-init);
+            Nav.create-project(parent-field.text, root.project-name);
         }
     }
 
@@ -142,37 +141,6 @@ export component NewProjectDialog inherits Rectangle {
                     // name.
                     wrap: char-wrap;
                     min-width: 0px;
-                }
-
-                Rectangle { height: Theme.space-xs; }
-
-                Pressable {
-                    selected: root.git-init;
-                    accessible-role: checkbox;
-                    accessible-checkable: true;
-                    accessible-checked: root.git-init;
-                    accessible-label: "Start a git repository";
-                    clicked => { root.git-init = !root.git-init; }
-                    HorizontalLayout {
-                        padding: Theme.space-s;
-                        padding-left: Theme.space-m;
-                        spacing: Theme.space-s;
-                        Icon {
-                            source: root.git-init ? @image-url("@lucide/square-check.svg") : @image-url("@lucide/square.svg");
-                            tint: root.git-init ? Theme.accent : Theme.text-tertiary;
-                            width: Theme.icon-small;
-                            y: (parent.height - self.height) / 2;
-                        }
-                        Text {
-                            text: "Start a git repository";
-                            color: Theme.text;
-                            vertical-alignment: center;
-                            horizontal-stretch: 1;
-                            min-width: 0px;
-                            wrap: word-wrap;
-                            accessible-role: none;
-                        }
-                    }
                 }
             }
         }

@@ -24,7 +24,6 @@ use crate::app::{
 use crate::chat::{Chat, ImageKey};
 use crate::cjk::{CjkLanguage, CjkText, Standing};
 use crate::decode::{Picture, Pixels};
-use crate::desktop::Opener;
 use crate::grouping::Grouping;
 use crate::ids::RequestId;
 use crate::ipc::Runs;
@@ -96,13 +95,9 @@ pub struct Presenter<F: Frontend> {
 }
 
 impl<F: Frontend> Presenter<F> {
-    pub fn new(frontend: F, openers: &[Opener], finds_windows: bool) -> Self {
-        let openers: Vec<String> = std::iter::once("This window".to_owned())
-            .chain(openers.iter().map(|opener| opener.label()))
-            .collect();
+    pub fn new(frontend: F, finds_windows: bool) -> Self {
         let session = model::Session {
             can_go_to_window: finds_windows,
-            openers,
             limit_five_hour: -1.0,
             limit_seven_day: -1.0,
             title: "New session".to_owned(),
@@ -922,7 +917,7 @@ mod tests {
                 description: String::new(),
             },
         });
-        let mut presenter = Presenter::new(NavSpy::default(), &[], false);
+        let mut presenter = Presenter::new(NavSpy::default(), false);
         presenter.render_prompt(&asks, Path::new("/work/app"), Backend::Claude);
         let prompt = &presenter.prompt;
         assert_eq!(
@@ -987,7 +982,7 @@ mod tests {
                 ],
             },
         });
-        let mut presenter = Presenter::new(NavSpy::default(), &[], false);
+        let mut presenter = Presenter::new(NavSpy::default(), false);
         presenter.render_prompt(&asks, cwd, Backend::Opencode);
         let prompt = &presenter.prompt;
         assert_eq!(
@@ -1151,7 +1146,7 @@ mod tests {
 
     #[test]
     fn nav_and_overview_push_only_when_changed() {
-        let mut presenter = Presenter::new(NavSpy::default(), &[], false);
+        let mut presenter = Presenter::new(NavSpy::default(), false);
         let id = SessionId::try_from("ee79c043-bfa7-44c0-82b6-509839a05c22".to_owned())
             .expect("session id");
         let built = overview::Built {
@@ -1203,7 +1198,7 @@ mod tests {
 
     #[test]
     fn acp_plan_mode_and_plan_prompt_name_the_agent() {
-        let mut presenter = Presenter::new(NavSpy::default(), &[], false);
+        let mut presenter = Presenter::new(NavSpy::default(), false);
         let offered: Vec<wire::ProgramMode> = serde_json::from_value(serde_json::json!([
             {"id": "build", "name": "Build", "description": ""},
             {"id": "plan", "name": "Plan", "description": ""}

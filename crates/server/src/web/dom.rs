@@ -49,17 +49,3 @@ pub fn grab_focus_at_end(id: &str) {
 pub fn reveal(id: &str) {
     on_drawn(id, "element.scrollIntoView({ block: 'nearest' });");
 }
-
-/// Moves the focus to the next of a menu's items (`forward`) or the one before, staying at the
-/// ends.
-pub fn focus_next(forward: bool) {
-    let step = if forward {
-        "nextElementSibling"
-    } else {
-        "previousElementSibling"
-    };
-    document::eval(&format!(
-        "const next = document.activeElement?.{step};
-        if (next && next.getAttribute('role') === 'menuitem') {{ next.focus(); }}"
-    ));
-}

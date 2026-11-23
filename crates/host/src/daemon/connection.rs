@@ -6,7 +6,6 @@ use std::path::PathBuf;
 
 use tokio::sync::mpsc;
 
-use crate::desktop;
 use crate::ids::SessionId;
 use crate::ipc::{
     self, Act, ActId, Deframer, FromDaemon, Generation, HostedId, StartFailure, ToDaemon,
@@ -81,25 +80,18 @@ pub(super) async fn window_over(
     match tokio::time::timeout(HELLO, requests.recv()).await {
         Ok(Some(ToDaemon::Hello { protocol })) => {
             let local = reach == Reach::Local;
-            let (settings, openers, live, backends) = tokio::task::spawn_blocking(move || {
+            let (settings, live, backends) = tokio::task::spawn_blocking(move || {
                 (
                     settings::load().map_err(|error| error.to_string()),
-                    // Editors and windows are the desktop's the window is on.
-                    if local {
-                        desktop::openers()
-                    } else {
-                        Vec::new()
-                    },
                     sessions::live(),
                     crate::usage::available_backends(),
                 )
             })
             .await
-            .unwrap_or_else(|error| (Err(error.to_string()), Vec::new(), Vec::new(), Vec::new()));
+            .unwrap_or_else(|error| (Err(error.to_string()), Vec::new(), Vec::new()));
             let answer = FromDaemon::Hello {
                 protocol: ipc::PROTOCOL,
                 settings,
-                openers,
                 live,
                 finds_windows: local && std::env::var_os("NIRI_SOCKET").is_some(),
                 local,

@@ -140,7 +140,7 @@ pub(crate) fn wire(window: &AppWindow, events: &Sender<Event>) {
     usage.on_close(actions.on(|| Action::HideUsage));
     usage.on_refresh(actions.on(|| Action::RefreshUsage));
     usage.on_select_tab(actions.on_index(Action::SelectUsageTab));
-    session.on_open_worktree(actions.on_index(Action::OpenWorktree));
+    session.on_open_worktree(actions.on(|| Action::OpenWorktree));
     session.on_switch_look(actions.on(|| Action::SwitchLook));
     session.on_syntax_colours_changed(actions.on(|| Action::RecolourCode));
     window.global::<Preferences>().on_choose_send_key({
@@ -301,11 +301,10 @@ pub(crate) fn wire(window: &AppWindow, events: &Sender<Event>) {
     nav.on_browse_new_project_parent(actions.on(|| Action::BrowseNewProjectParent));
     nav.on_create_project({
         let actions = actions.clone();
-        move |parent, name, git| {
+        move |parent, name| {
             actions.send(Action::CreateProject {
                 parent: parent.into(),
                 name: name.into(),
-                git,
             });
         }
     });
