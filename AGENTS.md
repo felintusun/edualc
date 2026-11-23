@@ -58,7 +58,21 @@ docs/, never only in one agent's own memory: the other agent can't see it there.
 
 ## Text
 
-- Docs, interface text and comments are plain English to "you". Comments say why, not what the
-  code does.
+- Docs and interface text are plain English to "you".
 - Write little. No bold-led bullet lists, no image grids, no selling ("powerful", "seamless").
   The README stays short; how a feature works goes in `docs/features.md`.
+
+### Comments
+
+Written as in the kernel's Rust code, curl, tokio and rustls:
+
+- A module's `//!` header says what the module is for, in a line or two. A title will do.
+- An item's doc is one line that starts with a verb: "Returns the session's folder." Write more
+  only for an invariant, a safety contract or a trap the caller must know.
+- Trait impls, tests, and items whose name says it all get no doc.
+- A comment in a function body says why, warns of a trap, or quotes what it follows (a spec, a
+  program's version): "Claude Code 2.1.316 begins a denied call's result this way."
+- "We" for the code's reasoning: "We drop the line here; the hub ends the session."
+- Tags: `SAFETY:`, `INVARIANT:`, `TODO:` with its reason and when it can go.
+- Never: restating the code or the name, narrating a change, justifying an edit, chains of
+  colons and parentheses.
