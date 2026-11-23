@@ -189,15 +189,15 @@ fn spawn_acp(
     })
 }
 
-/// A model's name or alias as the CLI takes them (`opus`, `claude-sonnet-5-5[1m]`): nothing
-/// that could be read as more than that.
+/// A model's name or alias as the programs take them (`opus`, `claude-sonnet-5-5[1m]`,
+/// opencode's `opencode/big-pickle`): nothing that could be read as more than that.
 fn model_name(model: &str) -> Result<&str, Error> {
     let fits = !model.is_empty()
         && model.len() <= 100
         && !model.starts_with('-')
         && model
             .chars()
-            .all(|character| character.is_ascii_alphanumeric() || "._:-[]".contains(character));
+            .all(|character| character.is_ascii_alphanumeric() || "._:-[]/".contains(character));
     if fits {
         Ok(model)
     } else {
@@ -232,6 +232,7 @@ mod tests {
     fn only_model_names_pass() {
         assert!(model_name("opus").is_ok());
         assert!(model_name("claude-sonnet-5-5[1m]").is_ok());
+        assert!(model_name("opencode/big-pickle").is_ok());
         assert!(model_name("--dangerously-skip-permissions").is_err());
         assert!(model_name("haiku; rm -rf ~").is_err());
         assert!(model_name("").is_err());
