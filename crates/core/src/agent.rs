@@ -69,8 +69,8 @@ pub enum Event {
         parent_tool_use_id: Option<ToolUseId>,
         error: Option<AssistantError>,
     },
-    /// An ACP agent's tool call, new or changed, as the agent gives it. Its result comes as
-    /// a tool result for its id.
+    /// An ACP agent's tool call, new or changed, as the agent gives it, its status and output
+    /// included.
     ToolCall {
         id: ToolUseId,
         call: AcpCall,

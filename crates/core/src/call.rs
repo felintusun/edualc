@@ -35,6 +35,20 @@ pub struct AcpCall {
     pub diffs: Vec<Diff>,
     /// Its arguments, as the agent gave them.
     pub input: Option<Value>,
+    pub status: AcpStatus,
+    /// What it printed or said, if it has.
+    pub output: Option<String>,
+}
+
+/// Where an ACP agent's call is, by ACP's statuses: a call the agent hasn't said one for is
+/// pending.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AcpStatus {
+    Pending,
+    InProgress,
+    Completed,
+    Failed,
 }
 
 /// What an ACP agent's call does, by ACP's kinds of tool.
@@ -135,6 +149,8 @@ mod tests {
             locations: Vec::new(),
             diffs,
             input: None,
+            status: AcpStatus::InProgress,
+            output: None,
         }
     }
 

@@ -756,7 +756,7 @@ mod tests {
     /// title doesn't name, a command without its folder, an edit with the change it makes.
     #[test]
     fn an_acp_call_reads_as_the_agent_gives_it() {
-        use crate::call::{AcpCall, AcpKind, Diff};
+        use crate::call::{AcpCall, AcpKind, AcpStatus, Diff};
         let cwd = Path::new("/work");
         let call = |name: &str, title: &str, kind, location: &str, diffs| AcpCall {
             name: Some(name.to_owned()),
@@ -765,6 +765,8 @@ mod tests {
             locations: vec![PathBuf::from(location)],
             diffs,
             input: Some(json!({ "path": "notes.txt" })),
+            status: AcpStatus::Completed,
+            output: None,
         };
         let read = describe_acp(
             &call("read", "read", AcpKind::Read, "/work/notes.txt", Vec::new()),

@@ -9,7 +9,7 @@ use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::call::AcpKind;
+use crate::call::{AcpKind, AcpStatus};
 use crate::external::wire::MediaType;
 
 /// A line from the agent: its answer to a request of ours, a request of its own, or news.
@@ -294,6 +294,17 @@ impl From<ToolKind> for AcpKind {
             ToolKind::Think => Self::Think,
             ToolKind::Fetch => Self::Fetch,
             ToolKind::Other => Self::Other,
+        }
+    }
+}
+
+impl From<ToolStatus> for AcpStatus {
+    fn from(status: ToolStatus) -> Self {
+        match status {
+            ToolStatus::Pending => Self::Pending,
+            ToolStatus::InProgress => Self::InProgress,
+            ToolStatus::Completed => Self::Completed,
+            ToolStatus::Failed => Self::Failed,
         }
     }
 }

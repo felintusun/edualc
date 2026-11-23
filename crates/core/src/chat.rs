@@ -6,7 +6,7 @@ use std::collections::{HashMap, HashSet};
 
 use serde_json::{Map, Value};
 
-use crate::call::{AcpCall, Call};
+use crate::call::{AcpCall, AcpStatus, Call};
 use crate::decode::Picture;
 use crate::external::wire::DENIED;
 use crate::external::wire::{
@@ -373,25 +373,37 @@ impl Chat {
         }
     }
 
-    /// An ACP agent's tool call, new or changed: it runs until its result comes.
+    /// An ACP agent's tool call, new or changed, its result in it once it has ended. A call
+    /// the user denied stays denied, however the agent ends it.
     pub fn acp_call(&mut self, id: &ToolUseId, call: &AcpCall, parent: Option<&ToolUseId>) {
+        let state_after = |state| match (call.status, state) {
+            (_, ToolState::Denied) => ToolState::Denied,
+            (AcpStatus::Completed, _) => ToolState::Done,
+            (AcpStatus::Failed, _) => ToolState::Failed,
+            (AcpStatus::Pending | AcpStatus::InProgress, ToolState::Streaming) => {
+                ToolState::Running
+            }
+            (AcpStatus::Pending | AcpStatus::InProgress, state) => state,
+        };
+        let output = call.output.clone().unwrap_or_default();
         match self.tool_mut(id) {
             Some((index, tool)) => {
-                let changed = !matches!(&tool.call, Call::Acp(shown) if shown == call);
-                if changed {
-                    tool.call = Call::Acp(call.clone());
+                let state = state_after(tool.state);
+                if matches!(&tool.call, Call::Acp(shown) if shown == call) && tool.state == state {
+                    return;
                 }
-                let started = tool.state == ToolState::Streaming;
-                if started {
-                    tool.state = ToolState::Running;
-                }
-                if changed || started {
-                    self.changes.push(Change::Updated(index));
-                }
+                tool.call = Call::Acp(call.clone());
+                tool.output = output;
+                tool.state = state;
+                self.changes.push(Change::Updated(index));
             }
             None => {
-                let call = Call::Acp(call.clone());
-                self.push_tool(id, call, ToolState::Running, parent.is_some());
+                let shown = Call::Acp(call.clone());
+                let state = state_after(ToolState::Running);
+                self.push_tool(id, shown, state, parent.is_some());
+                if let Some((_, tool)) = self.tool_mut(id) {
+                    tool.output = output;
+                }
             }
         }
     }
@@ -1186,6 +1198,37 @@ mod tests {
         chat.user_message(&result, Origin::Live);
         assert_eq!(first_tool(&chat).output, "a.txt");
         assert_eq!(first_tool(&chat).state, ToolState::Done);
+    }
+
+    /// An ACP agent's call ends as the agent says, with what it printed; one the user denied
+    /// stays denied, though the agent says it failed.
+    #[test]
+    fn an_acp_call_ends_with_its_own_update() {
+        let call = |status, output: Option<&str>| AcpCall {
+            name: Some("run_command".to_owned()),
+            title: "wc -l notes.txt".to_owned(),
+            kind: None,
+            locations: Vec::new(),
+            diffs: Vec::new(),
+            input: None,
+            status,
+            output: output.map(str::to_owned),
+        };
+        let id = ToolUseId::from("c1".to_owned());
+        let mut chat = Chat::default();
+        chat.acp_call(&id, &call(AcpStatus::InProgress, None), None);
+        assert_eq!(first_tool(&chat).state, ToolState::Running);
+        chat.acp_call(&id, &call(AcpStatus::Completed, Some("3 notes.txt")), None);
+        assert_eq!(
+            (first_tool(&chat).state, first_tool(&chat).output.as_str()),
+            (ToolState::Done, "3 notes.txt")
+        );
+
+        let mut chat = Chat::default();
+        chat.acp_call(&id, &call(AcpStatus::Pending, None), None);
+        chat.set_tool_state(&id, ToolState::Denied);
+        chat.acp_call(&id, &call(AcpStatus::Failed, None), None);
+        assert_eq!(first_tool(&chat).state, ToolState::Denied);
     }
 
     fn said(chat: &mut Chat, content: Value, origin: Origin) {

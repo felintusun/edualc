@@ -18,7 +18,7 @@ use serde_json::{Map, Value};
 
 use crate::agent::{Command, Event};
 use crate::app::Mode;
-use crate::call::{AcpCall, AcpKind, Call, Diff};
+use crate::call::{AcpCall, AcpKind, AcpStatus, Call, Diff};
 use crate::external::acp::{
     self, AgentMethod, AgyArguments, AvailableCommand, Change, Chunk, ConfigOption, Incoming,
     Notified, OpencodeArguments, OpencodeQuestionOption, OptionKind, PermissionAsked, PlanEntry,
@@ -1577,12 +1577,16 @@ impl Translator {
             };
             failed.map(|failed| {
                 shown.done = true;
+                // An ACP agent's call has its result in it, sent as it changed.
+                let Call::Named { .. } = shown.drawn else {
+                    return None;
+                };
                 let text = match (&shown.told, shown.denied) {
                     (_, true) => DENIED.to_owned(),
                     (Some(told), false) => told.clone(),
                     (None, false) => result_text(&shown.call, failed),
                 };
-                (text, failed || shown.denied)
+                Some((text, failed || shown.denied))
             })
         };
         let id = ToolUseId::from(call.tool_call_id.clone());
@@ -1606,14 +1610,16 @@ impl Translator {
             })),
             None => {}
         }
-        let Some((text, is_error)) = finished else {
+        let Some(result) = finished else {
             return effects;
         };
-        effects.extend(tool_result_effects(
-            call.tool_call_id.clone(),
-            text,
-            is_error,
-        ));
+        if let Some((text, is_error)) = result {
+            effects.extend(tool_result_effects(
+                call.tool_call_id.clone(),
+                text,
+                is_error,
+            ));
+        }
         effects.extend(self.subagents());
         self.turn_tools += 1;
         if self.agent.reports_quotas() && self.turn_tools.is_multiple_of(5) {
@@ -2295,6 +2301,8 @@ fn acp_call(call: &ToolCall) -> AcpCall {
             })
             .collect(),
         input: call.raw_input.clone(),
+        status: call.status.map_or(AcpStatus::Pending, AcpStatus::from),
+        output: output_of(call),
     }
 }
 
@@ -2418,7 +2426,13 @@ fn as_known(known: &KnownCall, raw: Value) -> (ToolName, Value) {
 }
 
 /// What a finished tool call gave, as text.
+/// The result of a call the window knows by its name, as Claude Code's tools give one.
 fn result_text(call: &ToolCall, failed: bool) -> String {
+    output_of(call).unwrap_or_else(|| if failed { "Failed." } else { "Done." }.to_owned())
+}
+
+/// What a call printed or said: its text, else the output its raw result gives.
+fn output_of(call: &ToolCall) -> Option<String> {
     let mut parts: Vec<String> = Vec::new();
     for content in call.content.iter().flatten() {
         match content {
@@ -2441,10 +2455,7 @@ fn result_text(call: &ToolCall, failed: bool) -> String {
     {
         parts.push(printed.output);
     }
-    if parts.is_empty() {
-        return if failed { "Failed." } else { "Done." }.to_owned();
-    }
-    parts.join("\n")
+    (!parts.is_empty()).then(|| parts.join("\n"))
 }
 
 #[cfg(test)]
@@ -2842,11 +2853,11 @@ mod tests {
         assert_eq!(init.get("session_id"), Some(&json!(agys.as_str())));
     }
 
-    /// The call among the window's lines, as the agent gave it.
+    /// The call among the window's lines, as the agent last gave it.
     fn call_of(window: &[Value]) -> AcpCall {
         let call = window
             .iter()
-            .find(|line| line.get("type") == Some(&json!("tool_call")))
+            .rfind(|line| line.get("type") == Some(&json!("tool_call")))
             .and_then(|line| line.get("call"))
             .cloned()
             .expect("a tool call");
@@ -2854,7 +2865,7 @@ mod tests {
     }
 
     /// A turn reads as Claude Code's: init, streamed text, the assistant message, the tool
-    /// call as the agent gave it, its result, then the result of the turn.
+    /// call as the agent gave it and again with its result, then the result of the turn.
     #[test]
     fn a_turn_reads_as_claude_codes() {
         let mut translator = opened();
@@ -2894,7 +2905,7 @@ mod tests {
                 "stream_event:content_block_stop",
                 "assistant",
                 "tool_call",
-                "user",
+                "tool_call",
                 "stream_event:message_start",
                 "stream_event:content_block_start",
                 "stream_event:content_block_delta",
@@ -2907,6 +2918,8 @@ mod tests {
         assert_eq!(call.title, "wc -l notes.txt");
         assert_eq!(call.name.as_deref(), Some("run_command"));
         assert_eq!(call.kind, Some(AcpKind::Execute));
+        assert_eq!(call.status, AcpStatus::Completed);
+        assert_eq!(call.output.as_deref(), Some("3 notes.txt"));
         let result = window.last().expect("the result");
         assert_eq!(result.get("result"), Some(&json!("Let me count.Three.")));
         assert_eq!(result.get("is_error"), Some(&json!(false)));
@@ -3010,6 +3023,8 @@ mod tests {
                     new_text: "TWO".to_owned(),
                 }],
                 input: Some(json!({"path": "notes.txt"})),
+                status: AcpStatus::Pending,
+                output: None,
             })
         );
     }
@@ -3037,8 +3052,8 @@ mod tests {
         );
     }
 
-    /// agy's permission request is asked in the window; the answer picks agy's option, and a
-    /// denied call's result says it was denied, as Claude Code's does.
+    /// agy's permission request is asked in the window; the answer picks agy's option, and the
+    /// denied call ends as agy ends it (the window knows it denied it).
     #[test]
     fn permissions_go_through_the_window() {
         let mut translator = opened();
@@ -3076,12 +3091,7 @@ mod tests {
         let failed = translator.agent_said(
             r#"{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"s","update":{"sessionUpdate":"tool_call_update","toolCallId":"c2","status":"failed","content":[]}}}"#,
         );
-        assert_eq!(
-            window_lines(&failed)
-                .first()
-                .and_then(|line| line.pointer("/message/content/0/content")),
-            Some(&json!(DENIED))
-        );
+        assert_eq!(call_of(&window_lines(&failed)).status, AcpStatus::Failed);
     }
 
     /// The prompt goes to the agent as ACP names its parts: text as `text`, an image with its
@@ -4116,8 +4126,8 @@ mod tests {
         );
     }
 
-    /// What an update adds to a call shown reaches the window as the call, changed; its end
-    /// as its result.
+    /// What an update adds to a call shown reaches the window as the call, changed, its end
+    /// included.
     #[test]
     fn a_calls_update_shows_what_it_adds() {
         let mut translator = opened_with(Agent::Opencode);
@@ -4131,8 +4141,10 @@ mod tests {
             r#"{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"s","update":{"sessionUpdate":"tool_call_update","toolCallId":"c1","status":"completed","locations":[{"path":"/w/a.rs"}]}}}"#,
         );
         let window = window_lines(&updated);
-        assert_eq!(kinds(&window), ["tool_call", "user"]);
-        assert_eq!(call_of(&window).locations, [PathBuf::from("/w/a.rs")]);
+        assert_eq!(kinds(&window), ["tool_call"]);
+        let call = call_of(&window);
+        assert_eq!(call.locations, [PathBuf::from("/w/a.rs")]);
+        assert_eq!((call.status, call.output), (AcpStatus::Completed, None));
     }
 
     #[test]

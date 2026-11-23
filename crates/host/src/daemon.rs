@@ -2279,6 +2279,8 @@ mod tests {
                 locations: vec![PathBuf::from("/p/b.rs")],
                 diffs: Vec::new(),
                 input: None,
+                status: crate::call::AcpStatus::Completed,
+                output: None,
             },
             parent_tool_use_id: None,
         });

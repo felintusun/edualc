@@ -2636,6 +2636,8 @@ mod tests {
             locations: vec![std::path::PathBuf::from(location)],
             diffs: Vec::new(),
             input: None,
+            status: crate::call::AcpStatus::Pending,
+            output: None,
         };
         let cwd = Path::new("/work");
         let command = acp_prompt(
