@@ -8,7 +8,7 @@ const GENERATED: &str =
 // rather than editing this file.
 ";
 
-/// Fields the Slint window draws in its own way, by functions of `ui/mod.rs`: a text block's
+/// Fields the Slint window draws in its own way, by functions of `ui.rs`: a text block's
 /// paragraphs, which Slint draws with no space between them, and a code block's colours, which
 /// code that only grew keeps until it is coloured again.
 const DRAWN_BY_THE_WINDOW: [(&str, &str); 1] = [("MdBlock", "body")];

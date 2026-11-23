@@ -97,6 +97,8 @@ redundant_closure_for_method_calls = "deny"
 derive_partial_eq_without_eq = "deny"
 bool_to_int_with_if = "deny"
 disallowed_types = "deny"
+# A module with children is `name.rs` beside its `name/` folder, never `name/mod.rs`.
+mod_module_files = "deny"
 
 # Thin LTO across crates, in parallel: most of fat LTO's gain, without its serial link of all of
 # Slint in one unit, which takes several GB and long minutes (in CI, and in a makepkg on a laptop).
