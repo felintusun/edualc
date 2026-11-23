@@ -124,7 +124,7 @@ pub enum Command {
     Quit,
     /// The session the window shows now, by its id; none for a new one not started yet. A
     /// frontend that is ended and started again by its system (an app) opens it again.
-    SessionShown(Option<crate::external::wire::SessionId>),
+    SessionShown(Option<crate::ids::SessionId>),
 }
 
 /// What draws the window: told the state of each of its parts as it changes (with what it was

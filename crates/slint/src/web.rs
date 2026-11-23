@@ -5,7 +5,7 @@
 use slint::ComponentHandle;
 
 use crate::app::{self, App, Desktop};
-use crate::external::wire::SessionId;
+use crate::ids::SessionId;
 use crate::settings::Settings;
 use crate::{generated, ui};
 

@@ -7,9 +7,9 @@ use serde_json::Value;
 use crate::call::{self, AcpCall, AcpOption, AcpOptionKind};
 use crate::chat::ToolState;
 use crate::external::wire::{
-    self, Destination, PermissionResult, PermissionUpdate, RequestId, ToolInput, ToolName,
-    ToolUseId,
+    self, Destination, PermissionResult, PermissionUpdate, ToolInput, ToolName,
 };
+use crate::ids::{RequestId, ToolUseId};
 use crate::plan;
 use crate::present::Frontend;
 

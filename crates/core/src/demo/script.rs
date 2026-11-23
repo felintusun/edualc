@@ -17,10 +17,10 @@ use crate::agent::{self, Command, Output};
 use crate::app::{Event, Mode, PermissionMode};
 use crate::external::wire::{
     ApiMessage, ContentBlock, ContextReport, ControlRequest, ControlResponse, Delta,
-    IncomingRequest, MessageId, MessageStart, ModelUsage, PermissionResult, Reply, RequestId,
-    ResultKind, SessionId, SideAnswer, StreamEvent, Suggestion, System, ToolName, ToolUseId,
-    TurnResult, Usage, UserContent, UserLine,
+    IncomingRequest, MessageStart, ModelUsage, PermissionResult, Reply, ResultKind, SideAnswer,
+    StreamEvent, Suggestion, System, ToolName, TurnResult, Usage, UserContent, UserLine,
 };
+use crate::ids::{MessageId, RequestId, SessionId, ToolUseId};
 use crate::ipc::Generation;
 #[cfg(not(target_arch = "wasm32"))]
 use crate::ipc::{self, FromDaemon, Stream};

@@ -500,7 +500,7 @@ mod tests {
     const PEER_ID: &str = "99999999-2222-4333-8444-555555555555";
 
     fn name(id: &str) -> MessagingName {
-        let id = crate::external::wire::SessionId::try_from(id.to_owned()).expect("an id");
+        let id = crate::ids::SessionId::try_from(id.to_owned()).expect("an id");
         MessagingName::of(&id, Path::new("/work/project"))
     }
 

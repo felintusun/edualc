@@ -15,7 +15,7 @@ use tokio::sync::mpsc;
 use zeroize::Zeroizing;
 
 use crate::external::claude_files::{InboxLine, SessionKey, SessionRecord};
-use crate::external::wire::SessionId;
+use crate::ids::SessionId;
 use crate::process;
 use crate::sessions::MessagingName;
 

@@ -8,12 +8,12 @@ use slint::{ComponentHandle, Model as _};
 
 use crate::app::{Action, Event, PermissionMode, SessionTarget};
 use crate::cjk::CjkLanguage;
-use crate::external::wire::{RequestId, SessionId};
 use crate::generated::{
     AppWindow, ChangeScope, Changes, Clipboard, Composer, Focus, HanLanguage, LineBreak, Nav, Peek,
     PeerMessages, Preferences, Program, ProjectSort, Prompt, SendKey, Session, Sessions, Side,
     SignInWith, Transcript, Usage,
 };
+use crate::ids::{RequestId, SessionId};
 use crate::ipc::HostedId;
 use crate::overview::SessionRef;
 use crate::settings::{self, Zoom};

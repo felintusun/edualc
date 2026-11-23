@@ -12,7 +12,8 @@ use std::path::PathBuf;
 use serde::Deserialize;
 use serde_json::Value;
 
-use crate::external::wire::{SessionId, TaskId};
+use crate::external::wire::TaskId;
+use crate::ids::SessionId;
 
 /// Where agy keeps its conversations.
 pub fn brain() -> Option<PathBuf> {

@@ -8,7 +8,8 @@ use uuid::{Uuid, uuid};
 use web_time::{Duration, SystemTime};
 
 use super::words::Words;
-use crate::external::wire::{SessionId, TranscriptLine};
+use crate::external::wire::TranscriptLine;
+use crate::ids::SessionId;
 use crate::ipc::{HookAction, Runs};
 use crate::sessions::{LiveKind, LiveSession, LiveStatus, ProjectInfo, SessionInfo, Worktree};
 

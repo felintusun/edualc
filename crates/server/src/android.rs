@@ -16,7 +16,7 @@
 use std::path::PathBuf;
 
 use dioxus::prelude::*;
-use edualc_core::external::wire::SessionId;
+use edualc_core::ids::SessionId;
 use edualc_core::ipc::pairing::Server;
 use edualc_core::ipc::servers::Servers;
 use edualc_core::line;

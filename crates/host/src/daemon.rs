@@ -291,7 +291,8 @@ mod tests {
     use super::*;
     use crate::agent;
     use crate::driver::{Decoded, Driver};
-    use crate::external::wire::{self, SessionId};
+    use crate::external::wire;
+    use crate::ids::SessionId;
     use crate::ipc::{
         Act, ActFailure, ActId, CreateProjectError, Generation, HostedId, HostedState, ProjectName,
         StartFailure, Stream,
@@ -432,7 +433,7 @@ mod tests {
         doing.saw(&edit);
         // An ACP agent's edit, as opencode gives one.
         doing.saw(&agent::Event::ToolCall {
-            id: wire::ToolUseId::from("c1".to_owned()),
+            id: crate::ids::ToolUseId::from("c1".to_owned()),
             call: crate::call::AcpCall {
                 title: "edit".to_owned(),
                 kind: Some(crate::call::AcpKind::Edit),
@@ -796,7 +797,7 @@ mod tests {
             command: "ls".to_owned(),
         });
         pending.sent(&agent::Command::ControlRequest {
-            request_id: wire::RequestId::from("gui_1".to_owned()),
+            request_id: crate::ids::RequestId::from("gui_1".to_owned()),
             request: wire::ControlRequest::Interrupt,
         });
         claude_saw(
@@ -831,7 +832,7 @@ mod tests {
         );
         pending.sent(&agent::Command::ControlResponse {
             response: wire::Reply::Success {
-                request_id: wire::RequestId::from("r1".to_owned()),
+                request_id: crate::ids::RequestId::from("r1".to_owned()),
                 response: wire::PermissionResult::Deny {
                     message: String::new(),
                     interrupt: false,
@@ -1085,7 +1086,7 @@ mod tests {
         let ask = r#"{"type":"control_request","request_id":"r1","request":{"subtype":"can_use_tool","tool_name":"AskUserQuestion","input":{"questions":[{"question":"Which colour?","header":"Pick","options":[{"label":"Red","description":""}],"multiSelect":false}]}}}"#;
         let answer = agent::Command::ControlResponse {
             response: wire::Reply::Success {
-                request_id: wire::RequestId::from("r1".to_owned()),
+                request_id: crate::ids::RequestId::from("r1".to_owned()),
                 response: wire::PermissionResult::Deny {
                     message: String::new(),
                     interrupt: false,

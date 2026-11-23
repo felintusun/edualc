@@ -19,6 +19,7 @@ pub mod desktop;
 pub mod external;
 pub mod folder;
 pub mod grouping;
+pub mod ids;
 pub mod ipc;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod line;

@@ -7,7 +7,7 @@
 
 use std::path::PathBuf;
 
-use crate::external::wire::SessionId;
+use crate::ids::SessionId;
 
 /// What a coding agent provider supports beyond a basic prompt-and-reply turn.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

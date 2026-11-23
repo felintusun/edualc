@@ -22,7 +22,8 @@ use crate::changes::{
     ChangeSet, ContentId, FileChange, Hunk, Kind, LARGEST_FILE, LeftOut, MOST_FILES, Review, Scope,
     Summary, Who,
 };
-use crate::external::wire::{ContentBlock, SessionId, ToolKind};
+use crate::external::wire::{ContentBlock, ToolKind};
+use crate::ids::SessionId;
 use crate::tools;
 
 /// A session whose changes nobody looked at for this long is forgotten.

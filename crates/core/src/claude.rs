@@ -3,7 +3,8 @@
 //! commands.
 
 use crate::agent;
-use crate::external::wire::{ControlPeek, Input, Message, PeekedKind, RequestId};
+use crate::external::wire::{ControlPeek, Input, Message, PeekedKind};
+use crate::ids::RequestId;
 
 /// The `claude` to run: `$CLAUDE_BIN` as the daemon was started with, or the one on `PATH`.
 pub fn program() -> std::ffi::OsString {

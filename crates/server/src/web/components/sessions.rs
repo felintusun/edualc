@@ -5,7 +5,8 @@
 
 use dioxus::prelude::*;
 use edualc_core::app::Action;
-use edualc_core::external::wire::{SessionId, TaskId};
+use edualc_core::external::wire::TaskId;
+use edualc_core::ids::SessionId;
 use edualc_core::present::model::{
     LiveState, ProjectItem, SessionRow, SessionRowKind, TaskItem, TaskKind,
 };

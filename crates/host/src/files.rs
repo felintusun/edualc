@@ -21,8 +21,9 @@ use tokio::sync::{mpsc, oneshot};
 use crate::acp::{self, Agent, ExternalSession, brain};
 use crate::external::agy::{self, AgyTask, Step, StepKind, StepStatus};
 use crate::external::claude_files::{ClaudeJsonWhole, ProjectWhole};
-use crate::external::wire::{SessionId, TranscriptLine};
+use crate::external::wire::TranscriptLine;
 use crate::folder::Folder;
+use crate::ids::SessionId;
 use crate::ipc::{self, ActId, Answer, FromDaemon, Place, ProjectOverview, Read, Target, Watched};
 use crate::provider::Backend;
 use crate::sessions::{LiveKind, LiveSession, LiveStatus, MessagingName, ProjectInfo, SessionInfo};
@@ -758,9 +759,7 @@ fn merge_sessions(
 }
 
 /// A session's changes as the keeper wrote them.
-fn kept_changes(
-    session: &crate::external::wire::SessionId,
-) -> Result<snapshots::Store, ipc::Unkept> {
+fn kept_changes(session: &crate::ids::SessionId) -> Result<snapshots::Store, ipc::Unkept> {
     let home =
         snapshots::home().ok_or_else(|| ipc::Unkept("there is no state folder".to_owned()))?;
     snapshots::Store::open(&home, session).map_err(|error| unkept(&error))
@@ -1449,7 +1448,7 @@ mod tests {
     fn a_thousand_sessions_fit_a_message() {
         let session = |at: usize| sessions::SessionInfo {
             backend: crate::provider::Backend::Claude,
-            id: crate::external::wire::SessionId::from(uuid::Uuid::from_u128(at as u128)),
+            id: crate::ids::SessionId::from(uuid::Uuid::from_u128(at as u128)),
             title: "x".repeat(300),
             modified: std::time::SystemTime::now(),
             worktree: None,
@@ -1471,7 +1470,7 @@ mod tests {
             sessions: (0..OVERVIEW_SESSIONS)
                 .map(|sub| sessions::SessionInfo {
                     backend: crate::provider::Backend::Claude,
-                    id: crate::external::wire::SessionId::from(uuid::Uuid::from_u128(
+                    id: crate::ids::SessionId::from(uuid::Uuid::from_u128(
                         u128::try_from(idx * 10 + sub).unwrap_or(0),
                     )),
                     title: "title ".repeat(200),

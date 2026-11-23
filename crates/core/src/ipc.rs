@@ -38,7 +38,8 @@ pub use token::{Auth, Token};
 
 use crate::decode::{Picture, Refusal};
 use crate::desktop::{Opener, Program};
-use crate::external::wire::{SessionId, TaskId};
+use crate::external::wire::TaskId;
+use crate::ids::SessionId;
 use crate::provider::Launch;
 use crate::sessions::{LiveSession, ProjectInfo, Saved, SessionInfo, Worktree};
 use crate::settings::Settings;

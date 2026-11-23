@@ -28,11 +28,12 @@ use crate::external::agy::{self, QuotaWindow};
 use crate::external::tool_input::{AgentInput, KnownCall, Todo, TodoStatus, TodoWriteInput};
 use crate::external::wire::{
     self, Account, ApiMessage, AssistantError, CommandInfo, ContentBlock, ControlResponse, DENIED,
-    Delta, IncomingRequest, Initialized, LimitKind, MessageId, MessageStart, ModeId, ModelInfo,
-    ModelUsage, ProgramMode, ProgramModes, Question, QuestionOption, Questions, RequestId,
-    ResultKind, Rule, RuleDestination, SessionId, StreamEvent, Suggestion, System, ToolName,
-    ToolUseId, TurnResult, Usage, UserContent, UserLine,
+    Delta, IncomingRequest, Initialized, LimitKind, MessageStart, ModeId, ModelInfo, ModelUsage,
+    ProgramMode, ProgramModes, Question, QuestionOption, Questions, ResultKind, Rule,
+    RuleDestination, StreamEvent, Suggestion, System, ToolName, TurnResult, Usage, UserContent,
+    UserLine,
 };
+use crate::ids::{MessageId, RequestId, SessionId, ToolUseId};
 use crate::settings::PeerMessages;
 
 use super::Agent;

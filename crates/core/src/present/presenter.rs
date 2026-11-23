@@ -26,8 +26,8 @@ use crate::chat::{Chat, ImageKey};
 use crate::cjk::{CjkLanguage, CjkText, Standing};
 use crate::decode::{Picture, Pixels};
 use crate::desktop::Opener;
-use crate::external::wire::RequestId;
 use crate::grouping::Grouping;
+use crate::ids::RequestId;
 use crate::ipc::Runs;
 use crate::markdown;
 use crate::sessions::{self, LiveStatus, Worktree};
@@ -753,7 +753,8 @@ mod tests {
     use crate::app::{Ask, AskKind, Mode, Modes, PermissionMode, Place, Running};
     use crate::call::{AcpCall, AcpOptionKind};
     use crate::chat;
-    use crate::external::wire::{self, SessionId, ToolName};
+    use crate::external::wire::{self, ToolName};
+    use crate::ids::SessionId;
     use crate::overview;
     use crate::present::EntriesChange;
     use crate::present::model::{PermissionKind, TaskKind};
@@ -922,7 +923,7 @@ mod tests {
         });
         let mut asks = VecDeque::new();
         asks.push_back(Ask {
-            request: wire::RequestId::from("r1".to_owned()),
+            request: crate::ids::RequestId::from("r1".to_owned()),
             tool_use: None,
             kind: AskKind::Tool {
                 tool: ToolName::Bash,
@@ -986,7 +987,7 @@ mod tests {
         };
         let mut asks = VecDeque::new();
         asks.push_back(Ask {
-            request: wire::RequestId::from("p1".to_owned()),
+            request: crate::ids::RequestId::from("p1".to_owned()),
             tool_use: None,
             kind: AskKind::Acp {
                 call: call("wc -l notes.txt", crate::call::AcpKind::Execute, "/work"),
@@ -1237,7 +1238,7 @@ mod tests {
 
         let mut asks = VecDeque::new();
         asks.push_back(Ask {
-            request: wire::RequestId::from("p1".to_owned()),
+            request: crate::ids::RequestId::from("p1".to_owned()),
             tool_use: None,
             kind: AskKind::Plan {
                 input: wire::PlanInput {

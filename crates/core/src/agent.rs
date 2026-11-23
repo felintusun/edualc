@@ -10,9 +10,9 @@ use crate::call::{AcpCall, AcpOption, OptionId};
 use crate::decode::Picture;
 use crate::external::wire::{
     ApiMessage, AssistantError, ControlRequest, ControlResponse, ImageBlock, IncomingRequest,
-    PermissionResult, RateLimits, Reply, RequestId, SessionId, StreamEvent, System, ToolUseId,
-    TurnResult, UserLine,
+    PermissionResult, RateLimits, Reply, StreamEvent, System, TurnResult, UserLine,
 };
+use crate::ids::{RequestId, SessionId, ToolUseId};
 use crate::ipc::{Generation, HostedId, StartFailure, ToDaemon};
 use crate::link::{self, Link};
 use crate::provider::Launch;

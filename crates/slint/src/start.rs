@@ -5,8 +5,8 @@ use std::path::PathBuf;
 
 use slint::ComponentHandle;
 
-use crate::external::wire::SessionId;
 use crate::folder::{Folder, FolderError};
+use crate::ids::SessionId;
 use crate::provider::Backend;
 use crate::{app, connect, decode, desktop, generated, sessions, ui};
 

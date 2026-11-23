@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use tokio::sync::mpsc;
 
 use crate::desktop;
-use crate::external::wire::SessionId;
+use crate::ids::SessionId;
 use crate::ipc::{
     self, Act, ActId, Deframer, FromDaemon, Generation, HostedId, StartFailure, ToDaemon,
 };

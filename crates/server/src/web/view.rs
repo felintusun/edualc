@@ -48,7 +48,7 @@ pub struct Page {
     /// Device pixels to a CSS pixel, as the app reads it (a browser's page asks the browser).
     pub pixel_ratio: f64,
     /// The session shown, which the app opens again as Android starts it anew.
-    pub session: Option<edualc_core::external::wire::SessionId>,
+    pub session: Option<edualc_core::ids::SessionId>,
     /// The line is a demo's, unencrypted: the window says so for as long as it shows.
     pub unencrypted: bool,
     pub look: Look,
@@ -147,7 +147,7 @@ impl View {
     /// opens its project.
     pub fn jump(&self, folder: &str, session: &str, hosted: &str) {
         use edualc_core::app::SessionTarget;
-        use edualc_core::external::wire::SessionId;
+        use edualc_core::ids::SessionId;
         use edualc_core::overview::SessionRef;
         let folder = std::path::PathBuf::from(folder);
         let Ok(session) = SessionId::try_from(session.to_owned()) else {

@@ -10,9 +10,10 @@ use crate::call::{AcpCall, AcpStatus, Call};
 use crate::decode::Picture;
 use crate::external::wire::DENIED;
 use crate::external::wire::{
-    ApiMessage, ContentBlock, Delta, MessageId, MessageOrigin, ReceivedImage, StreamEvent, System,
-    ToolName, ToolUseId, TranscriptLine, UserContent, UserMessage,
+    ApiMessage, ContentBlock, Delta, MessageOrigin, ReceivedImage, StreamEvent, System, ToolName,
+    TranscriptLine, UserContent, UserMessage,
 };
+use crate::ids::{MessageId, ToolUseId};
 use crate::tools;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

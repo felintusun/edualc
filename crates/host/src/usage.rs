@@ -12,9 +12,9 @@ use tokio::process::Command;
 
 use crate::claude;
 use crate::external::wire::{
-    AssistantError, ControlRequest, ControlResponse, Input, Message, RateLimitReport, RequestId,
-    UsageReport,
+    AssistantError, ControlRequest, ControlResponse, Input, Message, RateLimitReport, UsageReport,
 };
+use crate::ids::RequestId;
 use crate::ipc::ProviderUsage;
 use crate::provider::Backend;
 

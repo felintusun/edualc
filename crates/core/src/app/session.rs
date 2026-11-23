@@ -4,7 +4,8 @@ use std::path::{Path, PathBuf};
 
 use crate::agent::Agent;
 use crate::chat::Chat;
-use crate::external::wire::{SessionId, TranscriptLine};
+use crate::external::wire::TranscriptLine;
+use crate::ids::SessionId;
 use crate::ipc::{self, Act, Hosted, Read, Target};
 use crate::present::Frontend;
 use crate::provider::{self, Resume};

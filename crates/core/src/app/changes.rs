@@ -5,7 +5,7 @@
 use std::path::PathBuf;
 
 use crate::changes::{ChangeSet, Diff, DiffLine, FileChange, LineKind, Review, Scope};
-use crate::external::wire::SessionId;
+use crate::ids::SessionId;
 use crate::ipc::{Act, Read};
 
 use super::{Acting, App, Reading};

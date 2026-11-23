@@ -16,9 +16,10 @@ use crate::external::agy::{
     Swarm,
 };
 use crate::external::wire::{
-    ApiMessage, BackgroundTask, ContentBlock, MessageId, SessionId, TaskKind, ToolName, ToolUseId,
-    TranscriptLine, Usage, UserContent, UserMessage,
+    ApiMessage, BackgroundTask, ContentBlock, TaskKind, ToolName, TranscriptLine, Usage,
+    UserContent, UserMessage,
 };
+use crate::ids::{MessageId, SessionId, ToolUseId};
 
 /// The subagents and swarm members conversation `own` started that run, and its swarm's board.
 pub(super) fn tasks(own: &SessionId) -> Vec<BackgroundTask> {

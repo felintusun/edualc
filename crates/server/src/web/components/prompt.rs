@@ -6,7 +6,7 @@
 
 use dioxus::prelude::*;
 use edualc_core::app::{Action, PermissionMode};
-use edualc_core::external::wire::RequestId;
+use edualc_core::ids::RequestId;
 use edualc_core::present::model::{PlanSection, PromptKind, Question};
 
 use crate::web::View;

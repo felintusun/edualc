@@ -1,6 +1,7 @@
 //! The start page and the projects page.
 
-use crate::external::wire::{self, SessionId};
+use crate::external::wire;
+use crate::ids::SessionId;
 use crate::overview;
 use crate::present::model::{
     CardSessionItem, CommandItem, ProjectCard, ProjectItem, ProjectSort, SwitcherItem, WaitingItem,

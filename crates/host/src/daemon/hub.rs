@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use tokio::sync::{mpsc, watch};
 use tokio::task::JoinSet;
 
-use crate::external::wire::SessionId;
+use crate::ids::SessionId;
 use crate::ipc::{FromDaemon, Generation, Hosted, HostedId, HostedState, StartFailure};
 use crate::provider::{Launch, SignInWith};
 use crate::snapshots;

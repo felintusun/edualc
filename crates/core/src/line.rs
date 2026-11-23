@@ -18,7 +18,7 @@ use futures_util::SinkExt as _;
 use tokio_tungstenite::tungstenite::Message;
 
 use crate::app::Event;
-use crate::external::wire::SessionId;
+use crate::ids::SessionId;
 use crate::ipc::pairing::Server;
 use crate::ipc::{self, ActId, Answer, Deframer, FromDaemon, PROTOCOL, Read, ToDaemon, ws};
 use crate::link::{self, Greeting, Inbox, Link, NotGreeted, QUEUE};

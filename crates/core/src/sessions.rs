@@ -14,9 +14,8 @@ use web_time::SystemTime;
 use crate::chat::UserText;
 #[cfg(not(target_arch = "wasm32"))]
 use crate::external::claude_files::{AgentRecord, LiveRecord};
-use crate::external::wire::{
-    self, MessageOrigin, SessionId, TranscriptCwd, TranscriptLine, UserContent,
-};
+use crate::external::wire::{self, MessageOrigin, TranscriptCwd, TranscriptLine, UserContent};
+use crate::ids::SessionId;
 #[cfg(not(target_arch = "wasm32"))]
 use crate::process;
 

@@ -154,7 +154,7 @@ pub fn begin(
     link: edualc_core::link::Link,
     greeting: edualc_core::link::Greeting,
     cwd: Option<std::path::PathBuf>,
-    resume: Option<edualc_core::external::wire::SessionId>,
+    resume: Option<edualc_core::ids::SessionId>,
 ) -> edualc_core::app::App<view::PageFrontend> {
     use edualc_core::app::{App, Desktop};
     let mut shown_events = view.events;

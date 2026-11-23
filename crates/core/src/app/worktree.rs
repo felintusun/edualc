@@ -57,11 +57,7 @@ impl<F: Frontend> App<F> {
         self.read(read, super::Reading::Worktree { id });
     }
 
-    pub(super) fn worktree_read(
-        &mut self,
-        id: &crate::external::wire::SessionId,
-        worktree: Option<Worktree>,
-    ) {
+    pub(super) fn worktree_read(&mut self, id: &crate::ids::SessionId, worktree: Option<Worktree>) {
         if self.status.session_id.as_ref() == Some(id) && worktree.is_some() {
             self.status.worktree = worktree;
         }

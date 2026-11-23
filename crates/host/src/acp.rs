@@ -38,9 +38,8 @@ use crate::external::acp::{
 };
 use crate::external::agy;
 use crate::external::tool_input::{AgentInput, KnownCall, ListSessionsInput, SendMessageInput};
-use crate::external::wire::{
-    BackgroundTask, Question, QuestionOption, Questions, RequestId, SessionId, System,
-};
+use crate::external::wire::{BackgroundTask, Question, QuestionOption, Questions, System};
+use crate::ids::{RequestId, SessionId};
 use crate::sessions::{self, MessagingName};
 use crate::settings::{self, PeerMessages};
 use outbox::{Job, Outcome, Places, SendArguments};

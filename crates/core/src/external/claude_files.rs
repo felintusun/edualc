@@ -9,7 +9,8 @@ use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
 use zeroize::Zeroizing;
 
-use crate::external::wire::{ContentBlock, SessionId, UserContent};
+use crate::external::wire::{ContentBlock, UserContent};
+use crate::ids::SessionId;
 use crate::sessions::{LiveKind, LiveStatus};
 
 /// A running session's record, `sessions/<pid>.json` in Claude Code's home, in the fields

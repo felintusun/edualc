@@ -9,7 +9,7 @@ use tokio::time::Instant;
 
 use crate::agent;
 use crate::driver::{Decoded, Driver};
-use crate::external::wire::SessionId;
+use crate::ids::SessionId;
 use crate::ipc::{FromDaemon, Generation, HostedId, HostedState, StartFailure, Stream};
 use crate::provider::Launch;
 use crate::{snapshots, spawn};

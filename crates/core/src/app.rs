@@ -13,8 +13,9 @@ use crate::agent::{Agent, Output};
 use crate::chat::{Change, Chat, ImageKey};
 use crate::decode::{Picture, Pixels};
 use crate::desktop;
-use crate::external::wire::{self, ControlRequest, RequestId, SessionId, ToolName, TranscriptLine};
+use crate::external::wire::{self, ControlRequest, ToolName, TranscriptLine};
 use crate::folder::Folder;
+use crate::ids::{RequestId, SessionId};
 use crate::ipc::{
     self, Act, ActFailure, ActId, CreateProjectError, Generation, Hosted, PasteFailure, Pasted,
     ProjectOverview, Read, Target, ToDaemon, Watched,
@@ -2261,7 +2262,7 @@ mod tests {
 
     use crate::agent;
     use crate::call::{self, AcpCall, AcpOption, AcpOptionKind};
-    use crate::external::wire::ToolUseId;
+    use crate::ids::ToolUseId;
     use crate::ipc::Runs;
     use crate::present;
 
