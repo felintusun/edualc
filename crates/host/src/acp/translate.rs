@@ -2050,7 +2050,7 @@ pub(crate) fn plan_limits(quotas: &agy::Quotas, model: Option<&str>) -> Vec<wire
         .iter()
         .flat_map(|group| {
             let drawn_on = model.is_some_and(|model| group.covers(model));
-            group.buckets.iter().map(move |quota| {
+            group.quotas.iter().map(move |quota| {
                 let (kind, span) = match (quota.window, drawn_on) {
                     (QuotaWindow::FiveHours, true) => (LimitKind::Session, "5 hours"),
                     (QuotaWindow::Week, true) => (LimitKind::WeeklyAll, "this week"),

@@ -221,7 +221,36 @@ pub struct QuotaGroup {
     /// Gemini 3.8 Flash".
     #[serde(default)]
     pub description: String,
-    pub buckets: Vec<Quota>,
+    /// The limits that apply; those agy has switched off are left out.
+    #[serde(rename = "buckets", deserialize_with = "applying")]
+    pub quotas: Vec<Quota>,
+}
+
+/// A limit as agy says it. One it has switched off (`"disabled": true`, seen for the five
+/// hours of "Claude and GPT models") says no reset time.
+#[derive(Debug, Deserialize)]
+struct Bucket {
+    window: QuotaWindow,
+    remaining_fraction: f32,
+    #[serde(default)]
+    disabled: bool,
+    reset_time: Option<jiff::Timestamp>,
+}
+
+/// The buckets that limit anything, as quotas.
+fn applying<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<Vec<Quota>, D::Error> {
+    Vec::<Bucket>::deserialize(deserializer)?
+        .into_iter()
+        .filter(|bucket| !bucket.disabled)
+        .map(|bucket| match bucket.reset_time {
+            Some(reset_time) => Ok(Quota {
+                window: bucket.window,
+                remaining_fraction: bucket.remaining_fraction,
+                reset_time,
+            }),
+            None => Err(serde::de::Error::missing_field("reset_time")),
+        })
+        .collect()
 }
 
 /// How the group's models are listed in its description.
@@ -262,7 +291,7 @@ impl QuotaGroup {
     }
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone)]
 pub struct Quota {
     pub window: QuotaWindow,
     /// What is left, from 0 to 1.
@@ -314,6 +343,23 @@ mod tests {
         std::fs::remove_dir_all(&brain).expect("cleaned up");
     }
 
+    /// A limit agy has switched off says no reset time, and is left out; one in use that says
+    /// none is refused. The groups as agy printed them on 2026-11-23 (descriptions shortened).
+    #[test]
+    fn a_switched_off_limit_is_left_out() {
+        let groups = r#"{"groups":[{"name":"Gemini Models","buckets":[{"id":"gemini-weekly","window":"weekly","remaining_fraction":0.99,"reset_time":"2026-11-29T23:41:19Z"}]},{"name":"Claude and GPT models","buckets":[{"id":"3p-weekly","window":"weekly","remaining_fraction":0,"reset_time":"2026-11-24T23:50:29Z"},{"id":"3p-5h","window":"5h","disabled":true,"remaining_fraction":1}]}]}"#;
+        let quotas: Quotas = serde_json::from_str(groups).expect("quotas");
+        let windows: Vec<Vec<QuotaWindow>> = quotas
+            .groups
+            .iter()
+            .map(|group| group.quotas.iter().map(|quota| quota.window).collect())
+            .collect();
+        assert_eq!(windows, [vec![QuotaWindow::Week], vec![QuotaWindow::Week]]);
+
+        let unsaid = groups.replace(r#""disabled":true,"#, "");
+        assert!(serde_json::from_str::<Quotas>(&unsaid).is_err());
+    }
+
     /// `/usage`'s answer as agy 1.5.9 prints it (descriptions shortened); a model draws on the
     /// group that lists it or is named after it, whatever its effort.
     #[test]
@@ -328,7 +374,7 @@ mod tests {
         };
         assert_eq!(
             gemini
-                .buckets
+                .quotas
                 .iter()
                 .map(|quota| quota.window)
                 .collect::<Vec<_>>(),
