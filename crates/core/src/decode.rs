@@ -1,14 +1,5 @@
-//! Images from outside (the clipboard, the conversation) made safe to show and send. They are
-//! decoded in a process of their own, `edualc --decode-image` or `--show-image`, which confines
-//! itself before it reads a byte: it reaches no file, socket or other process, runs no new code,
-//! and has bounded memory and time. Asked to decode, it answers with the image encoded again
-//! (its metadata dropped, scaled to what Claude takes) and a thumbnail; asked to show, with
-//! pixels to show. A crafted image can take over that process, which can do no more than answer.
-//!
-//! The daemon starts it for a paste, the window for an image in the conversation. It is handed
-//! the bytes on its standard input and gives one postcard answer on its standard output, read
-//! to its end (no framing: the answer is all there is). The answer is untrusted like the image:
-//! bounded, parsed as its type, and checked.
+//! Images from outside decoded in a process of their own (`--decode-image`, `--show-image`) that
+//! confines itself before it reads a byte; its answer is untrusted like the image, and checked.
 
 use std::io::Cursor;
 

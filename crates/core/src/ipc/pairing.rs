@@ -1,8 +1,5 @@
 //! What a window needs to reach an edualcd and know it: its address, its certificate's
-//! fingerprint (pinned: the certificate is edualcd's own, signed by no one), and the token it
-//! lets windows in with. edualcd prints it as an address a browser opens too
-//! (`https://host:port/#token=…&fingerprint=…`); `edualc --pair` takes the same. A demo
-//! (`edualcd --demo`) is reached by its plain address instead (`http://host:port/`).
+//! fingerprint and its token, as `edualcd --pair` prints them.
 
 use std::fmt;
 

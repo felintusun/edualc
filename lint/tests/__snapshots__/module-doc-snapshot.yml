@@ -1,0 +1,25 @@
+id: module-doc
+snapshots:
+  "// A plain comment is not the module's doc.\npub struct Session;\n":
+    labels:
+    - source: |
+        // A plain comment is not the module's doc.
+        pub struct Session;
+      style: primary
+      start: 0
+      end: 64
+  "/// An item's doc is not the module's doc.\npub struct Session;\n":
+    labels:
+    - source: |
+        /// An item's doc is not the module's doc.
+        pub struct Session;
+      style: primary
+      start: 0
+      end: 63
+  "use std::path::Path;\n":
+    labels:
+    - source: |
+        use std::path::Path;
+      style: primary
+      start: 0
+      end: 21

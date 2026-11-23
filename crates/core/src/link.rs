@@ -1,6 +1,5 @@
-//! A window's line to its daemon, whatever carries it (the native window's Unix socket, a
-//! network line, the browser demo's script): what the window asks goes on a channel to whatever
-//! writes it, and what the daemon says comes back as the app's events (`Inbox`, sans-io).
+//! A window's line to its daemon, whatever carries it: asks go out on a channel, and what the
+//! daemon says comes back as the app's events.
 
 use std::collections::{BTreeMap, HashMap};
 

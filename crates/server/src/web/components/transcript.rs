@@ -1,9 +1,5 @@
-//! The conversation (`ui/transcript.slint`, and the transcript's list in `ui/app.slint`): the
-//! user's messages, Claude's Markdown, thinking, tool calls with their input, output and diffs,
-//! runs of calls folded into one line, messages from other sessions, notes and errors. It
-//! follows new output only while its end is in view, so reading back isn't interrupted; a
-//! session opened shows at its end. Over a new session's empty conversation, the heron and a
-//! greeting; the heron flies off as the conversation begins.
+//! The conversation (`ui/transcript.slint`): messages, tool calls with their output and diffs,
+//! and runs of calls folded into one line.
 
 use dioxus::prelude::*;
 use edualc_core::app::Action;

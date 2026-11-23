@@ -1,12 +1,5 @@
-//! The line's TLS (rustls, with ring): edualcd's, with the certificate it made itself, and a
-//! window's, which trusts exactly the certificate it was paired with (its SHA-256, see
-//! `pairing`), whatever name or signer it shows.
-//!
-//! Each is a configuration, owned and handed over as it is used: rustls takes it and its
-//! provider behind a reference count of its own (`into`, where rustls' signature names it), and
-//! nothing here keeps a share. The one place the rule against shared state lets off
-//! (`lint/rules/no-shared-state.yml`) is the window's verifier: rustls takes a verifier of one's
-//! own only as an `Arc<dyn ServerCertVerifier>`, which no `into` reaches.
+//! The line's TLS (rustls): edualcd's, with the certificate it made itself, and a window's,
+//! which trusts only the certificate it was paired with.
 
 use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
 use rustls::crypto::{CryptoProvider, WebPkiSupportedAlgorithms};

@@ -1,7 +1,4 @@
-//! The sessions as rows, for a project's page: those running now, in any folder, and the
-//! folder's earlier ones (`ui/project.slint`); a recent folder's row; and what the composer
-//! shows of a session: the chip of what runs beside the turn (`TasksChip`) and how a running
-//! session is doing (`LiveDot`).
+//! The sessions as rows (`ui/project.slint`), and the composer's marks of what a session runs.
 
 use dioxus::prelude::*;
 use edualc_core::app::Action;

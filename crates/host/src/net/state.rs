@@ -1,14 +1,5 @@
-//! What edualcd keeps from one start to the next, in a folder of the user's alone
-//! (`$XDG_STATE_HOME/edualcd`, `~/.local/state/edualcd` unless set): its certificate, made on its
-//! first start and signed by itself, which windows pin; that certificate's key; and the token
-//! windows are let in by. Paired windows go on reaching edualcd across restarts because these
-//! stay. To make them anew (a token that got out, say), remove the folder: every window then
-//! pairs again.
-//!
-//! The token is kept as an SSH key is: whoever holds it runs Claude Code as the user. It is
-//! taken from this folder alone, never from the environment or the command line, so no program
-//! edualcd runs inherits it and no other user of the machine reads it: to choose your own, write
-//! it to the file `token` there.
+//! What edualcd keeps between starts in a folder of the user's alone: its certificate, its key,
+//! and the token, read from there only so that no program edualcd runs inherits it.
 
 use std::fs::{DirBuilder, OpenOptions};
 use std::io::Write as _;

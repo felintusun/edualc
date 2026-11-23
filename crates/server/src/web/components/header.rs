@@ -1,6 +1,4 @@
-//! The bar across the top (`ui/topbar.slint`): where the window is (the projects, a project, a
-//! session) and the way back, the sessions that wait for you, and, in a session, the worktree
-//! it works in and what that opens in, what it changed, and the side questions.
+//! The bar across the top (`ui/topbar.slint`).
 
 use dioxus::prelude::*;
 use edualc_core::app::Action;

@@ -1,6 +1,5 @@
-//! The desktop around the window: notifications, the windows other programs run sessions in,
-//! and the editors, terminals and file manager a folder can be opened in. They go through the
-//! programs' own command lines, and niri through its socket.
+//! The desktop around the window: notifications, other programs' windows, and what a folder
+//! opens in.
 
 use std::io::Read;
 use std::path::{Path, PathBuf};

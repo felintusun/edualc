@@ -1,7 +1,4 @@
-//! The files Claude Code keeps that edualc reads, in the fields read: `~/.claude.json` (the
-//! folders whose trust dialog was accepted, and, to record a folder trusted in edualc, the
-//! whole file), a folder's own settings and `.mcp.json` (what they would run, asked about before
-//! trusting it), and the records of running sessions (`~/.claude/sessions/<pid>.json`).
+//! The files Claude Code keeps that edualc reads, in the fields read.
 
 use std::collections::HashMap;
 use std::path::PathBuf;

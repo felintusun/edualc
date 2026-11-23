@@ -1,6 +1,5 @@
-//! The app's state made into what the window shows (see the parent module): the rows of the
-//! conversation, the menus, the words of the status bar and of each panel, as plain data, handed
-//! to the frontend once per batch of events, each part only when it changed.
+//! The app's state made into what the window shows, handed to the frontend once per batch, each
+//! part only when it changed.
 
 mod changes_view;
 mod menus;

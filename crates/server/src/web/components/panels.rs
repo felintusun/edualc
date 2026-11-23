@@ -1,13 +1,5 @@
-//! The panels beside the conversation and over it, as the native window's (`ui/side.slint`,
-//! `ui/peek.slint`, `ui/usage.slint`, `ui/settings.slint`): the side questions (`/btw`), a task
-//! followed, the usage details, and the settings.
-//!
-//! The settings page is opened and closed by the window itself, not by the app: its state is a
-//! page-level signal, [`SettingsOpen`], which `components::Window` provides with
-//! `use_context_provider(|| SettingsOpen(Signal::new(false)))` and every part reads with
-//! [`use_settings_open`]. What opens it does as the native window's button does:
-//! [`SettingsOpen::open`] closes the usage details first. Ctrl+, opens it from wherever the
-//! focus is (the window's shortcuts, `components::Window`).
+//! The panels beside and over the conversation: side questions, a task followed, the usage
+//! details, and the settings.
 
 use dioxus::html::geometry::PixelsVector2D;
 use dioxus::prelude::*;

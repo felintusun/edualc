@@ -1,6 +1,5 @@
-//! The page's state: what the presenter last told of each part of the window, in signals the
-//! components read, and the page's own (focus, the draft, sizes), which the app sets through
-//! commands. `PageFrontend` is the presenter's frontend that writes them.
+//! The page's state, in signals the components read; `PageFrontend` writes them for the
+//! presenter.
 
 use std::collections::HashMap;
 #[cfg(any(feature = "web", feature = "mobile"))]

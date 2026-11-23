@@ -1,16 +1,5 @@
-//! An Agent Client Protocol session: an agent (`agy`, Google's Antigravity CLI, or `opencode`)
-//! spoken to over ACP and shown in the window as a Claude Code session. The daemon starts this
-//! adapter (`edualcd --agy-adapter`) in place of `claude`; it speaks stream-json on its stdio as
-//! `claude` does, so the daemon and the window need nothing of their own for it (see
-//! [`translate`]).
-//!
-//! The agent runs as it would in a terminal. The adapter, the daemon's child, serves the
-//! session's inbox and publishes its record (see [`inbox`]), so other sessions message it as
-//! they message each other, and carries the messages the agent sends with edualc's tool (see
-//! [`tool`] and [`outbox`]). Nothing of the session is kept: the agent keeps its sessions, lists
-//! them (`session/list`) and loads them again (`session/load`), and the session goes by the
-//! agent's id for it once it is open. agy's history is read from its own records (see
-//! [`brain`]); opencode's is shown as `session/load` replays it.
+//! The ACP adapter (`edualcd --agy-adapter`): runs agy or opencode over the Agent Client
+//! Protocol for the daemon, in place of `claude`, with the session's inbox for other sessions.
 
 pub(crate) mod brain;
 mod inbox;

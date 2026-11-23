@@ -1,9 +1,5 @@
-//! Where the window is before a session, as the native window's pages (`ui/start.slint`,
-//! `ui/project.slint`, `ui/newproject.slint`): the start page of projects and of sessions that
-//! wait for you, a project's page of its sessions, the dialogs to open a folder and to make a
-//! new project (over a session too: the folder its trust bar opens), and the switcher that goes
-//! from a session to another (`ui/app.slint`'s `SessionSwitcher`). A folder is typed, not
-//! picked: the page isn't on the daemon's desktop.
+//! The pages before a session (`ui/start.slint`, `ui/project.slint`, `ui/newproject.slint`),
+//! and the switcher between sessions.
 
 use dioxus::prelude::*;
 use edualc_core::app::Action;

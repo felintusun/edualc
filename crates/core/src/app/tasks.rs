@@ -1,6 +1,5 @@
-//! What Claude Code runs besides the turn's own steps: its list of background tasks, which it
-//! sends whole on every change, and the subagents it waits for in the foreground, which no list
-//! names. Those are known from their `task_started`, until they end or move to the background.
+//! What Claude Code runs besides the turn's own steps: its background tasks and the subagents
+//! it waits for.
 
 use std::collections::BTreeMap;
 

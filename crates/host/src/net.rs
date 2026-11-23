@@ -1,13 +1,5 @@
-//! edualcd's network side: windows that aren't on this machine (a page, an app) reach the daemon
-//! over TLS, in a WebSocket at `/api/line`, beside the Unix socket the windows that are on it
-//! use. A line shows the token in its first frame (`line`) and is then one more window of the
-//! daemon's (`daemon::Line`), whose asks of this machine's desktop are refused.
-//!
-//! The certificate is edualcd's own, made on its first start and kept with the token
-//! (`state`); a window trusts exactly the one it was paired with, by its SHA-256 (see
-//! `ipc::pairing`), whatever it names. Connections are taken, and their TLS handshakes done,
-//! here (`listener`); what is served over them is a router (`line::router`), which a server
-//! that serves a page besides adds its routes to.
+//! edualcd's network side: windows on other machines reach the daemon over TLS at `/api/line`,
+//! and their asks of this machine's desktop are refused.
 
 mod line;
 mod listener;

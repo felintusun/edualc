@@ -1,6 +1,5 @@
-//! Claude Code's sessions on disk: saved ones as `~/.claude/projects/<project>/<id>.jsonl`,
-//! one directory per working directory, named after its path with every character other than
-//! letters and digits made a `-`; running ones as `~/.claude/sessions/<pid>.json`.
+//! Claude Code's sessions on disk: saved ones in `~/.claude/projects`, running ones in
+//! `~/.claude/sessions`.
 
 #[cfg(not(target_arch = "wasm32"))]
 use std::collections::HashMap;

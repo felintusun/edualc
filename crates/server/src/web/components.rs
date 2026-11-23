@@ -1,9 +1,4 @@
-//! The window's parts, as the native window lays them out (`ui/app.slint`'s `AppWindow`): the
-//! bar across the top; under it the start page, a project's page, or a session: the
-//! conversation's column (the transcript or what the session changed, what Claude asks and the
-//! bars over the composer, the composer), the side panel or a subagent followed; the usage
-//! details, the settings and a dialog over it all. From a session the switcher goes to any
-//! other.
+//! The window's parts, laid out as the native window's (`ui/app.slint`'s `AppWindow`).
 
 use dioxus::prelude::*;
 use edualc_core::app::Action;

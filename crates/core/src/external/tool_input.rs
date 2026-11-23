@@ -1,6 +1,4 @@
-//! The inputs of the tools the window knows, with the field names Claude Code gives them, as
-//! far as the window reads them. An agent's tool call is translated into one of these (see
-//! `crates/host/src/acp`), so the window reads the same shape whichever agent made the call.
+//! The inputs of the Claude Code tools the window knows, in the fields it reads.
 
 use std::path::PathBuf;
 

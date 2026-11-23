@@ -1,0 +1,16 @@
+id: module-doc
+language: Rust
+severity: error
+message: "A file starts with a `//!` line saying what its module is for"
+note: "One or two lines: what the module is for, or the contract a reader must not miss. Not a tour of how it works; the code says that."
+files:
+  - "**/src/**"
+  - "**/tests/**"
+  - "**/build.rs"
+rule:
+  kind: source_file
+  not:
+    has:
+      nthChild: 1
+      kind: line_comment
+      regex: '^//!'

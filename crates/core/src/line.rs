@@ -1,14 +1,5 @@
-//! A native window's line to edualcd over the network (the Android app's), which runs Claude
-//! Code on edualcd's machine and does what the window can't. The line is a WebSocket over TLS,
-//! edualcd's certificate pinned (a demo's is plain; see `ipc::ws`), carried by a thread of its
-//! own with a small runtime: it writes what the window asks, in order, and hands what edualcd
-//! says to the app as events (`link::Inbox`).
-//!
-//! A line the network loses is reached again, its name looked up anew each time (a phone
-//! changes networks), waiting longer each time it fails; the app is told it was lost
-//! (`Event::LineLost`) and reached again (`Event::Reconnected`), and what it asked in between
-//! is dropped: it opens its session again as the line comes back. The sessions it ran there
-//! run on meanwhile, and are attached to again (see the daemon's hub).
+//! A native window's line to edualcd over the network (the Android app's): a WebSocket over TLS
+//! with edualcd's certificate pinned, reached again when the network comes back.
 
 use std::net::SocketAddr;
 use std::time::Duration;

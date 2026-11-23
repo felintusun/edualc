@@ -1,6 +1,4 @@
-//! What a line's messages are made into and taken from: postcard's COBS frames, each ended by a
-//! `0`, and the errors a line has. Wherever there is a line: the window's socket, edualcd's
-//! network lines, and a page, which is built for `wasm32`.
+//! A line's messages as postcard's COBS frames, and the errors a line has.
 
 use std::collections::VecDeque;
 

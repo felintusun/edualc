@@ -1,7 +1,5 @@
-//! niri's IPC on `$NIRI_SOCKET`, as `niri msg` speaks it: a request as one JSON line, its reply
-//! as another, `{"Ok": …}` or `{"Err": "why"}`. Only the window list and focusing a window, typed
-//! with just the fields read: niri's own types (the `niri-ipc` crate) require fields that older
-//! releases don't send (`layout` came in 25.08), and are pinned to one release.
+//! niri's IPC on `$NIRI_SOCKET`, typed with only the fields read, as the `niri-ipc` crate's
+//! types require fields older releases don't send.
 
 #[cfg(not(target_arch = "wasm32"))]
 use std::io::{BufRead, BufReader, Read, Write};

@@ -1,8 +1,4 @@
-//! The window's line to its daemon, which runs Claude Code and reads its files for the window.
-//! The daemon (`edualcd`, beside this program) is started if none runs, and
-//! checked as it checks the window. Two threads carry the line over its Unix socket: one writes
-//! what the window asks, in order; the other reads what the daemon says and hands it to the app
-//! as events (`link::Inbox`).
+//! The window's line to its daemon over the Unix socket, the daemon started if none runs.
 
 use std::os::unix::process::CommandExt;
 use std::process::{Command, Stdio};

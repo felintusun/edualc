@@ -1,14 +1,5 @@
-//! Code coloured on a thread of its own, so the window never waits for it: a session's history
-//! or the look's colours changing colours every block shown, at about 0.1 ms a line.
-//!
-//! The thread owns the [`Highlighter`]; the frontend orders a block coloured ([`Order`]) and is
-//! woken (`Event::CodeColoured`) to take what is [`Coloured`]. The browser demo has no threads:
-//! there the orders are coloured as the frontend takes what is coloured, on the page's thread. Of the orders for one block
-//! waiting, the last is coloured; the others were of code since grown. A block that grows is
-//! coloured carrying on from how far it was ([`Progress`]), so streaming costs its new lines.
-//! The window is woken at most once a frame's time ([`MIN_WAKE`]), and less often after long
-//! code ([`pause_after`]), whatever arrives in between coloured by then: the last state of each
-//! block is always coloured and sent.
+//! Code coloured on a thread of its own, so the window never waits for it; the browser demo,
+//! which has no threads, colours on the page's.
 
 use std::collections::HashMap;
 use std::sync::mpsc::{Receiver, Sender};

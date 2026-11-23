@@ -1,6 +1,5 @@
-//! The one owner of everything the window shows: the conversation, the process holding it,
-//! what it waits for. UI callbacks, the process's output, a timer and background work reach it
-//! as [`Event`]s on one channel, and it draws what changed once per batch.
+//! The one owner of everything the window shows: [`Event`]s reach it on one channel, and it
+//! draws what changed once per batch.
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::ops::ControlFlow;

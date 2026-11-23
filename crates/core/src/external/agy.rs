@@ -1,10 +1,5 @@
-//! What agy (Google's Antigravity CLI, 1.5.9) keeps of a conversation in its brain folder,
-//! `~/.gemini/antigravity-cli/brain/<conversation>/.system_generated/`, in the fields edualc reads:
-//! the conversation's steps (`logs/transcript.jsonl`, one a line, appended; see [`STEP_LOGS`]), the subagents it
-//! started (`subagents/<conversation>.json`), and a swarm's members (`swarm/members.json`) and
-//! board (`swarm/board.jsonl`, a post a line). A subagent, or a swarm's member, is a
-//! conversation of its own, with a brain folder of its own. Also what `agy -p /usage` says of
-//! the plan's quotas.
+//! What agy (1.5.9) keeps of a conversation in its brain folder, in the fields edualc reads, and
+//! what `agy -p /usage` says of the plan's quotas.
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;

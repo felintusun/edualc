@@ -1,18 +1,5 @@
-//! The window and its daemon (`edualcd`), speaking over a Unix socket that only they reach.
-//!
-//! - The socket lives in `$XDG_RUNTIME_DIR/edualc`, a folder of the user's alone (0700), which is
-//!   checked through the descriptor it was opened by, never followed through a link, and used by
-//!   that descriptor from then on: binding and connecting go through `/proc/self/fd/<folder>`, so
-//!   no path can be swapped in between. Never an abstract socket, which anyone may take first.
-//! - Who is the daemon is decided by a lock held as long as it runs: only its holder removes a
-//!   stale socket and binds anew, so two starting at once can't both bind, nor one unbind the
-//!   other's.
-//! - Each peer is checked as it connects: a window, to be the same user running a program
-//!   installed beside the daemon (`edualc`); the daemon, which makes itself non-dumpable (its `/proc` entries closed to the
-//!   user's other processes), to be the same user, in the place only the daemon binds.
-//! - Messages are postcard (compact serde), each COBS-framed by postcard: a frame longer than
-//!   one of [`MAX_MESSAGE`] ends the connection once the reader's fixed buffer is full, as does
-//!   a message that doesn't parse. Nothing in a message makes the reader hold more than that.
+//! The window and its daemon over a Unix socket in a folder of the user's alone, each peer
+//! checked as it connects; messages are COBS-framed postcard of at most [`MAX_MESSAGE`].
 
 use std::path::PathBuf;
 

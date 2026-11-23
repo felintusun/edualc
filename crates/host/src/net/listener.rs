@@ -1,6 +1,5 @@
-//! The connections: TCP taken, TLS handshaken within [`HANDSHAKE`], and handed to whatever
-//! serves HTTP on them. Only [`MOST_HANDSHAKES`] are under way at once; one over that is
-//! dropped, so a flood of connections that never finish a handshake holds nothing up.
+//! The connections: TCP taken and TLS handshaken within [`HANDSHAKE`], at most
+//! [`MOST_HANDSHAKES`] at once.
 
 use std::net::SocketAddr;
 use std::pin::Pin;

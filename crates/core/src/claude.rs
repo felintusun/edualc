@@ -1,6 +1,4 @@
-//! Claude Code CLI process adapter codecs: mapping Claude Code's `stream-json` wire format
-//! (`external::wire`) to and from edualc's provider-neutral [`crate::agent`] events and
-//! commands.
+//! Claude Code's stream-json made into [`crate::agent`] events, and commands into stream-json.
 
 use crate::agent;
 use crate::external::wire::{ControlPeek, Input, Message, PeekedKind};

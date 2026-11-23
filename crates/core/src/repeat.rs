@@ -1,6 +1,5 @@
-//! Something told to the app again and again (a tick, a look whether Claude Code went quiet),
-//! as an event on its channel, until stopped: on a thread of its own that sleeps between, or in
-//! a page, on its timer. Whatever runs the app's loop, nothing of it is needed.
+//! An event told to the app again and again until stopped: by a thread that sleeps between, or
+//! by a page's timer.
 
 use std::time::Duration;
 

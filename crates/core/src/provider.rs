@@ -1,9 +1,4 @@
-//! Coding agent providers (`Backend`) and what each supports (`Capabilities`).
-//!
-//! `edualc-core` relies on these capabilities rather than assuming Claude Code's CLI
-//! features or ACP's baseline alone: standard capabilities (like continuation, fork, models,
-//! and modes) sit alongside provider-specific ones (such as side questions, inline shell,
-//! plan limits, and pre-start folder trust).
+//! The agent programs (`Backend`) and what each supports (`Capabilities`).
 
 use std::path::PathBuf;
 

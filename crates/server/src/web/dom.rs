@@ -1,7 +1,4 @@
-//! Moving the focus on the page by an element's id (or the view to it), once the element is
-//! drawn: it may only now be shown (a panel or a dialog just opened). By the browser's own
-//! script, which the server's render passes over, and which the Android app's WebView runs
-//! alike.
+//! Moving the focus, or the view, to an element by its id once it is drawn.
 
 use dioxus::prelude::*;
 

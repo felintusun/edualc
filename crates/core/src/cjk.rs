@@ -1,10 +1,5 @@
-//! Which language a text's CJK characters are in, for the glyph shapes they take: Chinese,
-//! Japanese and Korean share the Han characters in Unicode but draw many of them differently,
-//! and a font left to choose picks one for all (here Korean, for Japanese text too). As the
-//! user's Japanese typing app does on the web, a text is set in the CJK family of its language
-//! (`Theme.cjk-family`), and tagged with it for its spacing: kana make it Japanese, Hangul
-//! Korean, and Han characters alone take the language the user chose (see
-//! `Settings::han_language`).
+//! Which language a text's CJK characters are in, so they take that language's glyphs: kana make
+//! it Japanese, Hangul Korean, and Han characters alone the language you chose.
 
 use serde::{Deserialize, Serialize};
 

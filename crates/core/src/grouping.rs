@@ -1,6 +1,5 @@
-//! Runs of tool calls, folded into one line: "Read 2 files, ran 1 command". Long sessions are
-//! mostly tool calls; one line per run keeps what Claude said readable, and a click opens the
-//! run. A call waiting for the user is never folded away: it stands alone, and parts the run.
+//! Runs of tool calls folded into one line ("Read 2 files, ran 1 command"); a call waiting for
+//! you is never folded away.
 
 use std::collections::HashSet;
 use std::path::Path;

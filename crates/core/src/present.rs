@@ -1,7 +1,4 @@
-//! What the window shows, apart from how it is drawn: the app's state made into the rows,
-//! menus and words a window shows (`Presenter`), as plain data (`model`), handed to a
-//! [`Frontend`] that draws it: the Slint window, native or in the browser demo. Another
-//! frontend would show the same model, and so say the same things.
+//! What the window shows, apart from how it is drawn, handed to a [`Frontend`] that draws it.
 
 use std::collections::HashSet;
 

@@ -1,6 +1,4 @@
-//! Side questions (the CLI's `/btw`): asked beside the conversation and answered with its
-//! context, without joining it or running tools. They wait in a panel that can be folded away
-//! while something else needs the user, and brought back.
+//! Side questions (`/btw`): answered with the conversation's context, without joining it.
 
 use serde_json::Value;
 

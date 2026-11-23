@@ -1,7 +1,4 @@
-//! A native window's line to edualcd over the network (the Android app's): WebSocket over TLS
-//! (see `tls`), to edualcd's `/api/line`, as a page's is. Each message is one binary frame of
-//! what the Unix socket carries (postcard's COBS; see the parent module), and the first frame
-//! shows the token (`Auth`). A demo's line is plain (see `pairing::Demo`).
+//! A native window's WebSocket to edualcd's `/api/line`, over TLS, its first frame the token.
 
 use std::io;
 use std::net::SocketAddr;

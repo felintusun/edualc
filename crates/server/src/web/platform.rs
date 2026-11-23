@@ -1,6 +1,5 @@
-//! What the window does on the platform it runs on, chosen here once: in a browser, the
-//! browser's; in the Android app, Android's (`android::java`); rendered on the server, nothing.
-//! The window's code calls each alike everywhere.
+//! What the window does on its platform: the browser's, Android's, or nothing when rendered on
+//! the server.
 
 pub use here::*;
 

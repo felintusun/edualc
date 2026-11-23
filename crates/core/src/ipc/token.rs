@@ -1,6 +1,5 @@
-//! The token a line shows to be let in (see the parent module): kept as an SSH key is, since it
-//! lets whoever holds it run Claude Code as the user, outside the sandbox too. It is cleared
-//! from memory as it goes, never shown by `Debug` or `Display`, and compared in constant time.
+//! The token a line shows to be let in: cleared from memory as it goes, never shown by `Debug`
+//! or `Display`, and compared in constant time.
 
 use sha2::{Digest, Sha256};
 use subtle::ConstantTimeEq;

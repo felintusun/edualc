@@ -1,6 +1,4 @@
-//! The conversation as the window shows it: entries made from the CLI's messages (live,
-//! partial messages included) or from a saved transcript, and which of them changed since the
-//! window last looked.
+//! The conversation as the window shows it, and which entries changed since it last looked.
 
 use std::collections::{HashMap, HashSet};
 

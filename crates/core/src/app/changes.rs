@@ -1,6 +1,4 @@
-//! The Changes view: what the session changed in its folder, as the daemon's snapshots tell
-//! (`Read::Changes`, `Read::Diff`), the files you marked reviewed, and your comments on lines,
-//! sent to Claude together as one message.
+//! The Changes view: what the session changed, the files marked reviewed, and comments on lines.
 
 use std::path::PathBuf;
 

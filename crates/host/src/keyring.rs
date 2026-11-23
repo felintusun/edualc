@@ -1,6 +1,4 @@
-//! The Anthropic API key in the desktop's keyring (the Secret Service), for Claude Code
-//! sessions that sign in with it. Only the daemon reaches the keyring: it stores the key the
-//! window was given, and reads it back as it starts such a session.
+//! The Anthropic API key in the desktop's keyring; only the daemon reaches it.
 
 use crate::ipc::ApiKey;
 

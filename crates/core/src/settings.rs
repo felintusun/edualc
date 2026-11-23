@@ -1,11 +1,5 @@
-//! What the user set and wants kept between runs: the text zoom, the look, the folders trusted
-//! to run Claude Code in, the projects pinned or removed.
-//!
-//! What you might set by hand is in `$XDG_CONFIG_HOME/edualc/config.toml`, changed a key at a
-//! time so your comments and order stay. What edualc keeps for itself (folders opened, pinned,
-//! hidden, removed or trusted, the composer's height) is in `$XDG_STATE_HOME/edualc/state.json`.
-//! A `settings.json` of an earlier version, kept where `config.toml` is now, is read while
-//! neither is there, and moved into both by the first change.
+//! What is kept between runs: what you set, in `config.toml`, changed a key at a time so your
+//! comments stay, and what edualc keeps for itself, in `state.json`.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};

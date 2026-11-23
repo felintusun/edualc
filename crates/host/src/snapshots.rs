@@ -1,12 +1,5 @@
-//! What a session changes in its folder. Before and after each turn the folder is looked at
-//! (its files' sizes and times, and their contents' SHA-256, for those that changed), and each
-//! file's contents are kept once, by that hash, for the diffs. `.gitignore`d files, `.git`, other
-//! repositories and worktrees inside the folder, binary files and large ones are left out.
-//!
-//! Kept in `~/.local/state/edualc/changes/`: `blobs/` holds the contents, shared by every
-//! session; `sessions/<id>/` a session's snapshots, each as what changed since the one before
-//! it in the same folder, and its `index.json`. The [`keep`] task alone writes them, each file
-//! whole or not at all, and windows' reads read them as they are.
+//! What a session changes in its folder: snapshots before and after each turn, kept in
+//! `~/.local/state/edualc/changes/`, written by the [`keep`] task alone.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::os::unix::fs::DirBuilderExt as _;

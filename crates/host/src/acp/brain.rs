@@ -1,7 +1,4 @@
-//! agy's own records of a conversation (see [`crate::external::agy`]), read for the window as
-//! Claude Code's: the subagents and swarm members a session started as its background tasks, a
-//! member's steps as its transcript, and a swarm's board as what its members said. Nothing is
-//! copied: the daemon translates them as a window reads them.
+//! agy's own records of a conversation (see [`crate::external::agy`]), read for the window.
 
 use std::borrow::Cow;
 use std::path::Path;

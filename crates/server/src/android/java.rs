@@ -1,12 +1,5 @@
-//! What the app asks of Android itself, through JNI: where its files go, whether a keyboard is
-//! attached, the clipboard (text copied, an image pasted), and notifications. Each call runs on
-//! a thread of its own, attached to Java as it starts and detached as it ends, which frees what
-//! Java made for it; all of it goes on beside the window, which hears of it, if at all, as it is
-//! done.
-//!
-//! Java's VM and the activity come from wry, which runs a closure with them on Android's main
-//! thread (`dispatch`): there, each call takes handles of its own that outlive it (the VM, and
-//! a global reference to the activity), with no raw pointer in sight.
+//! What the app asks of Android through JNI: where its files go, the keyboard, the clipboard,
+//! and notifications.
 
 use dioxus::mobile::wry::prelude::dispatch;
 use jni::objects::{JObject, JString, JValue};

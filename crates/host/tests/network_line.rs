@@ -1,6 +1,4 @@
-//! edualcd's network line, end to end as far as the daemon's side of it: a client of the line
-//! (TLS pinned to the certificate, a WebSocket, frames as the Unix socket carries them) against
-//! `net::router` on `net::serve`, the lines it lets in coming out as the daemon's [`Line`]s.
+//! edualcd's network line end to end, as far as the daemon's side of it.
 
 use std::net::SocketAddr;
 use std::time::Duration;

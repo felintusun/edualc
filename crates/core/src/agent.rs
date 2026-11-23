@@ -1,6 +1,4 @@
-//! Provider-neutral handle and typed event/command contract for a running coding-agent
-//! session. The daemon (`edualcd`) terminates provider-specific protocols (Claude CLI
-//! `stream-json`, ACP agents via `edualcd --agy-adapter`, and future drivers) behind these types.
+//! A running agent session's events and commands, the same for every program.
 
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64;

@@ -1,15 +1,5 @@
-//! A window's line over the network, at `/api/line?protocol=…`: a WebSocket, each message one
-//! binary frame of what the Unix socket carries (postcard's COBS; see `ipc`).
-//!
-//! A line is let in by its first frame alone: the token (`ipc::Auth`), in a frame of at most
-//! [`MOST_AUTH`] bytes, within [`AUTH_WITHIN`], or the line is closed, with nothing else read.
-//! The token is in no address, which proxies and servers log. Only a line of the protocol this
-//! edualcd speaks is taken (HTTP 409 before the WebSocket opens), so that neither end reads
-//! messages the other's version made.
-//!
-//! A line is pinged every [`PING`], and let go of after [`SILENT`] in which nothing came from
-//! it (a pong does, and, over TLS, any part of a message arriving); what the server sends does
-//! not count as a sign of life.
+//! A window's line over the network: a WebSocket at `/api/line`, let in only by the token in its
+//! first frame, never in the address, which proxies log.
 
 use std::time::Duration;
 

@@ -1,11 +1,5 @@
-//! The composer, as the native window's (`ui/app.slint`'s `EditArea`, `SendButton`,
-//! `ContextMeter` and `CommandList`): the bottom of the conversation, edge to edge, is the text
-//! box. A line sets it apart from the conversation and takes the accent while writing, glows
-//! while a turn runs, and stays lit while Claude waits for an answer; a click anywhere in it
-//! writes. It grows with the draft, then scrolls; dragged by its top edge, it keeps that height.
-//! Made taller, it lies over the conversation's column. Under the text: the mode and model, what
-//! Claude is doing, the context, send. Above it, in the dock, the slash commands matching the
-//! draft.
+//! The composer, as the native window's (`ui/app.slint`'s `EditArea`): the text box, the mode
+//! and model, the context, send, and the slash commands above it.
 
 use dioxus::prelude::*;
 use edualc_core::app::Action;

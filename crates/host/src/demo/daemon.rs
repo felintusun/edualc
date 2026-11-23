@@ -1,7 +1,4 @@
-//! The demo's daemon: it takes what a window sends, as the daemon does, and answers as `claude
-//! -p` would (`demo::script`), from a scenario a word in the prompt picks, with pauses so the
-//! window shows the answer come; what a window reads comes from the demo project
-//! (`demo::world`). The window is on another machine, as any page's is.
+//! The demo's daemon: answers a window as the daemon does, from the script and the demo project.
 
 use std::collections::HashMap;
 use std::path::Path;

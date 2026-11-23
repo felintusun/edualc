@@ -1,6 +1,4 @@
-//! Starting `claude` for the daemon: its command line and its environment. What the window
-//! asked for is checked here, as a request from another process: the command line is made from
-//! typed values alone.
+//! Starting `claude` for the daemon, its command line made from typed values alone.
 
 use std::path::{Path, PathBuf};
 use std::process::Stdio;

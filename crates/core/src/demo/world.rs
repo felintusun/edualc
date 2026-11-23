@@ -1,6 +1,4 @@
-//! The demo's world, built into the page in place of a disk: a small Rust project, trailhead,
-//! with its earlier sessions, and four sessions "running in other terminals". The transcripts
-//! (`web/demo/`) are as Claude Code writes them; the window reads them as it reads any.
+//! The demo's world in place of a disk: a small Rust project, trailhead, and its sessions.
 
 use std::path::Path;
 

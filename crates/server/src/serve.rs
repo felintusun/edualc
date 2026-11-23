@@ -1,7 +1,4 @@
-//! edualcd's command line and what it runs: the daemon the first window starts beside itself
-//! (or the image decoder, confined: see `decode`; or an ACP session's adapter or its messaging
-//! tool: see `acp`), and with `--listen`, as a user service runs it, its network side and the
-//! page.
+//! edualcd's command line and what each mode of it runs.
 
 use std::net::{IpAddr, SocketAddr};
 

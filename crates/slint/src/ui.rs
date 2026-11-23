@@ -1,7 +1,5 @@
-//! The Slint window as a frontend (see [`crate::present`]): the presentation model made Slint's
-//! types and set into the window's globals, only what changed, list models changed row by row so
-//! a row that stays keeps its selection; and the window's callbacks, which become the app's
-//! actions (`wire`).
+//! The Slint window as a frontend: the presentation model set into its globals, and its
+//! callbacks made the app's actions.
 
 use std::collections::{HashMap, HashSet};
 

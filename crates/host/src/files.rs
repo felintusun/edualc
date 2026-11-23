@@ -1,9 +1,5 @@
-//! What the daemon reads and watches for the windows: Claude Code's files (its sessions'
-//! records, transcripts, projects) and edualc's settings. The browser demo can't read them, and
-//! the native window needn't, so both ask the same way: they ask (`ipc::Read`), and are told
-//! when what they watch changes
-//! (`ipc::Target`), noticed by inotify, never by looking every few seconds (only a watch that
-//! couldn't be placed is tried again so, until it is).
+//! What the daemon reads and watches for the windows: the programs' files and edualc's
+//! settings, watched with inotify.
 
 use std::collections::{HashMap, HashSet};
 use std::ffi::{OsStr, OsString};

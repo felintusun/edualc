@@ -1,9 +1,5 @@
-//! The conversation's images, decoded for showing by the confined helper (see
-//! [`crate::decode`]), which the window starts itself: an image's bytes go to it from here, not
-//! through the daemon. One is decoded at a time, on a thread of its own, so a conversation of
-//! many images doesn't run many helpers at once. The Android app starts no programs of its own:
-//! it decodes on that thread itself, in the sandbox Android keeps every app in, as a page does
-//! in its browser's.
+//! The conversation's images, decoded one at a time by the confined helper (see
+//! [`crate::decode`]); the Android app, which starts no programs, decodes them itself.
 
 use std::collections::HashSet;
 use std::sync::mpsc;

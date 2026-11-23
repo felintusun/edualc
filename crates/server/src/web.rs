@@ -1,9 +1,4 @@
-//! The page: edualc's window, drawn by Dioxus. It runs the same app as the native window
-//! (`edualc-core`): the presenter's frontend here (`view::PageFrontend`) puts what it shows in
-//! signals, which the components draw; what the user does goes back as the app's actions. In a
-//! browser its line is a WebSocket to the server that served it (`line`); in the Android app
-//! (`android`), which draws the same components, a native line over the network
-//! (`edualc_core::line`).
+//! The page: edualc's window drawn by Dioxus, running the same app as the native window.
 
 use dioxus::prelude::*;
 

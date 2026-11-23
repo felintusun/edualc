@@ -1,6 +1,4 @@
-//! Compiles the UI and writes the Lucide icons it uses. The look is the app's own (Gruvbox,
-//! `ui/theme.slint`); the Fluent style only lends its scroll bars and the desktop's light or
-//! dark preference.
+//! Compiles the UI and writes the Lucide icons it uses.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};

@@ -1,6 +1,4 @@
-//! On-demand usage queries for every coding agent backend (`claude`, `agy`, `opencode`) so the
-//! Usage popover works from any page or session, even when a provider has no active session in
-//! this window.
+//! Usage asked of each program, so the usage panel works without a session of it.
 
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};

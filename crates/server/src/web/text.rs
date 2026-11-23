@@ -1,6 +1,5 @@
-//! Text as the page shows it: plain, or inline Markdown made HTML. Whatever HTML the text itself
-//! holds is shown as text, never taken as markup (`<u>` aside, as the native window takes it);
-//! a link opens in a new tab, and only a web page's or mail's.
+//! Text as the page shows it: plain, or inline Markdown made HTML, the text's own HTML shown as
+//! text, never taken as markup.
 
 use dioxus::prelude::*;
 use edualc_core::present::Styled;

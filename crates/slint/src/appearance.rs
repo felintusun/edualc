@@ -1,6 +1,4 @@
-//! How text looks: Fira where it is installed, at the size the desktop configures. Both are
-//! asked of the desktop's own tools (fontconfig, gsettings, KDE's config), as nothing else here
-//! links to them.
+//! How text looks: Fira where it is installed, at the size the desktop sets.
 
 use std::collections::HashSet;
 

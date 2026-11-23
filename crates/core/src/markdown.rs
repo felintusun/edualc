@@ -1,6 +1,5 @@
-//! Assistant text as blocks. Slint's `StyledText` takes only inline Markdown (emphasis, code,
-//! links) and lists, so the blocks it can't show (headings, code, quotes, tables, rules) are
-//! split off here and drawn by the UI; the rest goes to Slint as Markdown source.
+//! Assistant text as blocks: those Slint's `StyledText` can't show are split off for the UI to
+//! draw.
 
 use std::ops::Range;
 

@@ -1,6 +1,5 @@
-//! Comments on Claude's plan, as Claude gets them back: quoted with the part each is about
-//! when it should keep planning, or as notes in the plan when the plan is approved (the CLI
-//! hands Claude a plan changed this way as the "Approved Plan (edited by user)").
+//! Comments on Claude's plan, as Claude gets them back: quoted to keep planning, or as notes in
+//! the approved plan.
 
 use std::ops::Range;
 

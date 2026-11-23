@@ -1,17 +1,5 @@
-//! The Android app: the page's window (`web`), drawn by Dioxus in Android's WebView, and run by
-//! native code rather than in a browser. It reaches an edualcd over the network as a page does,
-//! but natively (`edualc_core::line`: TLS, edualcd's certificate pinned, reached again as the
-//! network comes back, its name looked up anew), from the edualcds it was paired with
-//! (`ipc::servers`, kept in the app's own files, out of Android's backups). Before the window
-//! shows, its start screen lists them and pairs with another by the address edualcd prints
-//! (`edualcd --pair`); a demo's address (`edualcd --demo`) is taken too, and the window says
-//! its line is unencrypted. What the window does on the phone itself (a link opened, a
-//! notification, the clipboard) is Android's (`java`).
-//!
-//! The window opens the session it last showed on that edualcd again, in the folder it was
-//! started in (Android ends an app in the background, and starts it anew as it comes back), or
-//! else on the projects, to choose from, as the page does. Closing it (the settings' "Choose
-//! another edualcd") goes back to the start screen.
+//! The Android app: the page's window in Android's WebView, reaching an edualcd it was paired
+//! with over the network.
 
 use std::path::PathBuf;
 

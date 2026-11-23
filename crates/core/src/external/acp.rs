@@ -1,8 +1,5 @@
-//! The Agent Client Protocol (agentclientprotocol.com) as edualc's ACP adapter reads it:
-//! JSON-RPC 2.0, one message per line on stdio. Only what the adapter reads and writes: the
-//! messages it reads are [`Incoming`], the ones it writes are [`ToAgent`]. Agents add keys of
-//! their own (a tool call's `name` and its arguments by the agent's names), read where they say
-//! more than the protocol's.
+//! The Agent Client Protocol as edualc's adapter reads ([`Incoming`]) and writes it
+//! ([`ToAgent`]).
 
 use std::path::PathBuf;
 

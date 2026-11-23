@@ -1,6 +1,4 @@
-//! The page's line to edualcd, at `/api/line?protocol=…`: a WebSocket (over TLS when the page was
-//! served so), each message one binary frame of what edualcd's Unix socket carries (postcard's
-//! COBS, `ipc::frame`). The first frame is the token (`ipc::Auth`), which is in no address.
+//! The page's line to edualcd: a WebSocket at `/api/line`, its first frame the token.
 
 #[cfg(feature = "web")]
 pub use web::open;

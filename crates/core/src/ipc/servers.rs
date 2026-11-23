@@ -1,7 +1,5 @@
-//! The edualcds a window over the network is paired with (the Android app's), each by a name:
-//! its address, its certificate's fingerprint, and its token (or a demo's address). The app
-//! keeps them in its own files. The file is the user's alone, and is to be kept as an SSH key
-//! is: a token lets whoever holds it run Claude Code as the user on that edualcd's machine.
+//! The edualcds the Android app is paired with, in a file of the user's alone: a token lets
+//! whoever holds it run the agents as the user on that machine.
 
 use std::collections::BTreeMap;
 use std::os::unix::fs::DirBuilderExt as _;

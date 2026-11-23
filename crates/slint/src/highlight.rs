@@ -1,17 +1,5 @@
-//! Code in colour, by its language: a fenced block's tag (`rust`, `py`, `toml`), which syntect
-//! looks up among bat's grammars by name or file extension. The colours are the theme's
-//! (`SyntaxColours` in `ui/theme.slint`), not syntect's themes.
-//!
-//! Slint makes coloured text only from Markdown, so each line of code goes to it as Markdown
-//! that shows the code as it is: every ASCII punctuation character escaped, spaces and control
-//! characters as character references (which no Markdown rule strips or reads as indentation),
-//! lines ended by hard breaks, and each coloured run in a `<font color>` tag.
-//!
-//! [`Progress`] keeps a streaming block's coloured lines and the parser's state after them, so
-//! each update colours only the new lines.
-//!
-//! The window's code is coloured on a thread of its own (see `colourist`), which makes the
-//! `StyledText` whole too.
+//! Code in colour by its language, with bat's grammars in the theme's colours. Slint colours
+//! text only from Markdown, so each line goes to it as Markdown that shows the code as it is.
 
 use std::str::FromStr;
 

@@ -1,8 +1,5 @@
-//! What Claude waits for, above the composer (`ui/app.slint`'s `PromptBar`): may a tool run, its
-//! questions answered, its plan approved. Its buttons take clicks only a moment after a request
-//! appears: a click meant for what was under the pointer (another window, as this one opened)
-//! must not answer it. The plan's review (`ui/plan.slint`) shows from here too, in the
-//! transcript's place.
+//! What the agent waits for, above the composer (`ui/app.slint`'s `PromptBar`), and the plan's
+//! review (`ui/plan.slint`).
 
 use dioxus::prelude::*;
 use edualc_core::app::{Action, PermissionMode};

@@ -1,7 +1,4 @@
-//! What the demo's Claude does, by a word in the prompt: fix trailhead's elevation gain (with
-//! an edit to allow), run its benchmark (a command to allow), plan per-kilometre splits (a plan
-//! to comment on), ask how to smooth (questions with previews), draw the gain chart (an image
-//! in a tool's card); anything else is told what to try.
+//! What the demo's Claude does, picked by a word in the prompt.
 
 use std::collections::BTreeMap;
 

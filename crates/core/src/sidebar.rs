@@ -1,6 +1,4 @@
-//! A project's list of sessions: those running now in it, this window's own among them, then its
-//! earlier ones, each part under a heading. A running session is listed once, as running,
-//! however it runs; the filter narrows both parts.
+//! A project's list of sessions: those running now, then its earlier ones.
 
 use std::path::Path;
 use web_time::SystemTime;

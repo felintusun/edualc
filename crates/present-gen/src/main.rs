@@ -1,15 +1,5 @@
-//! Writes the presentation model from the window's Slint types, for every frontend to share.
-//!
-//! From `ui/types.slint` (its enums and structs) and `ui/state.slint` (the presenter's globals'
-//! `in` properties), read with Slint's own parser, it writes:
-//!
-//! - `crates/core/src/present/model.rs`: the same types as plain Rust data, which the app's
-//!   presenter fills and every frontend shows;
-//! - `crates/slint/src/ui/model.rs`: the Slint window's side, which turns them into Slint's types
-//!   and brings a global in line with a new state.
-//!
-//! Both outputs are committed. `just present` writes them; `--check` fails when either differs
-//! from what the Slint files say.
+//! Writes the presentation model (`present/model.rs`, `ui/model.rs`) from the window's Slint
+//! types; `--check` fails when either differs from them.
 
 mod model;
 mod write;

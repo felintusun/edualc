@@ -1,8 +1,5 @@
-//! Peeking into a task, read only, in the side panel. A subagent: what it was asked, what it
-//! says and each tool it calls, read from the transcript Claude Code keeps for it beside the
-//! session's (`<session>/subagents/agent-<task id>.jsonl`) and followed as it grows. A
-//! background command: the end of what it printed, asked of Claude Code every little while as
-//! it runs and once after.
+//! Peeking into a task in the side panel, read only: a subagent's transcript, or what a
+//! background command printed.
 
 use std::path::Path;
 use std::time::Duration;

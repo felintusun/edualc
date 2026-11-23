@@ -1,23 +1,5 @@
-//! The daemon (`edualcd`): runs Claude Code's processes for the windows, and does for
-//! them what they ask of the desktop (opening editors, notifying, stopping sessions that run
-//! elsewhere). One per user, started by the first window, gone a while after the last window
-//! and session are. Sessions outlive the window that started them: closing it leaves them
-//! running, and a window opened later attaches to them.
-//!
-//! Its parts are actors in the manner of "More Actors with Tokio": each is its data, run by an
-//! event loop that is given its channels and gives its data back, and spawned by its caller.
-//! Their logic is sans-io (each says what is to be done; its loop does it), and their channels
-//! make no cycle:
-//!
-//! ```text
-//! socket ─▶ Connection (a window) ─▶ Hub (the sessions) ─▶ Session ─▶ a window's outbox ─▶ socket
-//!                │                        └──────────── Hosted (the list) ─────────▶ outboxes
-//!                └──────────────────── Done (what the desktop did) ────────────────▶ outbox
-//! ```
-//!
-//! The hub learns that a session ended as its task does, not by a message back. A window
-//! hanging up detaches its sessions, which run on; one left alone and quiet for [`QUIET`] ends,
-//! its input closing. When no window and no session are left for [`IDLE`], the daemon ends.
+//! The daemon (`edualcd`): runs the sessions for the windows, which outlive the window that
+//! started them, and does what windows ask of the desktop.
 
 mod acts;
 mod connection;

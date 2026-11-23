@@ -1,6 +1,5 @@
-//! The plan's usage limits as time passes: the sidebar's bars asked for again when a limit
-//! starts over, and a turn the limit stopped continued then, as Claude Code's terminal does.
-//! Behind a pipe Claude Code does neither.
+//! The plan's usage limits as time passes: asked for again when a limit starts over, and a turn
+//! the limit stopped continued then, as Claude Code's terminal does.
 
 use jiff::{SignedDuration, Timestamp};
 

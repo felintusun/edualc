@@ -56,10 +56,8 @@ fn rust_record(model: &Model, record: &Record, out: &mut Vec<String>) {
 /// and every frontend shows.
 pub fn present(model: &Model) -> String {
     let mut out = vec![format!(
-        "{GENERATED}
-//! What the window shows, as plain data: the same types as the Slint window's, which every
-//! frontend shows. It never leaves the process, so it has no serde.
-
+        "//! What the window shows, as plain data: the Slint window's types, for every frontend.
+{GENERATED}
 use super::{{Image, Styled}};
 "
     )];
@@ -91,9 +89,8 @@ use super::{{Image, Styled}};
 /// row that stays keeps its selection and what was typed into it).
 pub fn slint(model: &Model) -> String {
     let mut out = vec![format!(
-        "{GENERATED}
-//! The presentation model as Slint's types, and the window's globals brought in line with it.
-
+        "//! The presentation model as Slint's types, and the window's globals brought in line with it.
+{GENERATED}
 use slint::ComponentHandle;
 
 use super::{{Drawing, ToSlint, keeps_colours, md_body, resync}};

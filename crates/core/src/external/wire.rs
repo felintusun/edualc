@@ -1,8 +1,4 @@
-//! What `claude -p --output-format stream-json --verbose --include-partial-messages
-//! --permission-prompt-tool stdio` says, and what its transcripts hold, as types: parsed where
-//! it enters, so the rest matches on variants instead of looking into JSON. Fields the window
-//! doesn't use are left out; variants it doesn't know become `Other`. What the window writes to
-//! its input (`--input-format stream-json`) is typed the same way, at the end.
+//! What Claude Code says and takes in stream-json, and what its transcripts hold, as types.
 
 use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;

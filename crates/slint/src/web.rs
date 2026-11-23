@@ -1,6 +1,4 @@
-//! The browser demo: the window as on Linux, in a page, with a script in place of the daemon
-//! and Claude Code (`daemon`, `scenarios`), and a demo project's sessions in place of
-//! `~/.claude` (`demo`). It opens on a session that fixed the project's elevation gain.
+//! The browser demo: the window in a page, with a script in place of the daemon.
 
 use slint::ComponentHandle;
 

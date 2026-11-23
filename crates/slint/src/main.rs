@@ -1,8 +1,4 @@
-//! edualc's native window for Claude Code, drawn with Slint: a frontend of `edualc-core`'s app
-//! and presenter, its line to the daemon (`edualcd`) over the daemon's Unix socket.
-//!
-//! The same window also runs in a browser, as a demo (`web`): there the daemon is a script in
-//! the page, and what only Linux has (processes, sockets) is left out.
+//! edualc's native window, drawn with Slint; built for the browser, the demo.
 
 // The app's modules, under the names this crate's modules know them by.
 use edualc_core::*;

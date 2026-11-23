@@ -1,7 +1,5 @@
-//! edualc's messaging tool as the agent gets it: an MCP server on stdio (`edualcd --agy-tool
-//! SOCKET`), which the agent starts, with `send_message` and `list_sessions`. It decides
-//! nothing: each call goes to the adapter over the socket, which carries it out (see
-//! [`super::outbox`]).
+//! edualc's messaging tool as the agent gets it: an MCP server on stdio that hands each call to
+//! the adapter.
 
 use std::collections::BTreeMap;
 use std::io::{BufRead as _, BufReader, Write as _};

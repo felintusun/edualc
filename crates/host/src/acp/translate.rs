@@ -1,14 +1,5 @@
-//! The adapter's core (sans-io): the agent's Agent Client Protocol on one side, Claude Code's
-//! stream-json on the other, as the window and the daemon read it. Each line read in says what
-//! to write where; the adapter's loop (see [`crate::acp`]) does it.
-//!
-//! A turn of the agent's becomes what a turn of Claude Code's looks like: an `init`, streamed
-//! text and thinking (`stream_event`s), an assistant message for each stretch of it, a tool
-//! result for each call, and a `result`. Its tool calls go as the agent gives them
-//! ([`Event::ToolCall`]), but for those edualc acts on, which go by the names the window knows
-//! (see [`named`]). Permission requests become `can_use_tool` requests, and the window's
-//! answers the agent's options. Nothing is kept: the agent keeps its sessions, and lists and
-//! loads them again.
+//! The adapter's core (sans-io): what the agent says over ACP made into what the daemon and the
+//! window read, and their answers into ACP.
 
 use std::collections::{BTreeSet, HashMap, VecDeque};
 use std::path::PathBuf;

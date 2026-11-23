@@ -1,8 +1,4 @@
-//! The demo's Claude: one session as a script plays it (`Session`), and what it says as stream-json
-//! lines, as `claude -p` would, to a [`Sink`] (a window's events in the browser demo, a line's
-//! messages for `edualcd --demo`). What it does takes time (pauses, so that the window shows
-//! the answer come) and is run by whoever has the executor: `Session::take` hands back what is
-//! to run (a [`Task`]), which that one runs, on a thread of its own or the page's.
+//! The demo's Claude: one session as a script plays it, saying what `claude -p` would.
 
 use std::collections::HashMap;
 use std::path::PathBuf;

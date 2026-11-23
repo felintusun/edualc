@@ -1,7 +1,4 @@
-//! What the session changed in its folder, in place of the conversation (`ui/changes.slint`):
-//! the files a turn, the turns since you looked, or the whole session changed, who changed
-//! each, the diff of the one chosen, a mark for each file reviewed, and comments on lines, sent
-//! to Claude together.
+//! What the session changed in its folder, in place of the conversation (`ui/changes.slint`).
 
 use dioxus::prelude::*;
 use edualc_core::app::Action;
