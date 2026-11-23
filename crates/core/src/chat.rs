@@ -356,23 +356,6 @@ impl Chat {
         }
     }
 
-    /// The call a tool use is, if the conversation shows it.
-    pub fn call(&self, id: &ToolUseId) -> Option<&Call> {
-        let index = *self.tools.get(id)?;
-        match &self.entries.get(index)?.body {
-            Body::Tool { tool, .. } => Some(&tool.call),
-            Body::User(_)
-            | Body::Assistant(_)
-            | Body::Thinking { .. }
-            | Body::Shell { .. }
-            | Body::Image(_)
-            | Body::Peer { .. }
-            | Body::Info(_)
-            | Body::Error(_)
-            | Body::TurnEnd(_) => None,
-        }
-    }
-
     /// An ACP agent's tool call, new or changed, its result in it once it has ended. A call
     /// the user denied stays denied, however the agent ends it.
     pub fn acp_call(&mut self, id: &ToolUseId, call: &AcpCall, parent: Option<&ToolUseId>) {
@@ -1205,7 +1188,6 @@ mod tests {
     #[test]
     fn an_acp_call_ends_with_its_own_update() {
         let call = |status, output: Option<&str>| AcpCall {
-            name: Some("run_command".to_owned()),
             title: "wc -l notes.txt".to_owned(),
             kind: None,
             locations: Vec::new(),

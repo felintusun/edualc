@@ -629,6 +629,8 @@ pub struct Prompt {
     pub summary: String,
     pub summary_prose: bool,
     pub detail: String,
+    pub allow_label: String,
+    pub deny_label: String,
     pub always_label: String,
     pub queued: i32,
     pub serial: i32,

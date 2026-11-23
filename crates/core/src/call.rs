@@ -24,8 +24,6 @@ pub enum Call {
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct AcpCall {
-    /// The agent's own name for the tool, if it says (`run_command`).
-    pub name: Option<String>,
     /// What the agent says the call does.
     pub title: String,
     pub kind: Option<AcpKind>,
@@ -49,6 +47,56 @@ pub enum AcpStatus {
     InProgress,
     Completed,
     Failed,
+}
+
+/// A choice an ACP agent offers when it asks whether a call may go ahead.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct AcpOption {
+    pub id: OptionId,
+    /// The agent's words for it ("Allow once").
+    pub name: String,
+    pub kind: AcpOptionKind,
+}
+
+/// The agent's id for one of its choices: the answer names it.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize, derive_more::From)]
+#[serde(transparent)]
+pub struct OptionId(String);
+
+impl OptionId {
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+/// What a choice does, by ACP's kinds of permission option.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AcpOptionKind {
+    AllowOnce,
+    AllowAlways,
+    RejectOnce,
+    RejectAlways,
+}
+
+impl AcpOptionKind {
+    pub fn allows(self) -> bool {
+        match self {
+            Self::AllowOnce | Self::AllowAlways => true,
+            Self::RejectOnce | Self::RejectAlways => false,
+        }
+    }
+}
+
+/// The agent's choice of `kinds` that comes first, in that order.
+pub fn first_of<'options>(
+    options: &'options [AcpOption],
+    kinds: &[AcpOptionKind],
+) -> Option<&'options AcpOption> {
+    kinds
+        .iter()
+        .find_map(|kind| options.iter().find(|option| option.kind == *kind))
 }
 
 /// What an ACP agent's call does, by ACP's kinds of tool.
@@ -143,7 +191,6 @@ mod tests {
 
     fn call(kind: Option<AcpKind>, diffs: Vec<Diff>) -> AcpCall {
         AcpCall {
-            name: None,
             title: "a call".to_owned(),
             kind,
             locations: Vec::new(),

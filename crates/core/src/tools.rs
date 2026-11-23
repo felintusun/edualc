@@ -758,8 +758,7 @@ mod tests {
     fn an_acp_call_reads_as_the_agent_gives_it() {
         use crate::call::{AcpCall, AcpKind, AcpStatus, Diff};
         let cwd = Path::new("/work");
-        let call = |name: &str, title: &str, kind, location: &str, diffs| AcpCall {
-            name: Some(name.to_owned()),
+        let call = |title: &str, kind, location: &str, diffs| AcpCall {
             title: title.to_owned(),
             kind: Some(kind),
             locations: vec![PathBuf::from(location)],
@@ -769,7 +768,7 @@ mod tests {
             output: None,
         };
         let read = describe_acp(
-            &call("read", "read", AcpKind::Read, "/work/notes.txt", Vec::new()),
+            &call("read", AcpKind::Read, "/work/notes.txt", Vec::new()),
             cwd,
             Depth::Full,
         );
@@ -778,13 +777,7 @@ mod tests {
             ("read", "notes.txt")
         );
         let command = describe_acp(
-            &call(
-                "shell",
-                "wc -l notes.txt",
-                AcpKind::Execute,
-                "/work",
-                Vec::new(),
-            ),
+            &call("wc -l notes.txt", AcpKind::Execute, "/work", Vec::new()),
             cwd,
             Depth::Headline,
         );
@@ -796,7 +789,7 @@ mod tests {
             new_text: "one\nTWO\n".to_owned(),
         }];
         let edit = describe_acp(
-            &call("edit", "edit", AcpKind::Edit, "/work/notes.txt", changed),
+            &call("edit", AcpKind::Edit, "/work/notes.txt", changed),
             cwd,
             Depth::Full,
         );

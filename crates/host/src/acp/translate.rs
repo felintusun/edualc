@@ -18,7 +18,7 @@ use serde_json::{Map, Value};
 
 use crate::agent::{Command, Event};
 use crate::app::Mode;
-use crate::call::{AcpCall, AcpKind, AcpStatus, Call, Diff};
+use crate::call::{AcpCall, AcpKind, AcpOption, AcpStatus, Call, Diff, OptionId};
 use crate::external::acp::{
     self, AgentMethod, AgyArguments, AvailableCommand, Change, Chunk, ConfigOption, Incoming,
     Notified, OpencodeArguments, OpencodeQuestionOption, OptionKind, PermissionAsked, PlanEntry,
@@ -815,6 +815,7 @@ impl Translator {
                 )],
                 Command::Prompt { .. }
                 | Command::ControlResponse { .. }
+                | Command::Choose { .. }
                 | Command::Shell { .. } => Vec::new(),
             },
             Phase::Connecting | Phase::Opening { .. } => {
@@ -826,6 +827,7 @@ impl Translator {
                     held @ (Command::ControlRequest { .. }
                     | Command::Prompt { .. }
                     | Command::ControlResponse { .. }
+                    | Command::Choose { .. }
                     | Command::Shell { .. }) => self.held.push(held),
                 }
                 Vec::new()
@@ -850,7 +852,46 @@ impl Translator {
                 self.next_turn()
             }
             Command::Shell { command } => self.shell_refused(&command),
+            Command::Choose { request_id, option } => self.window_chose(&request_id, &option),
         }
+    }
+
+    /// The user's choice among the agent's, for its call: an id the agent didn't offer
+    /// cancels the request rather than pick another.
+    fn window_chose(&mut self, request: &RequestId, option: &OptionId) -> Vec<Effect> {
+        let Some(permission) = self.permissions.remove(request) else {
+            return Vec::new();
+        };
+        let chosen = permission
+            .options
+            .iter()
+            .find(|offered| offered.option_id == option.as_str());
+        let outcome = match chosen {
+            Some(chosen) => {
+                let rejects = matches!(
+                    chosen.kind,
+                    OptionKind::RejectOnce | OptionKind::RejectAlways
+                );
+                if rejects && let Some(Entry::Shown(shown)) = self.entries.get_mut(&permission.tool)
+                {
+                    shown.denied = true;
+                }
+                acp::Outcome::Selected {
+                    option_id: chosen.option_id.clone(),
+                }
+            }
+            None => {
+                tracing::warn!(
+                    option = option.as_str(),
+                    "a choice the agent didn't offer: cancelled"
+                );
+                acp::Outcome::Cancelled
+            }
+        };
+        vec![Self::answer(
+            permission.id,
+            acp::Reply::Result(acp::PermissionAnswer { outcome }),
+        )]
     }
 
     /// A `!` command: the agent has no shell beside the conversation, so it is told as not run,
@@ -1644,14 +1685,28 @@ impl Translator {
             Some(Entry::Shown(shown)) => shown.drawn.clone(),
             Some(Entry::Kept(_)) | None => drawn(self.agent, &asked.tool_call),
         };
-        // The window shows an ACP agent's call from its card; it is asked about by the
-        // agent's own name for the tool.
         let (name, input) = match drawn {
             Call::Named { name, input } => (name, input),
-            Call::Acp(call) => (
-                ToolName::Other(call.name.unwrap_or(call.title)),
-                call.input.unwrap_or_else(|| Value::Object(Map::new())),
-            ),
+            // Asked about as the agent asks: the call, and the agent's choices.
+            Call::Acp(call) => {
+                let request = RequestId::from(self.local_id("permission"));
+                let options = asked.options.iter().cloned().map(AcpOption::from).collect();
+                self.permissions.insert(
+                    request.clone(),
+                    Permission {
+                        id,
+                        options: asked.options,
+                        tool: tool.clone(),
+                    },
+                );
+                effects.push(Effect::ToWindow(Event::PermissionAsked {
+                    request_id: request,
+                    tool_use_id: ToolUseId::from(tool),
+                    call,
+                    options,
+                }));
+                return effects;
+            }
         };
         // The agent asks before every MCP tool, in every mode. edualc's own go without asking,
         // as a Claude Code session's messages do.
@@ -2270,7 +2325,6 @@ pub(super) fn named(agent: Agent, call: &ToolCall) -> Option<(ToolName, Value)> 
 /// tool.
 fn acp_call(call: &ToolCall) -> AcpCall {
     AcpCall {
-        name: call.name.clone(),
         title: call
             .title
             .clone()
@@ -2464,10 +2518,9 @@ mod tests {
 
     use super::*;
     use crate::app::PermissionMode;
+    use crate::call::AcpOptionKind;
     use crate::external::acp::Location;
-    use crate::external::wire::{
-        ControlRequest, MediaType, ModeId, PermissionResult, Reply, ToolInput,
-    };
+    use crate::external::wire::{ControlRequest, MediaType, ModeId};
 
     const ID: &str = "11111111-2222-4333-8444-555555555555";
 
@@ -2523,6 +2576,18 @@ mod tests {
                 "id": id,
                 "call": call,
                 "parent_tool_use_id": parent_tool_use_id,
+            }),
+            Event::PermissionAsked {
+                request_id,
+                tool_use_id,
+                call,
+                options,
+            } => json!({
+                "type": "permission_asked",
+                "request_id": request_id,
+                "tool_use_id": tool_use_id,
+                "call": call,
+                "options": options,
             }),
             Event::User(user) => {
                 let mut value = serde_json::to_value(user).expect("user");
@@ -2654,6 +2719,15 @@ mod tests {
                 .unwrap_or_else(|error| panic!("the window can't read {line}: {error}"));
             return;
         }
+        if line.get("type") == Some(&json!("permission_asked")) {
+            let call = line.get("call").cloned().expect("a call");
+            serde_json::from_value::<AcpCall>(call)
+                .unwrap_or_else(|error| panic!("the window can't read {line}: {error}"));
+            let options = line.get("options").cloned().expect("options");
+            serde_json::from_value::<Vec<AcpOption>>(options)
+                .unwrap_or_else(|error| panic!("the window can't read {line}: {error}"));
+            return;
+        }
         let message: Message = serde_json::from_value(line.clone())
             .unwrap_or_else(|error| panic!("the window can't read {line}: {error}"));
         let blocks_known = |blocks: &[ContentBlock]| {
@@ -2772,8 +2846,8 @@ mod tests {
             window,
             expected(&[
                 "assistant",
-                "control_request",
                 "control_response",
+                "permission_asked",
                 "result",
                 "stream_event:content_block_delta",
                 "stream_event:content_block_start",
@@ -2853,6 +2927,34 @@ mod tests {
         assert_eq!(init.get("session_id"), Some(&json!(agys.as_str())));
     }
 
+    /// The permission request among the window's lines: its id, the call it is about, the
+    /// agent's choices.
+    fn permission_of(window: &[Value]) -> (RequestId, Value, Vec<AcpOption>) {
+        let asked = window
+            .iter()
+            .find(|line| line.get("type") == Some(&json!("permission_asked")))
+            .expect("the window asked");
+        let request = asked
+            .get("request_id")
+            .and_then(Value::as_str)
+            .map(|id| RequestId::from(id.to_owned()))
+            .expect("an id");
+        let options = asked.get("options").cloned().expect("choices");
+        (
+            request,
+            asked.clone(),
+            serde_json::from_value(options).expect("choices the window reads"),
+        )
+    }
+
+    /// The window's choice, as it sends it.
+    fn chose(request: RequestId, option: &str) -> String {
+        said(&Command::Choose {
+            request_id: request,
+            option: OptionId::from(option.to_owned()),
+        })
+    }
+
     /// The call among the window's lines, as the agent last gave it.
     fn call_of(window: &[Value]) -> AcpCall {
         let call = window
@@ -2916,7 +3018,6 @@ mod tests {
         );
         let call = call_of(&window);
         assert_eq!(call.title, "wc -l notes.txt");
-        assert_eq!(call.name.as_deref(), Some("run_command"));
         assert_eq!(call.kind, Some(AcpKind::Execute));
         assert_eq!(call.status, AcpStatus::Completed);
         assert_eq!(call.output.as_deref(), Some("3 notes.txt"));
@@ -2958,7 +3059,6 @@ mod tests {
         assert_eq!(kinds(&window), ["tool_call"]);
         let call = call_of(&window);
         assert_eq!(call.title, "ls");
-        assert_eq!(call.name.as_deref(), Some("shell"));
         assert_eq!(call.locations, [PathBuf::from("/w")]);
         assert_eq!(call.input, Some(json!({"command": "ls", "cwd": "/w"})));
     }
@@ -2978,16 +3078,10 @@ mod tests {
         let window = window_lines(&asked);
         let call = call_of(&window);
         assert_eq!(call.input, Some(json!({"command": "ls", "cwd": "/w"})));
-        let request = window
-            .iter()
-            .find(|line| line.get("type") == Some(&json!("control_request")))
-            .expect("the window asked");
-        assert_eq!(request.pointer("/request/tool_name"), Some(&json!("shell")));
-        assert_eq!(
-            request.pointer("/request/input/command"),
-            Some(&json!("ls"))
-        );
-        assert_eq!(request.pointer("/request/tool_use_id"), Some(&json!("c1")));
+        let (_, asked, _) = permission_of(&window);
+        assert_eq!(asked.get("tool_use_id"), Some(&json!("c1")));
+        assert_eq!(asked.pointer("/call/title"), Some(&json!("ls")));
+        assert_eq!(asked.pointer("/call/input/command"), Some(&json!("ls")));
     }
 
     /// An edit shows as the agent gives it: its own name and title, its file, and the change
@@ -3013,7 +3107,6 @@ mod tests {
         assert_eq!(
             drawn(Agent::Opencode, &call),
             Call::Acp(AcpCall {
-                name: Some("edit".to_owned()),
                 title: "notes.txt".to_owned(),
                 kind: Some(AcpKind::Edit),
                 locations: vec![PathBuf::from("/w/notes.txt")],
@@ -3052,8 +3145,9 @@ mod tests {
         );
     }
 
-    /// agy's permission request is asked in the window; the answer picks agy's option, and the
-    /// denied call ends as agy ends it (the window knows it denied it).
+    /// agy's permission request is asked in the window with agy's choices, in agy's words; the
+    /// answer is the choice made, and the denied call ends as agy ends it (the window knows it
+    /// denied it).
     #[test]
     fn permissions_go_through_the_window() {
         let mut translator = opened();
@@ -3061,27 +3155,24 @@ mod tests {
         let asked = translator.agent_said(
             r#"{"jsonrpc":"2.0","method":"session/request_permission","params":{"sessionId":"s","toolCall":{"toolCallId":"c2","name":"run_command","kind":"execute","status":"pending","title":"touch /tmp/x","rawInput":{"CommandLine":"touch /tmp/x"}},"options":[{"optionId":"allow","name":"Allow","kind":"allow_once"},{"optionId":"deny","name":"Deny","kind":"reject_once"}]},"id":"7"}"#,
         );
-        let request = window_lines(&asked)
-            .into_iter()
-            .find(|line| line.get("type") == Some(&json!("control_request")))
-            .expect("the window asked");
+        let (request, asked, options) = permission_of(&window_lines(&asked));
+        assert_eq!(asked.pointer("/call/title"), Some(&json!("touch /tmp/x")));
         assert_eq!(
-            request.pointer("/request/tool_name"),
-            Some(&json!("run_command"))
-        );
-        let request_id = request
-            .get("request_id")
-            .and_then(Value::as_str)
-            .expect("an id");
-        let denied = translator.window_said(&said(&Command::ControlResponse {
-            response: Reply::Success {
-                request_id: RequestId::from(request_id.to_owned()),
-                response: PermissionResult::Deny {
-                    message: "no".to_owned(),
-                    interrupt: false,
+            options,
+            [
+                AcpOption {
+                    id: OptionId::from("allow".to_owned()),
+                    name: "Allow".to_owned(),
+                    kind: AcpOptionKind::AllowOnce,
                 },
-            },
-        }));
+                AcpOption {
+                    id: OptionId::from("deny".to_owned()),
+                    name: "Deny".to_owned(),
+                    kind: AcpOptionKind::RejectOnce,
+                },
+            ]
+        );
+        let denied = translator.window_said(&chose(request, "deny"));
         assert_eq!(
             agent_lines(&denied)
                 .first()
@@ -3132,24 +3223,8 @@ mod tests {
         let asked = translator.agent_said(
             r#"{"jsonrpc":"2.0","method":"session/request_permission","params":{"sessionId":"s","toolCall":{"toolCallId":"c2","name":"run_command","kind":"execute","status":"pending","title":"touch /tmp/x","rawInput":{"CommandLine":"touch /tmp/x"}},"options":[{"optionId":"allow","name":"Allow","kind":"allow_once"},{"optionId":"deny","name":"Deny","kind":"reject_once"}]},"id":"7"}"#,
         );
-        let request_id = window_lines(&asked)
-            .into_iter()
-            .find(|line| line.get("type") == Some(&json!("control_request")))
-            .and_then(|line| {
-                line.get("request_id")
-                    .and_then(Value::as_str)
-                    .map(str::to_owned)
-            })
-            .expect("the window asked");
-        let answered = translator.window_said(&said(&Command::ControlResponse {
-            response: Reply::Success {
-                request_id: RequestId::from(request_id),
-                response: PermissionResult::Allow {
-                    updated_input: ToolInput::from(json!({"command": "touch /tmp/x"})),
-                    updated_permissions: Vec::new(),
-                },
-            },
-        }));
+        let (request, _, _) = permission_of(&window_lines(&asked));
+        let answered = translator.window_said(&chose(request, "allow"));
         assert_eq!(
             agent_lines(&answered),
             vec![json!({
@@ -3157,6 +3232,24 @@ mod tests {
                 "id": "7",
                 "result": {"outcome": {"outcome": "selected", "optionId": "allow"}}
             })]
+        );
+    }
+
+    /// A choice the agent didn't offer isn't passed on as one: the request is cancelled.
+    #[test]
+    fn a_choice_the_agent_didnt_offer_cancels() {
+        let mut translator = opened();
+        translator.window_said(&prompt("go"));
+        let asked = translator.agent_said(
+            r#"{"jsonrpc":"2.0","method":"session/request_permission","params":{"sessionId":"s","toolCall":{"toolCallId":"c2","name":"run_command","kind":"execute","status":"pending","title":"touch /tmp/x","rawInput":{"CommandLine":"touch /tmp/x"}},"options":[{"optionId":"allow","name":"Allow","kind":"allow_once"}]},"id":"7"}"#,
+        );
+        let (request, _, _) = permission_of(&window_lines(&asked));
+        let answered = translator.window_said(&chose(request, "always"));
+        assert_eq!(
+            agent_lines(&answered)
+                .first()
+                .and_then(|line| line.pointer("/result/outcome/outcome")),
+            Some(&json!("cancelled"))
         );
     }
 
@@ -3523,7 +3616,6 @@ mod tests {
         let Call::Acp(call) = drawn(Agent::Agy, &appended) else {
             panic!("agy's own call");
         };
-        assert_eq!(call.name.as_deref(), Some("write_file"));
         assert_eq!(call.title, "Append to f.txt");
         assert_eq!(call.input, appended.raw_input);
         let command = ToolCall {
@@ -4147,37 +4239,26 @@ mod tests {
         assert_eq!((call.status, call.output), (AcpStatus::Completed, None));
     }
 
+    /// The agent's "always" is offered as its own choice, and chosen by its id.
     #[test]
-    fn allow_always_suggestion_selects_allow_always_option() {
+    fn the_agents_always_is_a_choice_of_its_own() {
         let mut translator = opened();
         translator.window_said(&prompt("go"));
         let asked = translator.agent_said(
             r#"{"jsonrpc":"2.0","method":"session/request_permission","params":{"sessionId":"s","toolCall":{"toolCallId":"c9","name":"run_command","kind":"execute","status":"pending","title":"ls","rawInput":{"CommandLine":"ls"}},"options":[{"optionId":"once","name":"Allow","kind":"allow_once"},{"optionId":"always","name":"Always","kind":"allow_always"}]},"id":"9"}"#,
         );
-        let request = window_lines(&asked)
-            .into_iter()
-            .find(|line| line.get("type") == Some(&json!("control_request")))
-            .expect("permission asked");
-        assert!(
-            request
-                .pointer("/request/permission_suggestions/0")
-                .is_some()
+        let (request, _, options) = permission_of(&window_lines(&asked));
+        assert_eq!(
+            options
+                .iter()
+                .map(|option| (option.name.as_str(), option.kind))
+                .collect::<Vec<_>>(),
+            [
+                ("Allow", AcpOptionKind::AllowOnce),
+                ("Always", AcpOptionKind::AllowAlways)
+            ]
         );
-        let request_id = request
-            .get("request_id")
-            .and_then(Value::as_str)
-            .expect("request id");
-        let answered = translator.window_said(&said(&Command::ControlResponse {
-            response: Reply::Success {
-                request_id: RequestId::from(request_id.to_owned()),
-                response: PermissionResult::Allow {
-                    updated_input: ToolInput::from(json!({"command": "ls"})),
-                    updated_permissions: vec![wire::PermissionUpdate::Offered(
-                        json!({"type":"addRules","rules":[{"toolName":"Bash"}],"destination":"session"}),
-                    )],
-                },
-            },
-        }));
+        let answered = translator.window_said(&chose(request, "always"));
         assert_eq!(
             agent_lines(&answered)
                 .first()

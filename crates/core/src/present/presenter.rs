@@ -22,7 +22,7 @@ use crate::app::{
     ProviderUsageState, Running, SideChat, SideView, SignIn, Status, Tasks, UsagePanel, Watch,
     comments_on, diff_rows,
 };
-use crate::call::{AcpCall, Call};
+use crate::call::{AcpCall, AcpOptionKind};
 use crate::changes;
 use crate::chat::{self, Body, Change, Chat, ImageKey};
 use crate::cjk::{CjkLanguage, CjkText, Standing};
@@ -1035,7 +1035,6 @@ impl<F: Frontend> Presenter<F> {
     pub fn render_prompt(
         &mut self,
         asks: &VecDeque<Ask>,
-        chat: &Chat,
         cwd: &Path,
         backend: crate::provider::Backend,
     ) {
@@ -1096,18 +1095,16 @@ impl<F: Frontend> Presenter<F> {
                 }
             }
             AskKind::Tool {
+                tool,
+                input,
                 suggestions,
                 description,
             } => {
-                let shown = ask.tool_use.as_ref().and_then(|id| chat.call(id));
                 let ToolPrompt {
                     title,
                     summary,
                     summary_reads_as,
-                } = match shown {
-                    Some(Call::Acp(call)) => acp_prompt(call, cwd, backend),
-                    Some(Call::Named { .. }) | None => tool_prompt(ask, cwd, backend),
-                };
+                } = tool_prompt(tool, input, cwd, backend);
                 // The description often only repeats what the title or summary say.
                 let repeats =
                     title.contains(description.as_str()) || summary.contains(description.as_str());
@@ -1117,11 +1114,36 @@ impl<F: Frontend> Presenter<F> {
                 prompt.summary = summary;
                 prompt.summary_prose = summary_reads_as == tools::Writing::Prose;
                 detail.clone_into(&mut prompt.detail);
+                "Allow".clone_into(&mut prompt.allow_label);
+                "Deny".clone_into(&mut prompt.deny_label);
                 // Only a rule the window can say in full is offered.
                 prompt.always_label = suggestions
                     .first()
                     .and_then(|offered| offered.rule.as_ref())
                     .map_or_default(always_label);
+            }
+            // The agent's choices, in its words.
+            AskKind::Acp { call, options } => {
+                let ToolPrompt {
+                    title,
+                    summary,
+                    summary_reads_as,
+                } = acp_prompt(call, cwd, backend);
+                let named = |kinds: &[AcpOptionKind], otherwise: &str| {
+                    crate::call::first_of(options, kinds)
+                        .map_or_else(|| otherwise.to_owned(), |option| option.name.clone())
+                };
+                prompt.kind = PromptKind::Tool;
+                prompt.title = title;
+                prompt.summary = summary;
+                prompt.summary_prose = summary_reads_as == tools::Writing::Prose;
+                prompt.detail = String::new();
+                prompt.allow_label = named(&[AcpOptionKind::AllowOnce], "Allow");
+                prompt.always_label = named(&[AcpOptionKind::AllowAlways], "");
+                prompt.deny_label = named(
+                    &[AcpOptionKind::RejectOnce, AcpOptionKind::RejectAlways],
+                    "Deny",
+                );
             }
         }
         self.prompt_shown = Some(ask.request.clone());
@@ -1634,51 +1656,58 @@ fn acp_prompt(call: &AcpCall, cwd: &Path, backend: crate::provider::Backend) -> 
     }
 }
 
-fn tool_prompt(ask: &Ask, cwd: &Path, backend: crate::provider::Backend) -> ToolPrompt {
-    let view = tools::describe(&ask.tool, &ask.input, cwd, tools::Depth::Headline);
+fn tool_prompt(
+    tool: &ToolName,
+    input: &serde_json::Value,
+    cwd: &Path,
+    backend: crate::provider::Backend,
+) -> ToolPrompt {
+    let view = tools::describe(tool, input, cwd, tools::Depth::Headline);
     let agent = backend.agent();
-    let (title, summary) = if ask.tool == ToolName::EdualcIncomingMessage {
-        let incoming = tools::read::<IncomingMessageInput>(&ask.tool, &ask.input);
-        let from = incoming
-            .as_ref()
-            .map_or("Another session", |incoming| incoming.from.as_str());
+    let (title, summary) = match (tool, tool.kind()) {
+        (ToolName::EdualcIncomingMessage, _) => {
+            let incoming = tools::read::<IncomingMessageInput>(tool, input);
+            let from = incoming
+                .as_ref()
+                .map_or("Another session", |incoming| incoming.from.as_str());
+            (
+                format!("Let this message from {from} in?"),
+                incoming.map_or_default(|incoming| incoming.message),
+            )
+        }
+        (ToolName::Bash, _) => {
+            let bash = tools::read::<BashInput>(tool, input);
+            // Claude can ask for a command to run outside Claude Code's own sandbox.
+            let outside = bash
+                .as_ref()
+                .is_some_and(|bash| bash.outside_sandbox == Some(true));
+            let title = if outside {
+                format!("Allow {agent} to run this command outside Claude Code's sandbox?")
+            } else {
+                format!("Allow {agent} to run this command?")
+            };
+            (title, bash.map_or_default(|bash| bash.command))
+        }
+        (ToolName::WebFetch, _) => (
+            format!("Allow {agent} to fetch this page?"),
+            tools::read::<WebFetchInput>(tool, input).map_or_default(|fetch| fetch.url),
+        ),
+        (_, ToolKind::Edit | ToolKind::Write) => (
+            format!("Allow {agent} to edit {}?", view.summary),
+            String::new(),
+        ),
         (
-            format!("Let this message from {from} in?"),
-            incoming.map_or_default(|incoming| incoming.message),
-        )
-    } else if ask.tool == ToolName::Bash {
-        let bash = tools::read::<BashInput>(&ask.tool, &ask.input);
-        // Claude can ask for a command to run outside Claude Code's own sandbox.
-        let outside = bash
-            .as_ref()
-            .is_some_and(|bash| bash.outside_sandbox == Some(true));
-        let title = if outside {
-            format!("Allow {agent} to run this command outside Claude Code's sandbox?")
-        } else {
-            format!("Allow {agent} to run this command?")
-        };
-        (title, bash.map_or_default(|bash| bash.command))
-    } else {
-        match ask.tool.kind() {
-            ToolKind::Edit | ToolKind::Write => (
-                format!("Allow {agent} to edit {}?", view.summary),
-                String::new(),
-            ),
-            ToolKind::Web if ask.tool == ToolName::WebFetch => (
-                format!("Allow {agent} to fetch this page?"),
-                tools::read::<WebFetchInput>(&ask.tool, &ask.input)
-                    .map_or_default(|fetch| fetch.url),
-            ),
+            _,
             ToolKind::Read
             | ToolKind::Command
             | ToolKind::Search
             | ToolKind::Web
             | ToolKind::Agent
-            | ToolKind::Other => (
-                format!("Allow {agent} to use {}?", view.title),
-                view.summary,
-            ),
-        }
+            | ToolKind::Other,
+        ) => (
+            format!("Allow {agent} to use {}?", view.title),
+            view.summary,
+        ),
     };
     ToolPrompt {
         title,
@@ -2603,17 +2632,12 @@ mod tests {
     #[test]
     fn the_bar_sets_a_message_as_prose_and_a_command_as_code() {
         let asked = |tool: ToolName, input: serde_json::Value| {
-            let ask = Ask {
-                request: wire::RequestId::from("r1".to_owned()),
-                tool_use: None,
-                tool,
-                input,
-                kind: AskKind::Tool {
-                    suggestions: Vec::new(),
-                    description: String::new(),
-                },
-            };
-            tool_prompt(&ask, Path::new("/work"), crate::provider::Backend::Claude)
+            tool_prompt(
+                &tool,
+                &input,
+                Path::new("/work"),
+                crate::provider::Backend::Claude,
+            )
         };
         let message = asked(
             ToolName::SendMessage,
@@ -2630,7 +2654,6 @@ mod tests {
     #[test]
     fn the_bar_asks_about_an_acp_call_in_the_agents_words() {
         let call = |title: &str, kind, location: &str| AcpCall {
-            name: None,
             title: title.to_owned(),
             kind: Some(kind),
             locations: vec![std::path::PathBuf::from(location)],
@@ -2655,6 +2678,37 @@ mod tests {
         );
         assert_eq!(edit.title, "Allow agy to edit notes.txt?");
         assert_eq!(edit.summary, "edit  notes.txt");
+
+        // Its buttons are the agent's choices, named as the agent names them.
+        let option = |id: &str, name: &str, kind| crate::call::AcpOption {
+            id: crate::call::OptionId::from(id.to_owned()),
+            name: name.to_owned(),
+            kind,
+        };
+        let mut asks = VecDeque::new();
+        asks.push_back(Ask {
+            request: wire::RequestId::from("p1".to_owned()),
+            tool_use: None,
+            kind: AskKind::Acp {
+                call: call("wc -l notes.txt", crate::call::AcpKind::Execute, "/work"),
+                options: vec![
+                    option("once", "Allow once", AcpOptionKind::AllowOnce),
+                    option("always", "Always allow", AcpOptionKind::AllowAlways),
+                    option("reject", "Reject", AcpOptionKind::RejectOnce),
+                ],
+            },
+        });
+        let mut presenter = Presenter::new(NavSpy::default(), &[], false);
+        presenter.render_prompt(&asks, cwd, Backend::Opencode);
+        let prompt = &presenter.prompt;
+        assert_eq!(
+            (
+                prompt.allow_label.as_str(),
+                prompt.always_label.as_str(),
+                prompt.deny_label.as_str()
+            ),
+            ("Allow once", "Always allow", "Reject")
+        );
     }
 
     /// Counted by kind, agents first, each kind once however its tasks are interleaved.
@@ -2884,8 +2938,6 @@ mod tests {
         asks.push_back(Ask {
             request: wire::RequestId::from("p1".to_owned()),
             tool_use: None,
-            tool: ToolName::ExitPlanMode,
-            input: serde_json::json!({"plan": "1. Do it"}),
             kind: AskKind::Plan {
                 input: wire::PlanInput {
                     plan: "1. Do it".to_owned(),
@@ -2895,12 +2947,7 @@ mod tests {
                 editing: None,
             },
         });
-        presenter.render_prompt(
-            &asks,
-            &Chat::default(),
-            Path::new("/work"),
-            Backend::Opencode,
-        );
+        presenter.render_prompt(&asks, Path::new("/work"), Backend::Opencode);
         assert!(
             presenter
                 .prompt

@@ -12,6 +12,7 @@ use serde::Deserialize;
 use serde_json::Value;
 
 use crate::agent::{self, Agent, Output};
+use crate::call::{self, AcpCall, AcpOption, AcpOptionKind};
 use crate::chat::{Body, Change, Chat, ImageKey, ToolState};
 use crate::decode::{Picture, Pixels};
 use crate::desktop;
@@ -1047,13 +1048,11 @@ impl UsagePanel {
     }
 }
 
-/// A request from the CLI waiting for the user.
+/// A request from the session waiting for the user.
 #[derive(Debug)]
 pub struct Ask {
     pub request: RequestId,
     pub tool_use: Option<ToolUseId>,
-    pub tool: ToolName,
-    pub input: Value,
     pub kind: AskKind,
 }
 
@@ -1061,6 +1060,8 @@ pub struct Ask {
 pub enum AskKind {
     /// May the tool run?
     Tool {
+        tool: ToolName,
+        input: Value,
         /// Rules the CLI offers to remember.
         suggestions: Vec<wire::Offered>,
         description: String,
@@ -1068,6 +1069,7 @@ pub enum AskKind {
     /// AskUserQuestion: what is picked, by question and option, what was typed instead, and
     /// the notes that go with each answer.
     Questions {
+        input: Value,
         asked: wire::Questions,
         picked: Vec<Vec<bool>>,
         other: Vec<String>,
@@ -1080,6 +1082,24 @@ pub enum AskKind {
         parts: Vec<plan::PlanPart>,
         editing: Option<usize>,
     },
+    /// May an ACP agent's call go ahead? Answered with one of the agent's choices.
+    Acp {
+        call: AcpCall,
+        options: Vec<AcpOption>,
+    },
+}
+
+impl AskKind {
+    /// The input Claude Code asked about, given back as it was; an ACP agent's call has none.
+    fn as_asked(&self) -> Option<ToolInput> {
+        match self {
+            Self::Tool { input, .. } | Self::Questions { input, .. } => {
+                Some(ToolInput::AsAsked(input.clone()))
+            }
+            Self::Plan { input, .. } => Some(ToolInput::Plan(input.clone())),
+            Self::Acp { .. } => None,
+        }
+    }
 }
 
 /// What our control requests were for, to act on their answers.
@@ -2138,7 +2158,7 @@ impl<F: Frontend> App<F> {
         }
         if redraw.prompt {
             self.view
-                .render_prompt(&self.asks, &self.chat, cwd, self.status.backend);
+                .render_prompt(&self.asks, cwd, self.status.backend);
         }
         if redraw.usage {
             self.view.render_usage(&self.usage, &self.status);
@@ -3904,6 +3924,16 @@ impl<F: Frontend> App<F> {
         let Some(ask) = self.take_ask(request) else {
             return;
         };
+        if let AskKind::Acp { options, .. } = &ask.kind {
+            let kinds: &[AcpOptionKind] = if always {
+                &[AcpOptionKind::AllowAlways, AcpOptionKind::AllowOnce]
+            } else {
+                &[AcpOptionKind::AllowOnce, AcpOptionKind::AllowAlways]
+            };
+            let chosen = call::first_of(options, kinds).map(|option| option.id.clone());
+            self.choose(&ask, chosen, ToolState::Running);
+            return;
+        }
         let mut updated_permissions = Vec::new();
         if always
             && let AskKind::Tool { suggestions, .. } = &ask.kind
@@ -3916,8 +3946,11 @@ impl<F: Frontend> App<F> {
             }
             updated_permissions.push(PermissionUpdate::Offered(offered.raw.clone()));
         }
+        let Some(updated_input) = ask.kind.as_asked() else {
+            return;
+        };
         let response = PermissionResult::Allow {
-            updated_input: ToolInput::AsAsked(ask.input.clone()),
+            updated_input,
             updated_permissions,
         };
         self.answer(&ask, response, ToolState::Running);
@@ -3941,7 +3974,7 @@ impl<F: Frontend> App<F> {
                 }
             }
             // Another session's message, turned down: nothing of the session's own is stopped.
-            AskKind::Tool { .. } if ask.tool == ToolName::EdualcIncomingMessage => {
+            AskKind::Tool { tool, .. } if *tool == ToolName::EdualcIncomingMessage => {
                 ("The user turned the message down.".to_owned(), false)
             }
             AskKind::Tool { .. } if feedback.is_empty() => (
@@ -3949,6 +3982,16 @@ impl<F: Frontend> App<F> {
                 true,
             ),
             AskKind::Tool { .. } => (feedback.to_owned(), false),
+            // The agent's own rejection; with nothing said, the turn stops, as Claude Code's.
+            AskKind::Acp { options, .. } => {
+                let kinds = [AcpOptionKind::RejectOnce, AcpOptionKind::RejectAlways];
+                let chosen = call::first_of(options, &kinds).map(|option| option.id.clone());
+                self.choose(&ask, chosen, ToolState::Denied);
+                if feedback.is_empty() {
+                    self.interrupt();
+                }
+                return;
+            }
         };
         if interrupt {
             self.status.stop_asked = self.status.turns > 0;
@@ -3967,8 +4010,15 @@ impl<F: Frontend> App<F> {
                 plan: plan::annotated(&input.plan, parts, overall),
                 rest: input.rest.clone(),
             }),
-            AskKind::Tool { .. } | AskKind::Questions { .. } => {
-                ToolInput::AsAsked(ask.input.clone())
+            AskKind::Tool { .. } | AskKind::Questions { .. } | AskKind::Acp { .. } => {
+                match ask.kind.as_asked() {
+                    Some(input) => input,
+                    None => {
+                        tracing::warn!(%request, "a plan approved for an agent's call");
+                        self.asks.push_front(ask);
+                        return;
+                    }
+                }
             }
         };
         self.status.modes.claude_in(Mode::Known(mode));
@@ -4045,8 +4095,18 @@ impl<F: Frontend> App<F> {
                 picked,
                 other,
                 notes,
+                ..
             } => ToolInput::Answered(answered(asked, picked, other, notes)),
-            AskKind::Tool { .. } | AskKind::Plan { .. } => ToolInput::AsAsked(ask.input.clone()),
+            AskKind::Tool { .. } | AskKind::Plan { .. } | AskKind::Acp { .. } => {
+                match ask.kind.as_asked() {
+                    Some(input) => input,
+                    None => {
+                        tracing::warn!(%request, "questions answered for an agent's call");
+                        self.asks.push_front(ask);
+                        return;
+                    }
+                }
+            }
         };
         let response = PermissionResult::Allow {
             updated_input,
@@ -4081,8 +4141,23 @@ impl<F: Frontend> App<F> {
     }
 
     fn answer(&mut self, ask: &Ask, response: PermissionResult, state: ToolState) {
-        tracing::info!(tool = %ask.tool, ?state, "answered a permission request");
         self.write(|process| process.answer(&ask.request, response));
+        self.answered(ask, state);
+    }
+
+    /// Answers an ACP agent's request with one of its choices; with none of the kind wanted
+    /// among them, the request is turned down, which the agent takes as cancelled.
+    fn choose(&mut self, ask: &Ask, chosen: Option<call::OptionId>, state: ToolState) {
+        match chosen {
+            Some(option) => self.write(|process| process.choose(&ask.request, &option)),
+            None => self
+                .write(|process| process.refuse(&ask.request, "the agent offered no such choice")),
+        }
+        self.answered(ask, state);
+    }
+
+    fn answered(&mut self, ask: &Ask, state: ToolState) {
+        tracing::info!(request = %ask.request, ?state, "answered a permission request");
         if let Some(id) = &ask.tool_use {
             self.chat.set_tool_state(id, state);
         }
@@ -4113,24 +4188,64 @@ impl<F: Frontend> App<F> {
         }
         // Questions and plans have their own prompts; one that doesn't parse is asked about as
         // any tool is.
-        let special = if tool == ToolName::AskUserQuestion {
-            questions_asked(&input)
-        } else if tool == ToolName::ExitPlanMode {
-            plan_offered(&input)
-        } else {
-            None
+        let special = match &tool {
+            ToolName::AskUserQuestion => questions_asked(&input),
+            ToolName::ExitPlanMode => plan_offered(&input),
+            ToolName::Bash
+            | ToolName::BashOutput
+            | ToolName::KillShell
+            | ToolName::Monitor
+            | ToolName::Read
+            | ToolName::NotebookRead
+            | ToolName::Write
+            | ToolName::Edit
+            | ToolName::MultiEdit
+            | ToolName::NotebookEdit
+            | ToolName::Glob
+            | ToolName::Grep
+            | ToolName::Ls
+            | ToolName::WebFetch
+            | ToolName::WebSearch
+            | ToolName::Task
+            | ToolName::Agent
+            | ToolName::Skill
+            | ToolName::TodoWrite
+            | ToolName::SendMessage
+            | ToolName::EdualcSendMessage
+            | ToolName::EdualcListSessions
+            | ToolName::EdualcIncomingMessage
+            | ToolName::Other(_) => None,
         };
         let suggestions = suggestions.into_iter().map(wire::Offered::read).collect();
         let kind = special.unwrap_or(AskKind::Tool {
+            tool,
+            input,
             suggestions,
             description,
         });
         self.asks.push_back(Ask {
             request,
             tool_use,
-            tool,
-            input,
             kind,
+        });
+        self.redraw.prompt = true;
+    }
+
+    /// An ACP agent asks whether its call may go ahead, offering its choices.
+    fn ask_acp(
+        &mut self,
+        request: RequestId,
+        tool_use: ToolUseId,
+        call: AcpCall,
+        options: Vec<AcpOption>,
+    ) {
+        tracing::info!(title = %call.title, "the agent asks for permission");
+        self.chat.acp_call(&tool_use, &call, None);
+        self.chat.set_tool_state(&tool_use, ToolState::Awaiting);
+        self.asks.push_back(Ask {
+            request,
+            tool_use: Some(tool_use),
+            kind: AskKind::Acp { call, options },
         });
         self.redraw.prompt = true;
     }
@@ -4274,6 +4389,7 @@ fn answered(
 fn questions_asked(input: &Value) -> Option<AskKind> {
     match wire::Questions::deserialize(input) {
         Ok(asked) => Some(AskKind::Questions {
+            input: input.clone(),
             picked: asked
                 .questions
                 .iter()
@@ -4693,6 +4809,87 @@ mod tests {
                 .any(|entry| entry.copy_text().contains("can't read")),
             "the conversation says why"
         );
+    }
+
+    /// An ACP agent's request is answered with the agent's own choices: Allow with its
+    /// "allow once", the always button with its "allow always", and a bare Deny with its
+    /// "reject", the turn then stopped.
+    #[test]
+    fn an_agents_request_is_answered_with_its_choices() {
+        let (mut driven, generation) = started();
+        driven.take(Event::Action(Action::Send("Count the lines".to_owned())));
+        driven.sent();
+        let option = |id: &str, kind| AcpOption {
+            id: call::OptionId::from(id.to_owned()),
+            name: id.to_owned(),
+            kind,
+        };
+        let mut ask = |request: &str| {
+            driven.take(Event::Agent {
+                generation,
+                output: Output::Event(agent::Event::PermissionAsked {
+                    request_id: RequestId::from(request.to_owned()),
+                    tool_use_id: ToolUseId::from(format!("call-{request}")),
+                    call: AcpCall {
+                        title: "wc -l notes.txt".to_owned(),
+                        kind: Some(call::AcpKind::Execute),
+                        locations: Vec::new(),
+                        diffs: Vec::new(),
+                        input: None,
+                        status: call::AcpStatus::Pending,
+                        output: None,
+                    },
+                    options: vec![
+                        option("once", AcpOptionKind::AllowOnce),
+                        option("always", AcpOptionKind::AllowAlways),
+                        option("reject", AcpOptionKind::RejectOnce),
+                    ],
+                }),
+            });
+        };
+        ask("p1");
+        ask("p2");
+        ask("p3");
+        let mut answer = |action| {
+            driven.take(Event::Action(action));
+            driven
+                .sent()
+                .into_iter()
+                .filter_map(|message| {
+                    if let ToDaemon::Command { text, .. } = message {
+                        Some(serde_json::from_str::<agent::Command>(&text).expect("a command"))
+                    } else {
+                        None
+                    }
+                })
+                .collect::<Vec<_>>()
+        };
+        let chosen = |commands: &[agent::Command]| match commands.first() {
+            Some(agent::Command::Choose { option, .. }) => option.as_str().to_owned(),
+            other => panic!("a choice, not {other:?}"),
+        };
+        assert_eq!(
+            chosen(&answer(Action::Allow(RequestId::from("p1".to_owned())))),
+            "once"
+        );
+        assert_eq!(
+            chosen(&answer(Action::AllowAlways(RequestId::from(
+                "p2".to_owned()
+            )))),
+            "always"
+        );
+        let denied = answer(Action::Deny {
+            request: RequestId::from("p3".to_owned()),
+            feedback: String::new(),
+        });
+        assert_eq!(chosen(&denied), "reject");
+        assert!(matches!(
+            denied.get(1),
+            Some(agent::Command::ControlRequest {
+                request: wire::ControlRequest::Interrupt,
+                ..
+            })
+        ));
     }
 
     /// Another session's message, turned down during a turn, is turned down alone: the turn
@@ -5999,9 +6196,9 @@ mod tests {
         test.app.asks.push_back(Ask {
             request: RequestId::from("req-1".to_owned()),
             tool_use: None,
-            tool: wire::ToolName::from("Bash"),
-            input: serde_json::json!({}),
             kind: AskKind::Tool {
+                tool: wire::ToolName::from("Bash"),
+                input: serde_json::json!({}),
                 suggestions: Vec::new(),
                 description: "Run ls".to_owned(),
             },

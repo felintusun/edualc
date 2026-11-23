@@ -161,6 +161,12 @@ impl<F: Frontend> App<F> {
                     self.status.doing = Doing::Calling(call.title);
                 }
             }
+            agent::Event::PermissionAsked {
+                request_id,
+                tool_use_id,
+                call,
+                options,
+            } => self.ask_acp(request_id, tool_use_id, call, options),
             agent::Event::User(line) => match line.sender() {
                 Sender::Peer { name, body } => self.chat.peer_message(&line.message, name, body),
                 Sender::Replayed => {}

@@ -1114,6 +1114,12 @@ pub(super) fn apply_prompt(
     if old.is_none_or(|old| old.detail != new.detail) {
         global.set_detail(new.detail.to_slint(images));
     }
+    if old.is_none_or(|old| old.allow_label != new.allow_label) {
+        global.set_allow_label(new.allow_label.to_slint(images));
+    }
+    if old.is_none_or(|old| old.deny_label != new.deny_label) {
+        global.set_deny_label(new.deny_label.to_slint(images));
+    }
     if old.is_none_or(|old| old.always_label != new.always_label) {
         global.set_always_label(new.always_label.to_slint(images));
     }

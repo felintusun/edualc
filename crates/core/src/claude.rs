@@ -49,9 +49,10 @@ pub fn from_message(message: Message) -> Option<agent::Event> {
     })
 }
 
-/// Converts a provider-neutral [`agent::Command`] into Claude Code's `stream-json` stdin line.
-pub fn to_input(command: agent::Command) -> Input {
-    match command {
+/// Converts a provider-neutral [`agent::Command`] into Claude Code's `stream-json` stdin line;
+/// `None` for one Claude Code has no input for (a choice an ACP agent offered).
+pub fn to_input(command: agent::Command) -> Option<Input> {
+    Some(match command {
         agent::Command::Prompt {
             shell,
             images,
@@ -66,7 +67,8 @@ pub fn to_input(command: agent::Command) -> Input {
             request,
         },
         agent::Command::ControlResponse { response } => Input::ControlResponse { response },
-    }
+        agent::Command::Choose { .. } => return None,
+    })
 }
 
 /// Parses a single stdout line written by `claude -p --output-format stream-json`.
@@ -157,7 +159,7 @@ mod tests {
             images: Vec::new(),
             text: "hi".to_owned(),
         };
-        let encoded = serde_json::to_string(&to_input(cmd)).expect("encodes");
+        let encoded = serde_json::to_string(&to_input(cmd).expect("an input")).expect("encodes");
         assert!(encoded.contains("<bash-input>ls</bash-input>"));
         assert!(encoded.contains("hi"));
     }

@@ -370,7 +370,9 @@ the window, **New session here**,
 or opencode (on the start page, **Ctrl+N** opens New project). The window shows their sessions
 like Claude Code's: streamed text and thinking, tool cards, permission requests, and the model
 menu from the program. A tool card shows a call as the program describes it: its own title for
-the call, the files it works on, and the change an edit makes. Questions, to-do lists, subagents
+the call, the files it works on, the change an edit makes, and what the call printed once the
+program ends it. When the program asks before a call, the buttons are its own choices, in its
+words: "Allow once", "Always allow" and "Reject" for opencode. Questions, to-do lists, subagents
 and messages to other sessions show as Claude Code's do. A model you pick stays with its
 program: a new session with another program starts with that program's default.
 

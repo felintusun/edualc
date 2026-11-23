@@ -1405,6 +1405,7 @@ impl Doing {
             | agent::Event::Result(_)
             | agent::Event::RateLimits(_)
             | agent::Event::ControlRequest { .. }
+            | agent::Event::PermissionAsked { .. }
             | agent::Event::ControlAnswered(_)
             | agent::Event::RequestCancelled { .. } => {}
         }
@@ -1658,7 +1659,10 @@ impl Session {
                                     keep(&keeper, job).await;
                                 }
                                 match self.driver.encode_command(command) {
-                                    Ok(encoded) => self.write(&mut stdin, encoded),
+                                    Ok(Some(encoded)) => self.write(&mut stdin, encoded),
+                                    Ok(None) => {
+                                        tracing::warn!(id = ?self.id, "a command the program has no input for");
+                                    }
                                     Err(error) => {
                                         tracing::warn!(%error, id = ?self.id, "couldn't encode command for driver");
                                     }
@@ -1886,6 +1890,16 @@ impl Pending {
                 };
                 self.asked.insert(request_id.to_string(), asked);
             }
+            agent::Event::PermissionAsked {
+                request_id, call, ..
+            } if self.asked.len() < MAX_PENDING => {
+                let asked = Asked {
+                    summary: acp_request_summary(call, cwd),
+                    since: SystemTime::now(),
+                    line: wire_line.to_owned(),
+                };
+                self.asked.insert(request_id.to_string(), asked);
+            }
             agent::Event::RequestCancelled { request_id } => {
                 self.asked.remove(&request_id.to_string());
             }
@@ -1909,6 +1923,7 @@ impl Pending {
             | agent::Event::System(_)
             | agent::Event::RateLimits(_)
             | agent::Event::ControlRequest { .. }
+            | agent::Event::PermissionAsked { .. }
             | agent::Event::ControlAnswered(_) => {}
         }
     }
@@ -1916,7 +1931,7 @@ impl Pending {
     /// A command the window sent to the session.
     fn sent(&mut self, command: &agent::Command) {
         match command {
-            agent::Command::ControlResponse { .. } => {
+            agent::Command::ControlResponse { .. } | agent::Command::Choose { .. } => {
                 if let Some(id) = command.answered_request_id() {
                     self.asked.remove(&id.to_string());
                 }
@@ -2014,6 +2029,18 @@ fn request_summary(request: &IncomingRequest, cwd: &Path) -> String {
     } else {
         tools::truncate_chars(first, 120)
     }
+}
+
+/// What an ACP agent asks about, as its call's card says it.
+fn acp_request_summary(call: &crate::call::AcpCall, cwd: &Path) -> String {
+    let view = tools::describe_acp(call, cwd, tools::Depth::Headline);
+    let summary = if view.summary.trim().is_empty() {
+        view.title
+    } else {
+        format!("{}: {}", view.title, view.summary)
+    };
+    let first = summary.lines().next().unwrap_or(&summary).trim();
+    tools::truncate_chars(first, 120)
 }
 
 /// The most bytes queued for a process's input and not written yet: a few of the longest
@@ -2273,7 +2300,6 @@ mod tests {
         doing.saw(&agent::Event::ToolCall {
             id: wire::ToolUseId::from("c1".to_owned()),
             call: crate::call::AcpCall {
-                name: Some("edit".to_owned()),
                 title: "edit".to_owned(),
                 kind: Some(crate::call::AcpKind::Edit),
                 locations: vec![PathBuf::from("/p/b.rs")],

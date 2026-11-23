@@ -6,7 +6,7 @@ use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64;
 use serde::{Deserialize, Serialize};
 
-use crate::call::AcpCall;
+use crate::call::{AcpCall, AcpOption, OptionId};
 use crate::decode::Picture;
 use crate::external::wire::{
     ApiMessage, AssistantError, ControlRequest, ControlResponse, ImageBlock, IncomingRequest,
@@ -36,6 +36,11 @@ pub enum Command {
     ControlResponse {
         response: Reply,
     },
+    /// The user's choice among those an ACP agent offered (see [`Event::PermissionAsked`]).
+    Choose {
+        request_id: RequestId,
+        option: OptionId,
+    },
 }
 
 impl Command {
@@ -46,11 +51,12 @@ impl Command {
 
     /// The request id answered if this command replies to a session prompt/permission request.
     pub fn answered_request_id(&self) -> Option<&RequestId> {
-        let Self::ControlResponse { response } = self else {
-            return None;
-        };
-        match response {
-            Reply::Success { request_id, .. } | Reply::Error { request_id, .. } => Some(request_id),
+        match self {
+            Self::ControlResponse {
+                response: Reply::Success { request_id, .. } | Reply::Error { request_id, .. },
+            }
+            | Self::Choose { request_id, .. } => Some(request_id),
+            Self::Prompt { .. } | Self::Shell { .. } | Self::ControlRequest { .. } => None,
         }
     }
 }
@@ -75,6 +81,14 @@ pub enum Event {
         id: ToolUseId,
         call: AcpCall,
         parent_tool_use_id: Option<ToolUseId>,
+    },
+    /// An ACP agent asks whether its call may go ahead, offering these choices; the window
+    /// answers with [`Command::Choose`].
+    PermissionAsked {
+        request_id: RequestId,
+        tool_use_id: ToolUseId,
+        call: AcpCall,
+        options: Vec<AcpOption>,
     },
     User(UserLine),
     System(System),
@@ -258,6 +272,13 @@ impl Agent {
                 request_id: request.clone(),
                 response,
             },
+        })
+    }
+
+    pub fn choose(&self, request: &RequestId, option: &OptionId) -> Result<(), Error> {
+        self.send(&Command::Choose {
+            request_id: request.clone(),
+            option: option.clone(),
         })
     }
 

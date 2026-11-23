@@ -220,7 +220,11 @@ export global Prompt {
     // prose, as on the tool's card.
     in property <bool> summary-prose;
     in property <string> detail;
-    // E.g. "Always allow Bash(npm test)"; empty if the CLI suggests nothing to remember.
+    // "Allow" and "Deny", or an ACP agent's words for them ("Allow once", "Reject").
+    in property <string> allow-label: "Allow";
+    in property <string> deny-label: "Deny";
+    // E.g. "Always allow Bash(npm test)", or an ACP agent's words; empty if there is nothing
+    // to remember.
     in property <string> always-label;
     // More requests waiting behind this one.
     in property <int> queued;

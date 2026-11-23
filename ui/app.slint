@@ -331,7 +331,7 @@ component PromptBar inherits Rectangle {
                 spacing: Theme.space-s;
                 TextButton {
                     enabled: root.armed;
-                    text: "Allow";
+                    text: Prompt.allow-label;
                     primary: true;
                     clicked => { Prompt.allow(Prompt.request); }
                 }
@@ -345,7 +345,7 @@ component PromptBar inherits Rectangle {
                 }
                 TextButton {
                     enabled: root.armed;
-                    text: "Deny";
+                    text: Prompt.deny-label;
                     danger: true;
                     clicked => {
                         Prompt.deny(Prompt.request, feedback.text);

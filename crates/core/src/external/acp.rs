@@ -9,7 +9,7 @@ use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::call::{AcpKind, AcpStatus};
+use crate::call::{AcpKind, AcpOption, AcpOptionKind, AcpStatus, OptionId};
 use crate::external::wire::MediaType;
 
 /// A line from the agent: its answer to a request of ours, a request of its own, or news.
@@ -545,7 +545,18 @@ pub struct PermissionAsked {
 #[serde(rename_all = "camelCase")]
 pub struct PermissionOption {
     pub option_id: String,
+    pub name: String,
     pub kind: OptionKind,
+}
+
+impl From<PermissionOption> for AcpOption {
+    fn from(option: PermissionOption) -> Self {
+        Self {
+            id: OptionId::from(option.option_id),
+            name: option.name,
+            kind: option.kind.into(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
@@ -555,6 +566,17 @@ pub enum OptionKind {
     AllowAlways,
     RejectOnce,
     RejectAlways,
+}
+
+impl From<OptionKind> for AcpOptionKind {
+    fn from(kind: OptionKind) -> Self {
+        match kind {
+            OptionKind::AllowOnce => Self::AllowOnce,
+            OptionKind::AllowAlways => Self::AllowAlways,
+            OptionKind::RejectOnce => Self::RejectOnce,
+            OptionKind::RejectAlways => Self::RejectAlways,
+        }
+    }
 }
 
 /// `session/new`'s and `session/load`'s answer, as far as it is read.

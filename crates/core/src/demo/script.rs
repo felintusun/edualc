@@ -266,6 +266,11 @@ impl Session {
                 scenarios::shell(&self.out, &command);
                 None
             }
+            // The demo plays Claude Code, which offers no choices of an ACP agent's.
+            Command::Choose { .. } => {
+                tracing::warn!("a choice the demo didn't offer");
+                None
+            }
         }
     }
 

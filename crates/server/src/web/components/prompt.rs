@@ -162,6 +162,8 @@ fn ToolPrompt(armed: bool, grab: Grab) -> Element {
         "prompt-summary code"
     };
     let always = prompt.always_label.clone();
+    let allow_label = prompt.allow_label.clone();
+    let deny_label = prompt.deny_label.clone();
     let serial = prompt.serial;
     rsx! {
         div { class: "prompt-part",
@@ -176,7 +178,7 @@ fn ToolPrompt(armed: bool, grab: Grab) -> Element {
                     primary: true,
                     disabled: !armed,
                     onclick: move |_| answer(view, serial, Action::Allow),
-                    "Allow"
+                    "{allow_label}"
                 }
                 // A long rule gives way in a narrow window, said in full on hover and to
                 // assistive technology; Allow and Deny keep their words.
@@ -200,7 +202,7 @@ fn ToolPrompt(armed: bool, grab: Grab) -> Element {
                         });
                         feedback.set(String::new());
                     },
-                    "Deny"
+                    "{deny_label}"
                 }
             }
             // On a line of its own, so that a narrow or zoomed window doesn't push it out of

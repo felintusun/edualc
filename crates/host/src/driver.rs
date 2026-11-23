@@ -39,11 +39,14 @@ impl Driver {
         }
     }
 
-    /// Encodes a provider-neutral [`Command`] for this backend's stdin pipe.
-    pub fn encode_command(self, command: Command) -> Result<String, serde_json::Error> {
+    /// Encodes a provider-neutral [`Command`] for this backend's stdin pipe; `None` for one the
+    /// program has no input for.
+    pub fn encode_command(self, command: Command) -> Result<Option<String>, serde_json::Error> {
         match self {
-            Self::Claude => serde_json::to_string(&claude::to_input(command)),
-            Self::Acp => command.encode(),
+            Self::Claude => claude::to_input(command)
+                .map(|input| serde_json::to_string(&input))
+                .transpose(),
+            Self::Acp => command.encode().map(Some),
         }
     }
 
@@ -97,7 +100,11 @@ impl Driver {
                             error: "edualc can't read this request".to_owned(),
                         },
                     };
-                    let reply_to_process = self.encode_command(refusal).unwrap_or_default();
+                    let reply_to_process = self
+                        .encode_command(refusal)
+                        .ok()
+                        .flatten()
+                        .unwrap_or_default();
                     Decoded::UnreadableRequest {
                         reply_to_process,
                         notice: format!(
@@ -124,7 +131,10 @@ mod tests {
         let cmd = Command::Shell {
             command: "git status".to_owned(),
         };
-        let encoded = Driver::Claude.encode_command(cmd).expect("encodes");
+        let encoded = Driver::Claude
+            .encode_command(cmd)
+            .expect("encodes")
+            .expect("an input");
         assert!(encoded.contains("git status"));
 
         let decoded = Driver::Claude.decode_output(
