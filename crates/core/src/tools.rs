@@ -303,9 +303,9 @@ pub fn describe(name: &ToolName, input: &Value, cwd: &Path, depth: Depth) -> Too
     view
 }
 
-/// An ACP agent's call, as clients of ACP show one: its title, the files it works on that the
-/// title doesn't name (a command's working folder, the session's, goes without saying), and,
-/// opened, the changes it makes or else its arguments.
+/// Describes an ACP agent's call as ACP clients show one: its title, the files it works on that
+/// the title doesn't name, and, opened, the changes it makes or else its arguments. A
+/// command's working folder goes unsaid when it is the session's.
 pub fn describe_acp(call: &AcpCall, cwd: &Path, depth: Depth) -> ToolView {
     let mut view = ToolView {
         title: call.title.clone(),
@@ -345,7 +345,7 @@ fn cut_long_diff(view: &mut ToolView) {
     }
 }
 
-/// The file a call reads, writes or edits.
+/// Returns the file a call reads, writes or edits.
 pub fn file_of(name: &ToolName, input: &Value) -> Option<PathBuf> {
     match name {
         ToolName::Read => read::<ReadInput>(name, input).map(|read| read.file_path),
@@ -379,7 +379,7 @@ pub fn file_of(name: &ToolName, input: &Value) -> Option<PathBuf> {
     }
 }
 
-/// A command's card: the `!` command the user ran, as Bash's.
+/// Describes a `!` command you ran, as a Bash call's card.
 pub fn describe_command(command: &BashInput) -> ToolView {
     let mut view = ToolView {
         title: ToolName::Bash.to_string(),
@@ -389,7 +389,7 @@ pub fn describe_command(command: &BashInput) -> ToolView {
     view
 }
 
-/// A command's first line, the whole of a long one, and its description.
+/// Fills in a command's first line, the whole of a long one, and its description.
 fn command_view(view: &mut ToolView, bash: &BashInput) {
     let command = &bash.command;
     view.summary = first_line(command);
@@ -405,8 +405,8 @@ fn command_view(view: &mut ToolView, bash: &BashInput) {
     }
 }
 
-/// A tool's input as its type; none for one that isn't, such as the empty input of a call
-/// still streaming in.
+/// Reads a tool's input as its type; `None` for one that isn't, such as the empty input of a
+/// call still streaming in.
 pub(crate) fn read<Input: DeserializeOwned>(name: &ToolName, input: &Value) -> Option<Input> {
     match Input::deserialize(input) {
         Ok(read) => Some(read),
@@ -419,7 +419,7 @@ pub(crate) fn read<Input: DeserializeOwned>(name: &ToolName, input: &Value) -> O
     }
 }
 
-/// A unified line diff with three lines of context around each change.
+/// Returns a unified line diff with three lines of context around each change.
 fn diff(old: &str, new: &str) -> Vec<(DiffKind, String)> {
     let text_diff = similar::TextDiff::from_lines(old, new);
     let mut lines = Vec::new();
@@ -446,8 +446,8 @@ fn diff(old: &str, new: &str) -> Vec<(DiffKind, String)> {
 /// The most a path outside the working directory takes on a card before its middle goes.
 const CARD_PATH_CHARS: usize = 60;
 
-/// A path as a card shows it: relative to the working directory inside it; otherwise as
-/// [`shortened_path`] gives it, so a long one keeps its file's name in view.
+/// Returns a path as a card shows it: relative to the working folder inside it, else as
+/// [`shortened_path`] gives it, so that a long one keeps its file's name in view.
 pub fn short_path(path: &Path, cwd: &Path) -> String {
     path.strip_prefix(cwd)
         .ok()
@@ -458,8 +458,8 @@ pub fn short_path(path: &Path, cwd: &Path) -> String {
         )
 }
 
-/// `path` relative to home, its middle left out if it is longer than `max_chars`: the start
-/// says where it is, the end which it is.
+/// Returns `path` relative to home, its middle left out if it is longer than `max_chars`: the
+/// start says where it is, the end which it is.
 pub fn shortened_path(path: &Path, max_chars: usize) -> String {
     let full = home_relative(path);
     if full.chars().count() <= max_chars {
@@ -475,7 +475,7 @@ pub fn shortened_path(path: &Path, max_chars: usize) -> String {
     }
 }
 
-/// `path` from `~` when it is in the home folder.
+/// Returns `path` from `~` when it is in the home folder.
 pub fn home_relative(path: &Path) -> String {
     let home = dirs::home_dir();
     match home
@@ -525,8 +525,8 @@ pub fn truncate_chars(text: &str, max: usize) -> String {
     }
 }
 
-/// A tool result as text: its text blocks joined, pictures named, Claude Code's error wrapper
-/// taken off.
+/// Returns a tool result as text: its text blocks joined, its pictures named, and Claude
+/// Code's error wrapper taken off.
 pub fn result_text(content: Option<&UserContent>) -> String {
     let text = match content {
         Some(UserContent::Text(text)) => text.clone(),
