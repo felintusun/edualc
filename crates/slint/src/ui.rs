@@ -20,20 +20,21 @@ mod model;
 
 pub(crate) use callbacks::wire;
 
-/// What the presentation model's values are drawn with: the conversation's images, decoded (one
-/// not here isn't decoded yet), and code's colours, made on a thread of their own (`colourist`):
-/// code not coloured yet is shown plain.
+/// What the presentation model's values are drawn with: the conversation's decoded images,
+/// and code's colours, which a thread of their own makes (`colourist`). Code not coloured yet
+/// is shown plain.
 pub(crate) struct Drawing {
+    /// The images decoded so far.
     images: HashMap<ImageKey, slint::Image>,
-    /// Where code is ordered coloured.
+    /// Where code is sent to be coloured.
     orders: Orders,
-    /// The rows' places and the colours as the orders are made: a new one for other rows (a
-    /// session anew) or other colours.
+    /// Counts the sets of rows and colours; a new session or new colours make a new one, and
+    /// colours made for an older one are dropped.
     generation: u64,
-    /// Code coloured, by its text, with its language: what a block of it shows.
+    /// Coloured code by its text, with its language.
     coloured: HashMap<String, (String, slint::StyledText)>,
-    /// The code last coloured at each place, which the code coloured there next replaces (a
-    /// block streaming in grows a line at a time: each is no use once the next is coloured).
+    /// The code last coloured at each place. A block streaming in grows a line at a time, so
+    /// the next code coloured at a place replaces the last.
     placed: HashMap<Place, String>,
 }
 
@@ -48,12 +49,12 @@ impl Drawing {
         }
     }
 
-    /// `code` in `lang`'s colours if it is coloured yet; else as it is.
+    /// Returns `code` in `lang`'s colours if it is coloured yet, else plain.
     fn code(&self, lang: &str, code: &str) -> slint::StyledText {
         self.coloured_as(lang, code).unwrap_or_else(|| plain(code))
     }
 
-    /// `code` in `lang`'s colours, if it is coloured yet.
+    /// Returns `code` in `lang`'s colours, if it is coloured yet.
     fn coloured_as(&self, lang: &str, code: &str) -> Option<slint::StyledText> {
         match self.coloured.get(code) {
             Some((coloured_as, coloured)) if coloured_as == lang => Some(coloured.clone()),
@@ -61,7 +62,8 @@ impl Drawing {
         }
     }
 
-    /// Orders `block`, at `place`, coloured, unless it is (or isn't code to colour).
+    /// Sends `block` at `place` to be coloured, unless it is coloured already or isn't code to
+    /// colour.
     fn order(&self, place: Place, block: &present::MdBlock) {
         if !is_coloured_code(block) || self.coloured_as(&block.lang, &block.raw).is_some() {
             return;
@@ -74,14 +76,15 @@ impl Drawing {
         }));
     }
 
-    /// Other rows, or colours, from now: what was coloured, and is being, is of no use.
+    /// Starts a new generation for other rows or colours, dropping what was coloured and what
+    /// is being coloured.
     fn renew(&mut self) {
         self.generation = self.generation.wrapping_add(1);
         self.coloured.clear();
         self.placed.clear();
     }
 
-    /// Keeps `done` for its code to show, if it is of now: whether it is.
+    /// Keeps `done` for its code to show, if it is of this generation; returns whether it is.
     fn take(&mut self, done: &Coloured) -> bool {
         let job = &done.job;
         if job.generation != self.generation {
@@ -99,7 +102,7 @@ impl Drawing {
         true
     }
 
-    /// Orders the code of the side panel and the request bar's plan coloured.
+    /// Sends the code of the side panel and the request bar's plan to be coloured.
     fn order_side(&self, side: Option<&present::Side>, prompt: Option<&present::Prompt>) {
         for (exchange, shown) in side
             .iter()
@@ -118,8 +121,8 @@ impl Drawing {
     }
 }
 
-/// Orders the code of `new`, at row `row`, coloured where it differs from `old` (all of it, for
-/// none).
+/// Sends the code of row `row` to be coloured where `new` differs from `old`, or all of it if
+/// there is no `old`.
 fn order_changed(
     drawing: &Drawing,
     row: usize,
@@ -133,16 +136,15 @@ fn order_changed(
     }
 }
 
-/// Whether `block` is code that is ordered coloured: code that names its language. Code that
-/// names none is shown as it is, and nothing is ever coloured for it.
+/// Returns whether `block` is code to colour, which is code that names its language. Code that
+/// names none is always shown plain.
 fn is_coloured_code(block: &present::MdBlock) -> bool {
     block.kind == present::BlockKind::Code && !block.lang.trim().is_empty()
 }
 
-/// Whether code growing from `old` to `new` keeps the colours it shows until it is coloured
-/// again (`colourist`), rather than shown plain meanwhile: the newest of it shows a moment late.
-/// Only code that is ordered coloured: what is kept is replaced as its colours come, and for
-/// other code they never do.
+/// Returns whether code growing from `old` to `new` keeps showing its old colours until its
+/// new ones come, rather than plain meanwhile; its newest lines show a moment late. Only code
+/// to colour does, as for other code the new colours never come.
 fn keeps_colours(old: &present::MdBlock, new: &present::MdBlock, drawing: &Drawing) -> bool {
     is_coloured_code(new)
         && old.kind == present::BlockKind::Code
@@ -151,10 +153,10 @@ fn keeps_colours(old: &present::MdBlock, new: &present::MdBlock, drawing: &Drawi
         && drawing.coloured_as(&new.lang, &new.raw).is_none()
 }
 
-/// Whether `md`, shown now, is drawn with what `job` coloured: the same code, or code grown from
-/// it whose own colours aren't known yet. That shows colours older still (see
-/// [`keeps_colours`]); a block streaming in faster than its colours come is drawn as far as they
-/// go, not left as it was when they first came.
+/// Returns whether `md`, shown now, is drawn with what `job` coloured: it is the same code, or
+/// code grown from it whose own colours haven't come. The second case means a block streaming
+/// in faster than its colours come is drawn as far as they go, rather than left as it was when
+/// the first came (see [`keeps_colours`]).
 fn draws(md: &present::MdBlock, job: &colourist::Job, drawing: &Drawing) -> bool {
     md.kind == present::BlockKind::Code
         && md.lang == job.lang
@@ -163,8 +165,8 @@ fn draws(md: &present::MdBlock, job: &colourist::Job, drawing: &Drawing) -> bool
                 && drawing.coloured_as(&md.lang, &md.raw).is_none()))
 }
 
-/// A Markdown block's body as the Slint window draws it: a text block with the space between its
-/// paragraphs that Slint leaves out, code in colour once it is coloured.
+/// Returns a Markdown block's body as the Slint window draws it: text with the space between
+/// paragraphs that Slint leaves out, and code in colour once it is coloured.
 fn md_body(block: &present::MdBlock, drawing: &Drawing) -> slint::StyledText {
     match (block.kind, &block.body) {
         (present::BlockKind::Text, Styled::Markdown(text)) => {
@@ -179,7 +181,7 @@ fn md_body(block: &present::MdBlock, drawing: &Drawing) -> slint::StyledText {
 pub(crate) trait ToSlint {
     type Slint: Clone + 'static;
     fn to_slint(&self, images: &Drawing) -> Self::Slint;
-    /// This value in place of `old`, shown as `shown`: lists in it keep their models.
+    /// Returns this value in place of `old`, shown as `shown`; lists in it keep their models.
     fn sync(&self, _old: &Self, _shown: Self::Slint, images: &Drawing) -> Self::Slint {
         self.to_slint(images)
     }
@@ -246,9 +248,9 @@ impl<T: ToSlint + PartialEq> ToSlint for Vec<T> {
     }
 }
 
-/// Brings `model`, showing `old`, in line with `new` row by row: a row that differs is synced in
-/// place (its own lists keep their models), rows added or taken off at the end. A new model
-/// for one that isn't a `VecModel` (none made here).
+/// Brings `model`, showing `old`, in line with `new` row by row. A row that differs is synced
+/// in place, so its own lists keep their models; rows are added or taken off at the end. A
+/// model that isn't a `VecModel`, which none made here is, is replaced.
 pub(crate) fn resync<T: ToSlint + PartialEq>(
     model: &ModelRc<T::Slint>,
     old: &[T],
@@ -295,9 +297,9 @@ impl<T: ToSlint> ToVecSlint<T> for [T] {
 pub(crate) struct SlintFrontend {
     window: AppWindow,
     drawing: Drawing,
-    /// Code coloured by its thread (`colourist`), each when it is woken to take it.
+    /// The thread that colours code, which wakes the window when code is coloured.
     colourist: Colourist,
-    /// The transcript's rows: the model the list filters, and what they show.
+    /// The transcript's rows: the model the list filters, and what the rows show.
     entries: ModelRc<slint_ui::Entry>,
     shown: Vec<present::Entry>,
     /// What the side panel and the request bar were set to last, to colour their code again.
@@ -346,8 +348,8 @@ impl SlintFrontend {
         }
     }
 
-    /// Code's colours changed (the look, or the desktop's dark or light): what is shown is
-    /// coloured again in them, keeping the colours it has until then (and what is selected).
+    /// Colours the code shown again, after the look or the desktop's dark or light changed. It
+    /// keeps its colours and selection until the new colours come.
     fn recolour_code(&mut self) {
         self.drawing.renew();
         self.drawing.orders.send(Order::Colours {
@@ -357,7 +359,7 @@ impl SlintFrontend {
         self.order_all();
     }
 
-    /// Orders all code shown coloured: the transcript's from its end, which is shown first.
+    /// Sends all code shown to be coloured, the transcript's from its end, which shows first.
     fn order_all(&self) {
         for (row, entry) in self.shown.iter().enumerate().rev() {
             order_changed(&self.drawing, row, None, entry);
@@ -366,10 +368,10 @@ impl SlintFrontend {
             .order_side(self.side.as_ref(), self.prompt.as_ref());
     }
 
-    /// Draws the code coloured since, where it is still shown as it was coloured (or has only
-    /// grown since). The side panel and the plan are drawn again whole, each only if its own code
-    /// was coloured; what that draws plain (code coloured for another place, and let go of
-    /// there since) is ordered coloured again.
+    /// Draws the code coloured since the last call, where it is still shown as it was coloured
+    /// or has only grown. The side panel and the plan are drawn again whole, each only if its
+    /// own code was coloured. Code that this draws plain, because its colours were made for
+    /// another place and dropped there since, is sent to be coloured again.
     fn draw_coloured(&mut self) {
         let (mut side_coloured, mut plan_coloured) = (false, false);
         for done in self.colourist.take() {
@@ -393,8 +395,8 @@ impl SlintFrontend {
         self.drawing.order_side(side, prompt);
     }
 
-    /// Shows `done` as block `block` of row `row`, if that is the code it shows: the row and its
-    /// other blocks stay (and what is selected in them).
+    /// Shows `done` as block `block` of row `row`, if that is the code it shows. The row, its
+    /// other blocks and their selection stay.
     fn draw_in_row(&self, row: usize, block: usize, done: &Coloured) {
         let shows_it = self
             .shown
@@ -420,8 +422,9 @@ impl SlintFrontend {
         }
     }
 
-    /// Entry `index`, changed: its row brought in line, its changed code ordered coloured. Code
-    /// that only grew keeps its colours until its new ones come (see [`keeps_colours`]).
+    /// Brings row `index` in line with the changed entry and sends its changed code to be
+    /// coloured. Code that only grew keeps its colours until its new ones come (see
+    /// [`keeps_colours`]).
     fn set_entry(&mut self, index: usize, entry: present::Entry) {
         order_changed(&self.drawing, index, self.shown.get(index), &entry);
         let synced = match (self.shown.get(index), self.rows().row_data(index)) {
@@ -662,7 +665,7 @@ fn set_monospace(family: &str) {
     }
 }
 
-/// Pixels as a Slint image; none for pixels that don't add up.
+/// Makes a Slint image of `pixels`; `None` for pixels that don't add up.
 fn slint_image(pixels: &Pixels) -> Option<slint::Image> {
     let mut buffer = SharedPixelBuffer::<Rgba8Pixel>::new(pixels.width_px, pixels.height_px);
     let bytes = buffer.make_mut_bytes();
@@ -673,16 +676,16 @@ fn slint_image(pixels: &Pixels) -> Option<slint::Image> {
     Some(slint::Image::from_rgba8(buffer))
 }
 
-/// Inline Markdown as Slint styled text; as plain text if Slint's parser refuses it (an HTML
-/// tag it doesn't know, say a stray `<T>` outside backticks).
+/// Makes Slint styled text of inline Markdown, or plain text if Slint's parser refuses it, as
+/// it does an HTML tag it doesn't know, such as a stray `<T>` outside backticks.
 fn styled(source: &str) -> slint::StyledText {
     let source = crate::markdown::sanitize(source);
     slint::StyledText::from_markdown(&source)
         .unwrap_or_else(|_| slint::StyledText::from_plain_text(&source))
 }
 
-/// Text shown as it is (code, tool output): tabs as spaces, as the text layout draws no tab
-/// stops.
+/// Makes styled text of text shown as it is, such as code or tool output, with tabs as spaces,
+/// as Slint's text layout draws no tab stops.
 pub(crate) fn plain(text: &str) -> slint::StyledText {
     slint::StyledText::from_plain_text(&crate::markdown::sanitize(text).replace('\t', "    "))
 }
