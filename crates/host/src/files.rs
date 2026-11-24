@@ -95,16 +95,15 @@ pub(crate) enum ClaudeTrustError {
     },
 }
 
-/// How long edualc waits for Claude Code to finish writing `~/.claude.json` before it records
-/// the trust: a few short tries, as Claude Code holds its lock for moments.
+/// How long we wait for Claude Code's lock on `~/.claude.json`, which it holds for moments.
 const CLAUDE_LOCK_WAITS: [std::time::Duration; 4] = [
     std::time::Duration::from_millis(100),
     std::time::Duration::from_millis(200),
     std::time::Duration::from_millis(400),
     std::time::Duration::from_millis(800),
 ];
-/// When Claude Code takes a lock left behind as stale (proper-lockfile's default, which Claude
-/// Code 2.1.323 keeps, refreshing a lock it holds every 5 s).
+/// How old a lock is when Claude Code takes it over as stale: proper-lockfile's default, which
+/// Claude Code 2.1.323 keeps, refreshing a lock it holds every 5 s.
 const CLAUDE_LOCK_STALE: std::time::Duration = std::time::Duration::from_secs(10);
 
 /// What recording a folder's trust for Claude Code came to.
@@ -112,12 +111,12 @@ const CLAUDE_LOCK_STALE: std::time::Duration = std::time::Duration::from_secs(10
 pub(crate) enum ClaudeTrust {
     /// Its record says it is trusted now.
     Recorded,
-    /// Its record said so already: nothing was written.
+    /// Its record said so already, so nothing was written.
     AlreadyTrusted,
 }
 
-/// Whether Claude Code applies `folder`'s own settings: its record, by Claude Code's key, says
-/// the folder is trusted.
+/// Returns whether Claude Code applies `folder`'s own settings, which it does once the
+/// folder's record says it is trusted.
 pub(crate) fn trusted_for_claude_code(folder: &Path) -> Result<bool, ClaudeTrustError> {
     let config = sessions::global_config_path();
     let path = std::fs::canonicalize(&config).unwrap_or(config);
@@ -127,10 +126,12 @@ pub(crate) fn trusted_for_claude_code(folder: &Path) -> Result<bool, ClaudeTrust
         .is_some_and(|project| project.accepted == Some(true)))
 }
 
-/// Records `folder` as trusted for Claude Code too, as its trust dialog would
-/// (`hasTrustDialogAccepted` in `~/.claude.json`): Claude Code applies a folder's own permission
-/// rules only then. Written as Claude Code writes the file itself: under its lock, read afresh,
-/// that one record changed and everything else kept; not at all if the record says so already.
+/// Records `folder` as trusted for Claude Code, as its trust dialog would
+/// (`hasTrustDialogAccepted` in `~/.claude.json`). Claude Code applies a folder's own permission
+/// rules only then.
+///
+/// We write the file as Claude Code does: under its lock, read afresh, with that one record
+/// changed and the rest kept. Nothing is written if the record says so already.
 pub(crate) fn trust_for_claude_code(folder: &Path) -> Result<ClaudeTrust, ClaudeTrustError> {
     trust_in(
         &sessions::global_config_path(),
@@ -139,7 +140,7 @@ pub(crate) fn trust_for_claude_code(folder: &Path) -> Result<ClaudeTrust, Claude
     )
 }
 
-/// `~/.claude.json` at `path` (its link followed) whole; an empty one where there is none.
+/// Reads `~/.claude.json` at `path`, following a link; an empty one where there is none.
 fn read_claude_json(path: &Path) -> Result<ClaudeJsonWhole, ClaudeTrustError> {
     match std::fs::metadata(path) {
         Ok(metadata) if metadata.len() > sessions::GLOBAL_CONFIG_BYTES => {
@@ -165,8 +166,8 @@ fn read_claude_json(path: &Path) -> Result<ClaudeJsonWhole, ClaudeTrustError> {
     }
 }
 
-/// The key Claude Code keeps a folder's record under (2.1.323): the real path of the git
-/// repository it is in, or of the folder itself outside one.
+/// Returns the key Claude Code 2.1.323 keeps a folder's record under: the real path of the
+/// git repository it is in, or of the folder itself outside one.
 fn claude_project_key(folder: &Path) -> PathBuf {
     let real = std::fs::canonicalize(folder).unwrap_or_else(|_| folder.to_owned());
     real.ancestors()
@@ -174,12 +175,12 @@ fn claude_project_key(folder: &Path) -> PathBuf {
         .map_or_else(|| real.clone(), Path::to_path_buf)
 }
 
-/// Claude Code's lock on `config`, as it takes it: a folder beside the file, there while held.
+/// Claude Code's lock on its config, as it takes it: a folder beside the file while held.
 struct ClaudeLock(PathBuf);
 
 impl ClaudeLock {
-    /// Takes the lock, waiting `waits` in turn while Claude Code holds it; one left behind
-    /// longer than [`CLAUDE_LOCK_STALE`] is taken over, as Claude Code takes it over.
+    /// Takes the lock, waiting `waits` in turn while Claude Code holds it. A lock left longer
+    /// than [`CLAUDE_LOCK_STALE`] is taken over, as Claude Code does.
     fn take(config: &Path, waits: &[std::time::Duration]) -> Result<Self, ClaudeTrustError> {
         let mut path = config.as_os_str().to_owned();
         path.push(".lock");
@@ -276,8 +277,8 @@ impl Source {
         }
     }
 
-    /// The transcript's whole lines after byte `from`, in Claude Code's format, and where the
-    /// next read starts.
+    /// Reads the transcript's whole lines after byte `from`, in Claude Code's format, and
+    /// returns them with where the next read starts.
     fn read_from(&self, from: u64) -> std::io::Result<(Vec<String>, u64)> {
         let (lines, offset) = sessions::read_lines_from(self.path(), from)?;
         let lines = match self {
@@ -306,26 +307,27 @@ fn encode_lines(lines: &[TranscriptLine]) -> Vec<String> {
         .collect()
 }
 
-/// How long cached ACP `session/list` results stay fresh before a background refresh.
+/// How long a `session/list` answer stays fresh before it is asked again.
 const CATALOG_TTL: Duration = Duration::from_secs(30);
-/// How recently an external `agy` brain transcript must be written with a `RUNNING` step to
-/// show as live.
+/// How recently an agy session started elsewhere must have written a `RUNNING` step to show
+/// as running.
 const AGY_LIVE_WINDOW: Duration = Duration::from_secs(120);
-/// Tail bytes read from an external `agy` brain transcript for live/last-said previews.
+/// How much of the end of an agy session's steps is read, to tell whether it runs and what it
+/// said last.
 const BRAIN_TAIL_BYTES: u64 = 32 * 1024;
 
-/// A handle to the daemon's single-owner ACP external session catalog actor.
+/// The way to [`keep_catalog`].
 pub type Catalog = mpsc::Sender<CatalogQuery>;
 
-/// A query for cached external `agy` & `opencode` sessions.
+/// Asks for the agy and opencode sessions started elsewhere.
 #[derive(Debug)]
 pub struct CatalogQuery {
     pub cached_only: bool,
     pub reply: oneshot::Sender<Vec<ExternalSession>>,
 }
 
-/// Maintains the cached list of external `agy` and `opencode` sessions off one actor task, so
-/// concurrent `Read::Overview`/`Read::Sessions` never spawn duplicate probes or hold locks.
+/// Keeps the list of agy and opencode sessions started elsewhere, as their one owner, so that
+/// reads at the same time ask the programs once.
 pub async fn keep_catalog(mut queries: mpsc::Receiver<CatalogQuery>) {
     let mut cached: Vec<ExternalSession> = Vec::new();
     let mut fetched_at: Option<tokio::time::Instant> = None;
@@ -414,8 +416,8 @@ fn is_agy_board(path: &Path) -> bool {
         && path.ends_with("swarm/board.jsonl")
 }
 
-/// Where a transcript is: an agy session's subagents and board are in agy's own records, by the
-/// conversation the task names; external agy sessions fall back to their brain steps.
+/// Returns where a transcript is. An agy session's subagents and board are in agy's records,
+/// by the conversation the task names; an agy session started elsewhere is read from its steps.
 pub fn resolve(place: &Place) -> Source {
     match place {
         Place::Path(path) => {
@@ -503,7 +505,7 @@ pub async fn answer(request: ActId, read: Read, outbox: Outbox, catalog: Catalog
 /// The most sessions read per project for the start page.
 const OVERVIEW_SESSIONS: usize = 5;
 
-/// What `read` comes to; a transcript's lines go to `pieces` as they are read, before.
+/// Returns what `read` comes to. A transcript's lines go to `pieces` first, as they are read.
 fn read_for(request: ActId, read: Read, pieces: &Outbox, external: &[ExternalSession]) -> Answer {
     match read {
         Read::Live => Answer::Live(merge_live(sessions::live(), external)),
@@ -761,7 +763,7 @@ fn kept_changes(session: &crate::ids::SessionId) -> Result<snapshots::Store, ipc
     snapshots::Store::open(&home, session).map_err(|error| unkept(&error))
 }
 
-/// A store's error in words, with what caused it, for the window.
+/// Returns a store's error in words, with what caused it, for the window.
 fn unkept(error: &snapshots::Error) -> ipc::Unkept {
     let mut words = error.to_string();
     let mut source = std::error::Error::source(error);
@@ -773,8 +775,8 @@ fn unkept(error: &snapshots::Error) -> ipc::Unkept {
     ipc::Unkept(words)
 }
 
-/// A transcript's lines to the window, as text in pieces that fit messages (a line may be longer
-/// than one); a window gone isn't sent the rest.
+/// Sends a transcript's lines to the window in pieces that fit messages, stopping if the
+/// window is gone.
 fn send_lines(request: ActId, lines: &[String], pieces: &mpsc::Sender<FromDaemon>) {
     let mut text = String::with_capacity(lines.iter().map(|line| line.len() + 1).sum());
     for line in lines {
@@ -793,8 +795,8 @@ fn send_lines(request: ActId, lines: &[String], pieces: &mpsc::Sender<FromDaemon
     }
 }
 
-/// Splits a large overview list across `FromDaemon::OverviewChunk` messages so each frame stays
-/// within `ipc::MAX_MESSAGE`, returning the trailing projects for `Answer::Overview`.
+/// Sends a large overview as `FromDaemon::OverviewChunk`s that each fit `ipc::MAX_MESSAGE`,
+/// and returns the last projects, for `Answer::Overview`.
 fn chunk_overview(
     request: ActId,
     overviews: Vec<ProjectOverview>,
@@ -833,8 +835,8 @@ pub struct SettingsChange {
     pub outbox: Outbox,
 }
 
-/// The settings file's one owner: applies each window's change in turn to what the file holds,
-/// off the runtime's thread, and tells the window that made a change that couldn't be kept.
+/// Owns the settings files: applies each window's change in turn to what the files hold, and
+/// tells a window when its change couldn't be kept.
 pub async fn keep_settings(mut changes: mpsc::Receiver<SettingsChange>) {
     while let Some(SettingsChange { change, outbox }) = changes.recv().await {
         let changed = tokio::task::spawn_blocking(move || settings::change(change)).await;
@@ -862,19 +864,20 @@ pub enum Order {
     Unwatch(Watched),
 }
 
-/// A window's watch: a folder, watched by inotify; for a transcript, the folder it is in. A
-/// transcript is watched by its folder, not itself: a file watched follows the file, so one
-/// written anew by a rename over it would go unseen, and its folder sees that too. Before the folder is there, the nearest one above it is watched (at most
-/// [`MOST_ABOVE`] up), until the next one down comes.
+/// A window's watch on a folder with inotify; for a transcript, the folder it is in.
+///
+/// We watch a transcript's folder, not the file: a watch follows its file, so a file written
+/// anew by a rename over it would go unseen. Until the folder is there, the nearest one above
+/// it is watched, at most [`MOST_ABOVE`] up.
 #[derive(Debug)]
 struct Watch {
     /// The folder it watches once that is there.
     goal: PathBuf,
-    /// The transcript in it; none for the records' folder, any change in which is told.
+    /// The transcript in it; `None` for the records' folder, where any change is told.
     file: Option<PathBuf>,
-    /// Where it is watched now, and its descriptor: the goal, or a folder above it.
+    /// The folder watched now, the goal or one above it, and its descriptor.
     at: Option<(PathBuf, i32)>,
-    /// It couldn't be watched where it is to be, and is tried again every [`RETRY`].
+    /// Set when it couldn't be placed; it is tried again every [`RETRY`].
     misplaced: bool,
 }
 
@@ -892,9 +895,9 @@ impl Watch {
         self.at.as_ref().map(|&(_, descriptor)| descriptor)
     }
 
-    /// Whether what inotify noticed in the folder watched (in `name` there, or in the folder
-    /// itself) is about what it is for: its file, anything in the records' folder, or a folder
-    /// on the way to its goal.
+    /// Returns whether what inotify noticed at `name` in the folder watched, or in the folder
+    /// itself, concerns this watch: its file, anything in the records' folder, or a folder on
+    /// the way to its goal.
     fn concerns(&self, name: Option<&OsStr>) -> bool {
         let Some((folder, _)) = &self.at else {
             return false;
@@ -910,15 +913,15 @@ impl Watch {
         }
     }
 
-    /// Whether it watches a folder above its goal, which a folder nearer may have come to.
+    /// Returns whether it watches a folder above its goal, so a nearer one may have come.
     fn above_its_goal(&self) -> bool {
         self.at
             .as_ref()
             .is_some_and(|(folder, _)| *folder != self.goal)
     }
 
-    /// Watches the nearest folder there is to its goal, down as far as folders are there (one
-    /// made as it is placed too); the descriptors it let go of. Whether it moved, in `moved`.
+    /// Watches the nearest folder to its goal that is there, including one made meanwhile.
+    /// Returns the descriptors it let go of, and sets `moved` if it moved.
     fn place(&mut self, inotify: &OwnedFd, moved: &mut bool) -> Vec<i32> {
         let mut left = Vec::new();
         self.misplaced = false;
@@ -960,7 +963,7 @@ impl Watch {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 struct Noticed {
     descriptor: i32,
-    /// In the folder watched; none for the folder itself.
+    /// The name in the folder watched; `None` for the folder itself.
     name: Option<OsString>,
     /// The folder watched itself went.
     left: Option<Left>,
@@ -969,15 +972,15 @@ struct Noticed {
 /// How a folder watched went.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum Left {
-    /// Removed, or off its file system: inotify let go of its watch.
+    /// Removed or unmounted, so inotify let go of its watch.
     Gone,
-    /// Moved: its watch goes with it, and is to be let go of.
+    /// Moved, taking its watch along, which we must let go of.
     Moved,
 }
 
-/// A window's watches (an actor): one inotify instance, its watches named as the window named
-/// them, until the window's orders end. What inotify notices is read on a thread of its own,
-/// which ends as the actor does (the pipe it waits on beside inotify closes).
+/// Keeps a window's watches in one inotify instance, named as the window named them, until the
+/// window's orders end. A thread of its own reads what inotify notices; it ends with the actor,
+/// when the pipe it waits on beside inotify closes.
 pub async fn watch(mut orders: mpsc::Receiver<Order>, outbox: Outbox) {
     // Not blocking, so the thread reads all there is each time `poll` wakes it.
     let started = inotify::init(CreateFlags::CLOEXEC | CreateFlags::NONBLOCK).and_then(|inotify| {
@@ -1045,14 +1048,14 @@ pub async fn watch(mut orders: mpsc::Receiver<Order>, outbox: Outbox) {
 const QUEUE: usize = 64;
 /// The watch descriptor inotify tells its queue's overflow on (`IN_Q_OVERFLOW`).
 const OVERFLOW: i32 = -1;
-/// How far above its goal a watch may be: no further, lest it watch the home folder, or the
-/// root, whose many writes would each wake it.
+/// How far above its goal a watch may be. Any further and it might watch the home folder or
+/// the root, whose many writes would each wake it.
 const MOST_ABOVE: usize = 2;
 /// How often a watch that couldn't be placed is tried again.
 const RETRY: Duration = Duration::from_secs(5);
 
-/// Sends on what inotify notices, all it has to tell at a time, until the actor ends: its end
-/// of `ending` closes.
+/// Sends on what inotify notices, a batch at a time, until the actor closes its end of
+/// `ending`.
 fn read(inotify: &OwnedFd, ending: &OwnedFd, noticing: &mpsc::Sender<HashSet<Noticed>>) {
     use rustix::event::{PollFd, PollFlags, poll};
     let mut buffer = [MaybeUninit::<u8>::uninit(); 4096];
@@ -1113,8 +1116,8 @@ fn read(inotify: &OwnedFd, ending: &OwnedFd, noticing: &mpsc::Sender<HashSet<Not
     }
 }
 
-/// The window's watches `noticed` is about. One whose folder went is placed again; one above
-/// its goal moves down as folders on the way come.
+/// Returns the window's watches that `noticed` concerns. One whose folder went is placed
+/// again, and one above its goal moves down as folders on the way come.
 fn touched(
     inotify: &OwnedFd,
     watches: &mut HashMap<Watched, Watch>,
@@ -1148,8 +1151,8 @@ fn touched(
     named
 }
 
-/// inotify's queue overflowed: what was lost may have been any watch's, a folder come or gone
-/// among it. Each is placed afresh, and told.
+/// Places every watch afresh and tells each, after inotify's queue overflowed: what was lost
+/// may have concerned any of them, a folder made or gone among it.
 fn overflowed(inotify: &OwnedFd, watches: &mut HashMap<Watched, Watch>) -> HashSet<Watched> {
     let mut left = Vec::new();
     for watch in watches.values_mut() {
@@ -1160,7 +1163,7 @@ fn overflowed(inotify: &OwnedFd, watches: &mut HashMap<Watched, Watch>) -> HashS
     watches.keys().copied().collect()
 }
 
-/// Tries again to place the watches that couldn't be; those that moved are told.
+/// Tries again to place the watches that couldn't be, and tells those that moved.
 fn retried(inotify: &OwnedFd, watches: &mut HashMap<Watched, Watch>) -> HashSet<Watched> {
     let mut changed = HashSet::new();
     let mut left = Vec::new();
@@ -1185,7 +1188,8 @@ const FOLDER_FLAGS: WatchFlags = WatchFlags::CREATE
     .union(WatchFlags::MOVED_FROM)
     .union(WatchFlags::MOVE_SELF);
 
-/// The nearest folder to `goal` that is there: itself, or one at most [`MOST_ABOVE`] above it.
+/// Returns the nearest folder to `goal` that is there: itself, or one at most [`MOST_ABOVE`]
+/// above it.
 fn nearest_folder(goal: &Path) -> Option<PathBuf> {
     goal.ancestors()
         .take(MOST_ABOVE + 1)
@@ -1193,7 +1197,7 @@ fn nearest_folder(goal: &Path) -> Option<PathBuf> {
         .map(Path::to_path_buf)
 }
 
-/// What `target` is watched for, not placed yet.
+/// Returns the watch for `target`, not placed yet.
 fn start(target: &Target) -> Watch {
     match target {
         Target::Records => Watch::new(sessions::config_dir().join("sessions"), None),
