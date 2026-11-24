@@ -688,7 +688,11 @@ mod tests {
                 .expect("ordered");
         }
         std::fs::write(&path, "{}\n").expect("written");
-        assert!(matches!(told.recv().await, Some(FromDaemon::Changed(it)) if it == watched));
+        // The timeout only fails a run that would hang; the test waits on nothing else.
+        let first = tokio::time::timeout(Duration::from_secs(10), told.recv())
+            .await
+            .expect("told within 10 s");
+        assert!(matches!(first, Some(FromDaemon::Changed(it)) if it == watched));
         drop((orders, told));
         actor.await.expect("the actor ended");
         std::fs::remove_dir_all(&dir).expect("the scratch folder goes");
