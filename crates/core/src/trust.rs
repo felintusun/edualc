@@ -21,12 +21,12 @@ const SETTINGS_BYTES: u64 = 1024 * 1024;
 const MOST_RUNS: usize = 40;
 const MOST_CHARS: usize = 300;
 
-/// Whether `folder`, or one it is in, was trusted in this window.
+/// Returns whether `folder`, or one it is in, was trusted in edualc.
 pub fn trusted_in_edualc(folder: &Path, settings: &Settings) -> bool {
     within(folder, &settings.trusted_folders)
 }
 
-/// Whether the terminal's trust dialog was accepted for `folder` or one it is in, as
+/// Returns whether the terminal's trust dialog was accepted for `folder` or one it is in, as
 /// `~/.claude.json` says now.
 pub fn accepted_in_terminal(folder: &Path) -> bool {
     within(folder, &accepted_folders())
@@ -38,8 +38,7 @@ fn within(folder: &Path, trusted: &[PathBuf]) -> bool {
         .any(|place| trusted.iter().any(|trusted| trusted == place))
 }
 
-/// The folders whose trust dialog was accepted in the terminal; none where Claude Code never
-/// ran there.
+/// Lists the folders whose trust dialog was accepted in the terminal.
 fn accepted_folders() -> Vec<PathBuf> {
     let path = sessions::global_config_path();
     let small = std::fs::metadata(&path).is_ok_and(|metadata| {
@@ -69,12 +68,13 @@ fn accepted_folders() -> Vec<PathBuf> {
     }
 }
 
-/// What `folder`'s own configuration would have Claude Code run or set there: hooks, helpers,
-/// plugins, environment variables (by name) from `.claude/settings.json` and
-/// `settings.local.json`, and MCP servers from `.mcp.json`. The folder isn't trusted yet: no link
-/// in it is followed (a repository could link to the user's own configuration), a file too
-/// large or not plain is said to be unreadable rather than left out, and every text is cut
-/// short and kept free of control characters.
+/// Lists what `folder`'s own configuration would have Claude Code run or set there: hooks,
+/// helpers, plugins and environment variables by name from `.claude/settings.json` and
+/// `settings.local.json`, and MCP servers from `.mcp.json`.
+///
+/// The folder isn't trusted yet, so no link in it is followed (a repository could link to your
+/// own configuration), a file too large or not plain is listed as unreadable rather than left
+/// out, and every text is cut short and kept free of control characters.
 #[cfg(not(target_arch = "wasm32"))]
 pub fn what_runs(folder: &Path) -> Vec<Runs> {
     let mut runs = Vec::new();
@@ -120,8 +120,8 @@ pub fn what_runs(folder: &Path) -> Vec<Runs> {
     runs
 }
 
-/// What a settings file runs or sets, in a steady order: every hook, by what it does, and
-/// every key this window doesn't read, by name.
+/// Lists what a settings file runs or sets, in a steady order: every hook by what it does, and
+/// every key the window doesn't read by name.
 fn settings_runs(settings: ProjectSettings) -> Vec<Runs> {
     let mut runs = Vec::new();
     let mut events: Vec<_> = settings.hooks.into_iter().collect();
@@ -172,7 +172,8 @@ fn settings_runs(settings: ProjectSettings) -> Vec<Runs> {
     capped(runs)
 }
 
-/// What a hook does, by its type's fields; one with none of them asks a model or an agent.
+/// Returns what a hook does, by its type's fields; one with none of them asks a model or an
+/// agent.
 fn hook_action(hook: Hook) -> HookAction {
     match hook {
         Hook {
@@ -198,7 +199,8 @@ fn hook_action(hook: Hook) -> HookAction {
     }
 }
 
-/// Names, sorted and shown, as one entry made by `entry`; past [`MOST_RUNS`], how many more.
+/// Lists names, sorted and shown, as one entry made by `entry`, with how many more there were
+/// past [`MOST_RUNS`].
 fn listed(
     runs: &mut Vec<Runs>,
     names: impl IntoIterator<Item = String>,
@@ -217,7 +219,7 @@ fn listed(
     }
 }
 
-/// At most [`MOST_RUNS`] entries, and how many more there were.
+/// Cuts `runs` to [`MOST_RUNS`] entries, and says how many more there were.
 fn capped(mut runs: Vec<Runs>) -> Vec<Runs> {
     let more = runs.len().saturating_sub(MOST_RUNS);
     if more > 0 {
@@ -227,7 +229,7 @@ fn capped(mut runs: Vec<Runs>) -> Vec<Runs> {
     runs
 }
 
-/// The MCP servers `.mcp.json` starts or reaches, by name.
+/// Lists the MCP servers `.mcp.json` starts or reaches, by name.
 fn mcp_runs(mcp: McpJson) -> Vec<Runs> {
     let mut servers: Vec<_> = mcp.servers.into_iter().collect();
     servers.sort_by(|left, right| left.0.cmp(&right.0));
@@ -258,7 +260,8 @@ fn unreadable(file: &str, reason: &str) -> Runs {
     }
 }
 
-/// A text from the folder as it is shown: control characters as spaces, cut at [`MOST_CHARS`].
+/// Readies text from the folder to show: control characters become spaces, and it is cut at
+/// [`MOST_CHARS`].
 fn shown(text: &str) -> String {
     let mut shown: String = text
         .chars()
@@ -277,8 +280,12 @@ fn shown(text: &str) -> String {
     shown
 }
 
-/// `name` in the folder `at`, not followed if it is a link, nor waited on if it is a pipe;
-/// `None` if there is none, or why it couldn't be opened.
+/// Opens `name` in the folder `at`, not following a link nor waiting on a pipe; `None` if
+/// there is none.
+///
+/// # Errors
+///
+/// Why it couldn't be opened, in the system's words.
 #[cfg(not(target_arch = "wasm32"))]
 fn open_in(at: impl AsFd, name: &str, kind: OFlags) -> Result<Option<OwnedFd>, String> {
     let flags = OFlags::RDONLY | OFlags::NOFOLLOW | OFlags::NONBLOCK | OFlags::CLOEXEC | kind;
@@ -290,8 +297,11 @@ fn open_in(at: impl AsFd, name: &str, kind: OFlags) -> Result<Option<OwnedFd>, S
     }
 }
 
-/// The plain file `name` in the folder `at`, read whole; `None` if there is none, or why it
-/// couldn't be read (a link, not a plain file, too large, not text).
+/// Reads the plain file `name` in the folder `at` whole; `None` if there is none.
+///
+/// # Errors
+///
+/// Why it couldn't be read: a link, not a plain file, too large, or not text.
 #[cfg(not(target_arch = "wasm32"))]
 fn read_in(at: impl AsFd, name: &str) -> Result<Option<String>, String> {
     let Some(fd) = open_in(at, name, OFlags::empty())? else {

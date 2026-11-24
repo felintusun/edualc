@@ -37,8 +37,8 @@ pub struct NotAFingerprint(String);
 impl std::str::FromStr for Fingerprint {
     type Err = NotAFingerprint;
 
-    /// 64 hex digits, in either case, with or without colons between the bytes (as browsers
-    /// show them).
+    /// Reads 64 hex digits in either case, with or without colons between the bytes as
+    /// browsers show them.
     fn from_str(text: &str) -> Result<Self, Self::Err> {
         let wrong = || NotAFingerprint(text.to_owned());
         let digits: Vec<u8> = text.bytes().filter(|&byte| byte != b':').collect();
@@ -112,7 +112,7 @@ pub enum PairingError {
 }
 
 impl Pairing {
-    /// The address edualcd prints: the page's, which a window pairs with too.
+    /// Returns the address edualcd prints: the page's, which a window pairs with too.
     pub fn url(&self) -> String {
         format!(
             "https://{}/#token={}&fingerprint={}",
@@ -122,13 +122,13 @@ impl Pairing {
         )
     }
 
-    /// `host:port`, an IPv6 address in brackets.
+    /// Returns `host:port`, with an IPv6 address in brackets.
     pub fn authority(&self) -> String {
         authority(&self.host, self.port)
     }
 
-    /// The line's address: the WebSocket's, and the protocol it speaks in its query. The token
-    /// is not in it: the first frame of the line holds it (`Auth`).
+    /// Returns the line's address: the WebSocket's, with the protocol in its query. The token
+    /// isn't in it but in the line's first frame (`Auth`).
     pub fn line_url(&self) -> String {
         format!(
             "wss://{}/api/line?protocol={}",
@@ -137,8 +137,8 @@ impl Pairing {
         )
     }
 
-    /// An address as edualcd prints it; what else its fragment holds (`dir`, say) is passed
-    /// over.
+    /// Reads an address as edualcd prints it, passing over what else its fragment holds, such
+    /// as `dir`.
     pub fn parse(url: &str) -> Result<Self, PairingError> {
         let rest = url
             .trim()
@@ -166,7 +166,7 @@ impl Pairing {
     }
 }
 
-/// An address's host, port and fragment, from what follows its scheme (`host:port/…#…`).
+/// Splits what follows an address's scheme (`host:port/…#…`) into host, port and fragment.
 fn split_address(rest: &str) -> Result<(String, u16, &str), PairingError> {
     let (authority, fragment) = match rest.split_once('#') {
         Some((before, fragment)) => (before, fragment),
@@ -191,7 +191,6 @@ fn split_address(rest: &str) -> Result<(String, u16, &str), PairingError> {
     Ok((host.to_owned(), port, fragment))
 }
 
-/// `host:port`, an IPv6 address in brackets.
 fn authority(host: &str, port: u16) -> String {
     if host.contains(':') {
         format!("[{host}]:{port}")
@@ -220,7 +219,7 @@ pub enum Server {
 }
 
 impl Server {
-    /// An address as edualcd prints it: `https://…#token=…&fingerprint=…` pairs, and the
+    /// Reads an address as edualcd prints it: `https://…#token=…&fingerprint=…` pairs, and the
     /// demo's `http://host:port/` reaches the demo.
     pub fn parse(url: &str) -> Result<Self, PairingError> {
         match url.trim().strip_prefix("http://") {
@@ -246,14 +245,14 @@ impl Server {
         }
     }
 
-    /// `host:port`, an IPv6 address in brackets.
+    /// Returns `host:port`, with an IPv6 address in brackets.
     #[must_use]
     pub fn authority(&self) -> String {
         authority(self.host(), self.port())
     }
 
-    /// The window's line: a paired edualcd's over TLS; the demo's in plain. Either way the token
-    /// goes in the line's first frame (`Auth`), the demo's empty.
+    /// Returns the window's line: a paired edualcd's over TLS, the demo's in plain. Either way
+    /// the token goes in the line's first frame (`Auth`), empty for the demo.
     #[must_use]
     pub fn line_url(&self) -> String {
         match self {
@@ -266,7 +265,8 @@ impl Server {
         }
     }
 
-    /// The token the line shows: a paired edualcd's, or none for the demo, which lets any in.
+    /// Returns the token the line shows: a paired edualcd's, or an empty one for the demo,
+    /// which lets anyone in.
     #[must_use]
     pub fn token(&self) -> Token {
         match self {
@@ -280,16 +280,15 @@ impl Server {
         matches!(self, Self::Demo(_))
     }
 
-    /// Whether `other` is reached the same way: at the same address, both a demo or both
-    /// paired (a demo can listen where an edualcd did, and must not take its place).
+    /// Returns whether `other` is reached the same way: at the same address, and both a demo or
+    /// both paired. A demo can listen where an edualcd did, and must not take its place.
     #[must_use]
     pub fn same_place(&self, other: &Self) -> bool {
         self.authority() == other.authority() && self.is_demo() == other.is_demo()
     }
 }
 
-/// `text` as a URL's query or fragment may hold it: all but letters, digits and `-._~`
-/// percent-encoded.
+/// Percent-encodes `text` for a URL's query or fragment: all but letters, digits and `-._~`.
 pub fn encoded(text: &str) -> String {
     use std::fmt::Write as _;
     let mut out = String::with_capacity(text.len());
@@ -303,8 +302,8 @@ pub fn encoded(text: &str) -> String {
     out
 }
 
-/// A value of a URL's fragment, its `%`-escapes undone. A `+` stays one: in a fragment it is no
-/// space (a folder may be named `c++`), and [`encoded`] escapes a `+` of its own.
+/// Undoes the `%`-escapes in a value of a URL's fragment. A `+` stays one: in a fragment it is
+/// no space (a folder may be named `c++`), and [`encoded`] escapes a `+` of its own.
 pub fn decoded(value: &str) -> String {
     let bytes = value.as_bytes();
     let mut out = Vec::with_capacity(bytes.len());
