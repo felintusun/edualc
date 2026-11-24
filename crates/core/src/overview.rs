@@ -612,8 +612,8 @@ fn trailing_name(segments: &[String], take: usize) -> String {
     }
 }
 
-/// The folder's name, and the parent `take` components up from it beside it when that is what
-/// tells it apart. A parent named by a UUID (a session's scratch folder) shows its first part.
+/// Returns the folder's name with `take` of its parents beside it, when that is what tells it
+/// apart. A parent named by a UUID, such as a session's scratch folder, shows its first part.
 fn told_apart(segments: &[String], take: usize) -> String {
     let Some(folder) = segments.last() else {
         return "/".to_owned();
@@ -632,7 +632,7 @@ fn told_apart(segments: &[String], take: usize) -> String {
     }
 }
 
-/// The first group of a UUID's hex digits, if `text` is one.
+/// Returns the first group of a UUID's hex digits, if `text` is one.
 fn uuid_head(text: &str) -> Option<&str> {
     uuid::Uuid::try_parse(text)
         .ok()

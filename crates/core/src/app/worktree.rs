@@ -7,7 +7,8 @@ use crate::present::Frontend;
 use crate::sessions::Worktree;
 
 impl<F: Frontend> App<F> {
-    /// The worktree of the session shown: the watched one's as its process reports it, or ours.
+    /// Returns the worktree of the session shown: the watched one's as its process reports it,
+    /// or ours.
     pub(super) fn current_worktree(&self) -> Option<&Worktree> {
         match &self.watch {
             Some(watch) => watch

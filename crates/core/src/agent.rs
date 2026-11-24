@@ -47,7 +47,7 @@ impl Command {
         serde_json::to_string(self)
     }
 
-    /// The request id answered if this command replies to a session prompt/permission request.
+    /// Returns the request this command answers, if it answers one of the session's.
     pub fn answered_request_id(&self) -> Option<&RequestId> {
         match self {
             Self::ControlResponse {

@@ -16,7 +16,7 @@ impl Token {
         Self(Zeroizing::new(token))
     }
 
-    /// The token as text, to put in an address or a file.
+    /// Returns the token as text, to put in an address or a file.
     #[must_use]
     pub fn as_str(&self) -> &str {
         &self.0
@@ -27,8 +27,8 @@ impl Token {
         self.0.is_empty()
     }
 
-    /// Whether `other` is this token. Compared in constant time: the SHA-256 of each is, so
-    /// that neither the length nor where they differ is told by how long this takes.
+    /// Returns whether `other` is this token. We compare the SHA-256 of each in constant time,
+    /// so that how long this takes tells neither the length nor where they differ.
     #[must_use]
     pub fn admits(&self, other: &Self) -> bool {
         let ours = Sha256::digest(self.0.as_bytes());

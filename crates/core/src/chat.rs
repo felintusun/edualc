@@ -130,7 +130,8 @@ pub struct Entry {
 }
 
 impl Entry {
-    /// What copying the whole entry takes: a message's Markdown, a tool call's whole output.
+    /// Returns what copying the whole entry takes: a message's Markdown, a tool call's whole
+    /// output.
     pub fn copy_text(&self) -> &str {
         match &self.body {
             Body::User(text)

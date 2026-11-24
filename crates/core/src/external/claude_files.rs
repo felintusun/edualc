@@ -98,8 +98,8 @@ pub struct ProjectWhole {
 }
 
 impl ProjectWhole {
-    /// A new folder's record, trusted, with what Claude Code (2.1.323) puts in one as its trust
-    /// dialog makes it.
+    /// Makes a new folder's record, trusted, with what Claude Code 2.1.323's trust dialog puts
+    /// in one.
     pub fn trusted() -> serde_json::Result<Self> {
         let defaults = serde_json::to_value(NewProject::default())?;
         let serde_json::Value::Object(rest) = defaults else {
@@ -272,7 +272,8 @@ impl InboxMessage {
         }
     }
 
-    /// The message's text: as it came, or its text blocks, a line each. None without text.
+    /// Returns the message's text as it came, or its text blocks a line each; `None` without
+    /// text.
     pub fn into_text(self) -> Option<String> {
         match self.content {
             UserContent::Text(text) => Some(text),

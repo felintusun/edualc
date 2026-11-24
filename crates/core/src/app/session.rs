@@ -172,7 +172,8 @@ impl<F: Frontend> App<F> {
         self.continue_session(id, backend, provider::SignInWith::Account);
     }
 
-    /// The program session `id` ran, as the list, running records, or its transcript says.
+    /// Returns the program session `id` ran, as the list, the running records or its
+    /// transcript says.
     pub(super) fn backend_of(&self, id: &SessionId) -> provider::Backend {
         self.sessions
             .iter()
@@ -204,7 +205,8 @@ impl<F: Frontend> App<F> {
             })
     }
 
-    /// The session waiting for the user's pick goes on signed in so; or isn't continued.
+    /// Continues the session waiting for your pick, signed in with `sign_in`; `None` doesn't
+    /// continue it.
     pub(super) fn continue_with(&mut self, sign_in: Option<provider::SignInWith>) {
         let Some(id) = self.choosing_sign_in.take() else {
             return;

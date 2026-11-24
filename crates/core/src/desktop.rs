@@ -2,8 +2,8 @@
 
 use crate::external::niri;
 
-/// Whether a link Claude wrote may open: a web page's, or mail. A file or another app's scheme
-/// could run what it wrote.
+/// Returns whether a link Claude wrote may open: a web page's, or mail. A file or another app's
+/// scheme could run what it wrote.
 #[must_use]
 pub fn is_web_link(link: &str) -> bool {
     ["https://", "http://", "mailto:"].iter().any(|scheme| {
@@ -49,7 +49,7 @@ pub fn focus_window_of(pid: u32) -> Result<(), Error> {
     niri::ask(&focus).map(drop).map_err(Error::Niri)
 }
 
-/// `pid` and its parents, nearest first, up to (not including) init.
+/// Lists `pid` and its parents, nearest first, up to but not including init.
 fn ancestors(pid: u32) -> Vec<u32> {
     let mut chain = vec![pid];
     let mut current = pid;

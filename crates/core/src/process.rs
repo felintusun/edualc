@@ -21,13 +21,13 @@ pub fn stat(pid: u32) -> Option<Stat> {
     Some(Stat { parent, started })
 }
 
-/// Whether process `pid` runs, and is the one that started at `started`.
+/// Returns whether process `pid` runs and is the one that started at `started`.
 pub fn is_running(pid: u32, started: &str) -> bool {
     stat(pid).is_some_and(|stat| stat.started == started)
 }
 
-/// Whether process `pid` runs Claude Code: the native `claude`, or Node running the npm
-/// package.
+/// Returns whether process `pid` runs Claude Code: the native `claude`, or Node running the
+/// npm package.
 pub fn runs_claude(pid: u32) -> bool {
     let named = std::fs::read_to_string(format!("/proc/{pid}/comm"))
         .is_ok_and(|command| command.trim_end() == "claude");

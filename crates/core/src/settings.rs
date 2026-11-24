@@ -105,7 +105,7 @@ pub enum Look {
 }
 
 impl Look {
-    /// The look the palette button switches to.
+    /// Returns the look the palette button switches to.
     pub fn other(self) -> Self {
         match self {
             Self::Gruvbox => Self::Plain,

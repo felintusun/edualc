@@ -51,8 +51,8 @@ impl Images {
         !self.asked.insert(key) || self.jobs.send((key, bytes)).is_ok()
     }
 
-    /// Whether image `key` was asked for and not dropped since: what comes for one dropped is
-    /// for a conversation no longer shown.
+    /// Returns whether image `key` was asked for and not dropped since. What comes for one
+    /// dropped is for a conversation no longer shown.
     pub(super) fn wanted(&self, key: ImageKey) -> bool {
         self.asked.contains(&key)
     }

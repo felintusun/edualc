@@ -396,7 +396,8 @@ impl TableParse {
         }
     }
 
-    /// A cell past the columns shown is left out; the first of them is shown as `…`.
+    /// Starts a cell. A cell past the columns shown is left out; the first of those shows as
+    /// `…`.
     fn start_cell(&mut self, source: &str) {
         self.cell = None;
         // Once a row is cut, so are all after it.
@@ -423,7 +424,7 @@ impl TableParse {
         }
     }
 
-    /// Text the cell being parsed shows.
+    /// Counts text the cell being parsed shows.
     fn count(&mut self, text: &str) {
         if let Some(cell) = self.cell.as_mut() {
             cell.chars += text.chars().count();

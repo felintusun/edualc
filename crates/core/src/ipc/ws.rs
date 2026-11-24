@@ -64,7 +64,7 @@ pub enum Error {
     Closed,
 }
 
-/// How big a message and a frame may be: a peer sending more is broken or hostile.
+/// Returns how big a message and a frame may be; a peer sending more is broken or hostile.
 fn config() -> WebSocketConfig {
     WebSocketConfig::default()
         .max_message_size(Some(MAX_FRAME))

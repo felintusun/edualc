@@ -4,7 +4,8 @@ use crate::agent;
 use crate::external::wire::{ControlPeek, Input, Message, PeekedKind};
 use crate::ids::RequestId;
 
-/// The `claude` to run: `$CLAUDE_BIN` as the daemon was started with, or the one on `PATH`.
+/// Returns the `claude` to run: `$CLAUDE_BIN` as the daemon was started with, or the one on
+/// `PATH`.
 pub fn program() -> std::ffi::OsString {
     std::env::var_os("CLAUDE_BIN").unwrap_or_else(|| "claude".into())
 }

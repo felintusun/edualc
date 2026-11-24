@@ -442,7 +442,7 @@ impl<F: Frontend> App<F> {
         }
     }
 
-    /// How much of the plan's usage limits is used, and when each starts over.
+    /// Takes how much of the plan's usage limits is used, and when each resets.
     fn take_limits(&mut self, limits: &RateLimits) {
         let used = |window: &Option<wire::LimitWindow>| {
             let window = window.as_ref()?;
@@ -594,8 +594,8 @@ impl<F: Frontend> App<F> {
     }
 }
 
-/// What the conversation says of another session's message Claude Code held: why it waits, and
-/// what became of it; nothing for a state edualc doesn't know.
+/// Returns what the conversation says of another session's message Claude Code held: why it
+/// waits and what became of it; `None` for a state edualc doesn't know.
 fn hold_text(
     state: HoldState,
     from: Option<&str>,

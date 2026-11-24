@@ -44,7 +44,7 @@ impl<F: Frontend> App<F> {
         self.ask_daemon(Act::StoreApiKey(key), Acting::ApiKey);
     }
 
-    /// The keyring stored or removed the key, or failed to: the settings say so.
+    /// Shows in the settings whether the keyring stored or removed the key, or why it failed.
     pub(super) fn api_key_changed(&mut self, result: Result<(), ActFailure>) {
         self.api_key_note = match result {
             Ok(()) => String::new(),

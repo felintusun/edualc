@@ -63,7 +63,7 @@ pub(super) fn change_review(review: changes::Review) -> model::ChangeReview {
     }
 }
 
-/// What the snapshots left out, said once; nothing if nothing was.
+/// Says once what the snapshots left out; empty if nothing was.
 pub(super) fn left_out_words(left_out: changes::LeftOut) -> String {
     let plural = |count: u32, one: &str, many: &str| {
         if count == 1 {
@@ -94,8 +94,8 @@ pub(super) fn left_out_words(left_out: changes::LeftOut) -> String {
 }
 
 impl<F: Frontend> Presenter<F> {
-    /// The Changes view, if it is open, with your comments not sent yet; and what the last turn
-    /// changed, for the top bar.
+    /// Shows the Changes view if it is open, with your comments not sent yet, and what the last
+    /// turn changed, for the top bar.
     pub fn render_changes(
         &mut self,
         view: Option<&ChangesView>,

@@ -8,7 +8,7 @@ use crate::present::model::{MenuItem, PermissionKind};
 
 use super::{Presenter, index_for_slint};
 
-/// The mode menu's items, with their descriptions, and the one ticked.
+/// Returns the mode menu's items with their descriptions, and the one ticked.
 pub(super) fn mode_menu(
     modes: &Modes,
     backend: crate::provider::Backend,
@@ -64,7 +64,7 @@ pub(super) fn menu(items: &[(String, String)]) -> Vec<MenuItem> {
 }
 
 impl<F: Frontend> Presenter<F> {
-    /// The model and mode menus, and which of each is in use.
+    /// Shows the model and mode menus, and which of each is in use.
     pub fn render_menus(&mut self, status: &Status) {
         let mut models: Vec<(String, String)> = status
             .models

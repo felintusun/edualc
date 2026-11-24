@@ -218,7 +218,7 @@ impl<F: Frontend> Presenter<F> {
         self.sessions.problem = problem.into();
     }
 
-    /// The folder typed in the list of folders opened: the list closes.
+    /// Closes the folder list, as the folder typed in it opened.
     pub fn projects_opened(&mut self) {
         self.sessions.problem.clear();
         self.command(Command::ProjectsOpened);

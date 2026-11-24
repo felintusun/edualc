@@ -45,8 +45,8 @@ impl SessionId {
         &self.0
     }
 
-    /// A fresh id, for a session started (or forked) here: Claude Code takes it with
-    /// `--session-id`, so it is known before the session's first prompt.
+    /// Makes a fresh id for a session started or forked here. Claude Code takes it with
+    /// `--session-id`, so that it is known before the session's first prompt.
     pub fn new_random() -> Self {
         Self::from(uuid::Uuid::new_v4())
     }

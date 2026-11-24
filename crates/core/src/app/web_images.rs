@@ -46,7 +46,7 @@ impl Images {
             .is_ok()
     }
 
-    /// Whether image `key` was asked for and not dropped since.
+    /// Returns whether image `key` was asked for and not dropped since.
     pub(super) fn wanted(&self, key: ImageKey) -> bool {
         self.asked.contains(&key)
     }

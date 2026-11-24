@@ -139,7 +139,7 @@ impl<F: Frontend> App<F> {
         self.redraw.usage = true;
     }
 
-    /// One of the panel's answers, or why there is none.
+    /// Reads one of the panel's answers, or why there is none.
     fn usage_answer<T: DeserializeOwned>(
         &mut self,
         backend: Backend,
@@ -158,9 +158,9 @@ impl<F: Frontend> App<F> {
         }
     }
 
-    /// The session's quota bars from the fuller answer: five-hour and weekly windows for the
-    /// active model/plan. Clears stale windows when a full report omits them (e.g., weekly-only
-    /// models like Argon).
+    /// Sets the session's quota bars, five hours and a week for the model in use, from the
+    /// fuller answer. A bar the answer leaves out is cleared, as for a model with a weekly
+    /// limit alone, such as Argon.
     fn take_plan_limits_for(&mut self, backend: Backend, report: &UsageReport) {
         let Some(kept) = self.status.limits.mut_for_backend(backend) else {
             return;

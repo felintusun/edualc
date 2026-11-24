@@ -1266,7 +1266,7 @@ fn dropped<'de, D: serde::Deserializer<'de>, T: Default>(deserializer: D) -> Res
     serde::de::IgnoredAny::deserialize(deserializer).map(|_| T::default())
 }
 
-/// A field given as null reads as one left out, which `#[serde(default)]` alone doesn't cover.
+/// Reads a field given as null as one left out, which `#[serde(default)]` alone doesn't cover.
 fn null_as_default<'de, D: serde::Deserializer<'de>, T: Default + Deserialize<'de>>(
     deserializer: D,
 ) -> Result<T, D::Error> {
@@ -1535,7 +1535,7 @@ impl ImageBlock {
         self.source.media_type
     }
 
-    /// The image's bytes, base64-encoded.
+    /// Returns the image's bytes, base64-encoded.
     pub fn data(&self) -> &str {
         &self.source.data
     }
