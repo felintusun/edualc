@@ -1,6 +1,8 @@
 //! How a tool call reads in the chat: its name, a one-line summary (the command, the file),
 //! the input worth showing when expanded, and for edits a diff.
 
+mod cards;
+
 use std::path::{Path, PathBuf};
 
 use serde::de::DeserializeOwned;
@@ -9,11 +11,9 @@ use serde_json::Value;
 use crate::call::AcpCall;
 use crate::edualc_tool::EdualcTool;
 use crate::external::tool_input::{
-    AgentInput, BashInput, EditInput, GlobInput, GrepInput, IncomingMessageInput, MultiEditInput,
-    NotebookEditInput, ReadInput, SendMessageInput, SkillInput, TodoStatus, TodoWriteInput,
-    WebFetchInput, WebSearchInput, WriteInput,
+    BashInput, EditInput, MultiEditInput, NotebookEditInput, ReadInput, WriteInput,
 };
-use crate::external::wire::{ContentBlock, PlanInput, Questions, ToolName, UserContent};
+use crate::external::wire::{ContentBlock, ToolName, UserContent};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DiffKind {
@@ -56,251 +56,45 @@ pub enum Depth {
 const MAX_DIFF_LINES: usize = 400;
 
 pub fn describe(name: &ToolName, input: &Value, cwd: &Path, depth: Depth) -> ToolView {
-    let full = depth == Depth::Full;
-    let path = |path: &Path| short_path(path, cwd);
-    let place = |place: Option<&PathBuf>| place.map_or_default(|place| path(place));
+    let call = cards::Describing {
+        name,
+        input,
+        cwd,
+        full: depth == Depth::Full,
+    };
     let mut view = ToolView {
         title: name.to_string(),
         ..ToolView::default()
     };
-    match name {
-        // A Monitor runs a command too, in the background, and says what it watches for.
-        ToolName::Bash | ToolName::Monitor => {
-            if let Some(bash) = read::<BashInput>(name, input) {
-                command_view(&mut view, &bash);
-                if *name == ToolName::Bash && bash.run_in_background == Some(true) {
-                    view.title = "Bash (background)".into();
-                }
-            }
-        }
-        ToolName::Read => {
-            if let Some(read) = read::<ReadInput>(name, input) {
-                view.summary = path(&read.file_path);
-                if let Some(offset) = read.offset {
-                    let range = match read.limit.filter(|&limit| limit > 0) {
-                        Some(limit) => format!("lines {offset}–{}", offset.saturating_add(limit)),
-                        None => format!("from line {offset}"),
-                    };
-                    view.summary = format!("{}  {range}", view.summary);
-                }
-            }
-        }
-        // The whole file, as it will be: a wall of `+` lines would say the same, louder.
-        ToolName::Write => {
-            if let Some(write) = read::<WriteInput>(name, input) {
-                view.summary = path(&write.file_path);
-                if full {
-                    view.detail = write.content;
-                }
-            }
-        }
-        ToolName::Edit => {
-            if let Some(edit) = read::<EditInput>(name, input) {
-                view.summary = path(&edit.file_path);
-                if edit.replace_all == Some(true) {
-                    view.summary += "  (all occurrences)";
-                }
-                if full {
-                    view.diff = diff(&edit.old_string, &edit.new_string);
-                }
-            }
-        }
-        ToolName::MultiEdit => {
-            if let Some(edits) = read::<MultiEditInput>(name, input) {
-                view.summary = path(&edits.file_path);
-                for edit in edits.edits.iter().filter(|_| full) {
-                    view.diff.extend(diff(&edit.old_string, &edit.new_string));
-                }
-            }
-        }
-        // The cell's new source, as it will be, shown whole.
-        ToolName::NotebookEdit => {
-            if let Some(edit) = read::<NotebookEditInput>(name, input) {
-                view.summary = path(&edit.notebook_path);
-                if full {
-                    view.detail = edit.new_source;
-                }
-            }
-        }
-        ToolName::Glob => {
-            if let Some(glob) = read::<GlobInput>(name, input) {
-                view.summary = with_place(&glob.pattern, &place(glob.path.as_ref()));
-            }
-        }
-        ToolName::Grep => {
-            if let Some(grep) = read::<GrepInput>(name, input) {
-                let what = match grep.glob.filter(|glob| !glob.is_empty()) {
-                    Some(glob) => format!("{}  ({glob})", grep.pattern),
-                    None => grep.pattern,
-                };
-                view.summary = with_place(&what, &place(grep.path.as_ref()));
-            }
-        }
-        ToolName::WebFetch => {
-            if let Some(fetch) = read::<WebFetchInput>(name, input) {
-                view.summary = fetch.url;
-                view.detail = fetch.prompt.unwrap_or_default();
-            }
-        }
-        ToolName::WebSearch => {
-            if let Some(search) = read::<WebSearchInput>(name, input) {
-                view.summary = search.query;
-            }
-        }
-        ToolName::Task | ToolName::Agent => {
-            view.title = "Agent".into();
-            if let Some(agent) = read::<AgentInput>(name, input) {
-                if let Some(kind) = agent.subagent_type.filter(|kind| !kind.is_empty()) {
-                    view.title = format!("Agent · {kind}");
-                }
-                view.summary = agent.description;
-                if full {
-                    view.detail = agent.prompt;
-                }
-            }
-        }
-        ToolName::Skill => {
-            if let Some(skill) = read::<SkillInput>(name, input) {
-                view.summary = [skill.skill, skill.command, skill.name]
-                    .into_iter()
-                    .flatten()
-                    .find(|named| !named.is_empty())
-                    .unwrap_or_default();
-            }
-        }
-        ToolName::TodoWrite => {
-            if let Some(list) = read::<TodoWriteInput>(name, input) {
-                view.summary = format!("{} items", list.todos.len());
-                view.detail = list
-                    .todos
-                    .iter()
-                    .filter(|_| full)
-                    .map(|todo| {
-                        let mark = match todo.status {
-                            TodoStatus::Completed => "☑",
-                            TodoStatus::InProgress => "◐",
-                            TodoStatus::Pending | TodoStatus::Other => "☐",
-                        };
-                        format!("{mark} {}", todo.content)
-                    })
-                    .collect::<Vec<_>>()
-                    .join("\n");
-            }
-        }
-        ToolName::AskUserQuestion => {
-            view.title = "Question".into();
-            if let Some(asked) = read::<Questions>(name, input) {
-                view.summary = asked
-                    .questions
-                    .into_iter()
-                    .next()
-                    .map_or_default(|question| question.question);
-            }
-        }
-        ToolName::ExitPlanMode => {
-            view.title = "Plan".into();
-            view.summary = "Ready for review".into();
-            if full && let Some(plan) = read::<PlanInput>(name, input) {
-                view.markdown = plan.plan;
-            }
-        }
-        ToolName::SendMessage => {
-            if let Some(SendMessageInput { to, message }) = read(name, input) {
-                // An inbox's address (`uds:…`, as Claude Code tells a session to answer by)
-                // says nothing to the user; it stays in the detail.
-                let addressed = ["uds:", "bridge:", "did:"]
-                    .iter()
-                    .any(|scheme| to.starts_with(scheme));
-                view.title = if addressed {
-                    "Message to another session".to_owned()
-                } else {
-                    format!("Message to {to}")
-                };
-                view.summary = first_line(&message);
-                if full {
-                    view.detail = if addressed {
-                        format!("{message}\n\nTo {to}")
-                    } else {
-                        message
-                    };
-                }
-            }
-        }
-        ToolName::Edualc(EdualcTool::SendMessage) => {
-            if let Some(SendMessageInput { to, message }) = read(name, input) {
-                view.title = format!("Message to {to}");
-                view.summary = first_line(&message);
-                if full {
-                    view.detail = message;
-                }
-            }
-        }
-        ToolName::Edualc(EdualcTool::IncomingMessage) => {
-            if let Some(IncomingMessageInput { from, message }) = read(name, input) {
-                view.title = format!("Message from {from}");
-                view.summary = first_line(&message);
-                if full {
-                    view.detail = message;
-                }
-            }
-        }
-        ToolName::Other(name) if name.starts_with("mcp__") => {
-            let mut parts = name.trim_start_matches("mcp__").splitn(2, "__");
-            let server = parts.next().unwrap_or("");
-            view.title = parts.next().unwrap_or(name).to_owned();
-            view.summary = format!("{server}  {}", compact(input, 120));
-            if full {
-                view.detail = pretty(input);
-            }
-        }
-        // Shown as the MCP tool it is, as any other server's.
-        ToolName::Edualc(EdualcTool::ListSessions) => {
-            view.title = "list_sessions".to_owned();
-            view.summary = format!("edualc  {}", compact(input, 120));
-            if full {
-                view.detail = pretty(input);
-            }
-        }
+    let card: fn(&cards::Describing, &mut ToolView) = match name {
+        ToolName::Bash | ToolName::Monitor => cards::command,
+        ToolName::Read => cards::read_file,
+        ToolName::Write => cards::write,
+        ToolName::Edit => cards::edit,
+        ToolName::MultiEdit => cards::multi_edit,
+        ToolName::NotebookEdit => cards::notebook_edit,
+        ToolName::Glob => cards::glob,
+        ToolName::Grep => cards::grep,
+        ToolName::WebFetch => cards::web_fetch,
+        ToolName::WebSearch => cards::web_search,
+        ToolName::Task | ToolName::Agent => cards::agent,
+        ToolName::Skill => cards::skill,
+        ToolName::TodoWrite => cards::todo_list,
+        ToolName::AskUserQuestion => cards::question,
+        ToolName::ExitPlanMode => cards::plan,
+        ToolName::SendMessage => cards::message,
+        ToolName::Edualc(EdualcTool::SendMessage) => cards::edualc_message,
+        ToolName::Edualc(EdualcTool::IncomingMessage) => cards::incoming_message,
+        ToolName::Edualc(EdualcTool::ListSessions) => cards::list_sessions,
+        ToolName::Other(tool) if tool.starts_with("mcp__") => cards::mcp,
         ToolName::BashOutput
         | ToolName::KillShell
         | ToolName::NotebookRead
         | ToolName::Ls
-        | ToolName::Other(_) => {
-            view.summary = compact(input, 120);
-            if full {
-                view.detail = pretty(input);
-            }
-        }
-    }
-    cut_long_diff(&mut view);
-    view.summary_reads_as = match name {
-        ToolName::WebSearch
-        | ToolName::Task
-        | ToolName::Agent
-        | ToolName::TodoWrite
-        | ToolName::AskUserQuestion
-        | ToolName::ExitPlanMode
-        | ToolName::SendMessage
-        | ToolName::Edualc(EdualcTool::SendMessage)
-        | ToolName::Edualc(EdualcTool::IncomingMessage) => Writing::Prose,
-        ToolName::Bash
-        | ToolName::BashOutput
-        | ToolName::KillShell
-        | ToolName::Monitor
-        | ToolName::Read
-        | ToolName::NotebookRead
-        | ToolName::Write
-        | ToolName::Edit
-        | ToolName::MultiEdit
-        | ToolName::NotebookEdit
-        | ToolName::Glob
-        | ToolName::Grep
-        | ToolName::Ls
-        | ToolName::WebFetch
-        | ToolName::Skill
-        | ToolName::Edualc(EdualcTool::ListSessions)
-        | ToolName::Other(_) => Writing::Code,
+        | ToolName::Other(_) => cards::input,
     };
+    card(&call, &mut view);
+    cut_long_diff(&mut view);
     view
 }
 
