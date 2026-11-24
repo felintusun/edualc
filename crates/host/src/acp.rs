@@ -555,9 +555,15 @@ impl Out {
         let Some(mut write) = self.calls.remove(&call) else {
             return;
         };
-        let line = serde_json::to_string(&answer).unwrap_or_default();
-        let written = write.write_all(format!("{line}\n").as_bytes()).await;
-        if written.is_err() {
+        let line = match serde_json::to_string(&answer) {
+            Ok(line) => line,
+            Err(error) => {
+                // Dropping the socket ends the call, which the tool then reports as failed.
+                tracing::warn!(%error, "an answer for the tool that can't be written: not sent");
+                return;
+            }
+        };
+        if write_line(&mut write, &line).await.is_err() {
             tracing::debug!("the tool's call went away");
         }
     }
