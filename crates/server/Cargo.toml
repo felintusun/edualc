@@ -21,8 +21,9 @@ async-channel.workspace = true
 tracing.workspace = true
 futures-util.workspace = true
 base64 = "0.23"
-# Inline Markdown as HTML, raw HTML in it escaped.
+# Inline Markdown as HTML, raw HTML in it escaped, and a link's address escaped for its href.
 pulldown-cmark = { version = "0.13", default-features = false, features = ["html"] }
+pulldown-cmark-escape = "0.11"
 # The page's own: its address (the token), the clipboard, opening links, encoding images.
 web-sys = { version = "0.3", optional = true, features = ["Window", "Location", "Navigator", "Clipboard", "Document", "Element", "HtmlElement", "HtmlTextAreaElement", "ScrollIntoViewOptions", "ScrollBehavior", "ScrollLogicalPosition", "HtmlDocument", "NodeList", "Event", "EventTarget", "MouseEvent", "Blob", "BlobPropertyBag", "Url", "Notification", "NotificationOptions", "NotificationPermission", "ClipboardEvent", "DataTransfer", "FileList", "File"] }
 js-sys = { version = "0.3", optional = true }

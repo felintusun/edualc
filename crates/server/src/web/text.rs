@@ -15,12 +15,14 @@ pub fn markdown_html(source: &str) -> String {
             _ => Event::Text(html),
         },
         Event::Start(Tag::Link { dest_url, .. }) => {
-            let opens = edualc_core::desktop::is_web_link(&dest_url);
+            let mut href = String::new();
+            // A link that may not open, or whose address didn't escape, shows as text.
+            let opens = edualc_core::desktop::is_web_link(&dest_url)
+                && pulldown_cmark_escape::escape_href(&mut href, &dest_url).is_ok();
             links_open.push(opens);
             if opens {
                 Event::InlineHtml(CowStr::from(format!(
-                    "<a href=\"{}\" target=\"_blank\" rel=\"noopener noreferrer\">",
-                    escaped(&dest_url)
+                    "<a href=\"{href}\" target=\"_blank\" rel=\"noopener noreferrer\">"
                 )))
             } else {
                 Event::InlineHtml(CowStr::from("<span class=\"link\">"))
@@ -50,22 +52,6 @@ pub fn markdown_html(source: &str) -> String {
     let mut html = String::new();
     pulldown_cmark::html::push_html(&mut html, events);
     html
-}
-
-/// Text made safe inside HTML.
-pub fn escaped(text: &str) -> String {
-    let mut out = String::with_capacity(text.len());
-    for character in text.chars() {
-        match character {
-            '&' => out.push_str("&amp;"),
-            '<' => out.push_str("&lt;"),
-            '>' => out.push_str("&gt;"),
-            '"' => out.push_str("&quot;"),
-            '\'' => out.push_str("&#39;"),
-            other => out.push(other),
-        }
-    }
-    out
 }
 
 /// The `lang` attribute a text's CJK characters ask for, so the browser picks their glyphs.
@@ -178,5 +164,7 @@ mod tests {
             "{html}"
         );
         assert!(!html.contains("javascript:"), "{html}");
+        let html = markdown_html(r#"[q](<https://example.com/"onmouseover=alert(1)>)"#);
+        assert!(!html.contains("\"onmouseover"), "{html}");
     }
 }

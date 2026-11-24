@@ -2887,6 +2887,7 @@ dependencies = [
  "js-sys",
  "lucide-static-svg",
  "pulldown-cmark",
+ "pulldown-cmark-escape",
  "serde",
  "serde_json",
  "thiserror 2.0.21",
