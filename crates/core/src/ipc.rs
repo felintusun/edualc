@@ -30,28 +30,27 @@ use crate::provider::Launch;
 use crate::sessions::{LiveSession, ProjectInfo, Saved, SessionInfo, Worktree};
 use crate::settings::Settings;
 
-/// The largest message either side sends: more is a broken or hostile peer. Text is cut to fit
-/// (see [`chunks`]); what the daemon reads for a window (the sessions listed, the folders
-/// worked in) is one message, which a thousand sessions fill well past 64 KiB.
+/// The largest message either side sends; a larger one means a broken or hostile peer. Text is
+/// cut to fit (see [`chunks`]), but an answer to a read is one message, and a thousand sessions
+/// fill one well past 64 KiB.
 pub const MAX_MESSAGE: usize = 1024 * 1024;
-/// Text sent in one message at most (a long line of Claude's output goes in several), with
-/// room left for what the message says besides.
+/// The most text one message carries, leaving room for the rest of the message. A longer line
+/// goes in several.
 pub const MAX_CHUNK: usize = MAX_MESSAGE - 1024;
-/// The longest line kept, of a process's output or a window's input: a tool's result can be
-/// long, but not without end.
+/// The longest line kept of a process's output or a window's input.
 pub const MAX_LINE: usize = 32 * 1024 * 1024;
 
-/// A byte stream (a process's output) made into lines, as it is read (sans-io). A line longer
-/// than [`MAX_LINE`] is dropped, said so in its place.
+/// Splits a byte stream, such as a process's output, into lines as it is read. A line longer
+/// than [`MAX_LINE`] is replaced by a note that it was dropped.
 #[derive(Debug, Default)]
 pub struct LineSplitter {
     buffer: Vec<u8>,
-    /// Bytes of a line too long to keep, being passed over up to its end.
+    /// Set while passing over a line too long to keep, up to its end.
     skipping: bool,
 }
 
 impl LineSplitter {
-    /// The whole lines `bytes` complete.
+    /// Returns the whole lines that `bytes` complete.
     pub fn push(&mut self, bytes: &[u8]) -> Vec<String> {
         let mut lines = Vec::new();
         for piece in bytes.split_inclusive(|&byte| byte == b'\n') {
@@ -80,14 +79,14 @@ impl LineSplitter {
         lines
     }
 
-    /// What is left at the end of the stream, as a last line.
+    /// Returns what is left at the end of the stream, as a last line.
     pub fn finish(&mut self) -> Option<String> {
         let rest = std::mem::take(&mut self.buffer);
         (!rest.is_empty()).then(|| String::from_utf8_lossy(&rest).into_owned())
     }
 }
 
-/// Lines put together again from the pieces they were sent in (sans-io), up to [`MAX_LINE`].
+/// Joins lines again from the pieces they were sent in, up to [`MAX_LINE`].
 #[derive(Debug)]
 pub struct Assembler<K: Eq + std::hash::Hash> {
     partial: std::collections::HashMap<K, String>,
@@ -102,7 +101,11 @@ impl<K: Eq + std::hash::Hash> Default for Assembler<K> {
 }
 
 impl<K: Eq + std::hash::Hash> Assembler<K> {
-    /// The whole line, once its last piece came; an error for one too long.
+    /// Adds a piece, and returns the whole line once its last piece came.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::Oversized`] for a line longer than [`MAX_LINE`]; its pieces are dropped.
     pub fn push(&mut self, key: K, piece: &str, last: bool) -> Result<Option<String>, Error> {
         let line = self.partial.entry(key).or_default();
         if line.len() + piece.len() > MAX_LINE {
@@ -119,7 +122,7 @@ impl<K: Eq + std::hash::Hash> Assembler<K> {
     }
 }
 
-/// Text cut into pieces that each fit a message, on character boundaries.
+/// Cuts text into pieces that each fit a message, on character boundaries.
 pub fn chunks(text: &str) -> impl Iterator<Item = &str> {
     let mut rest = text;
     let mut first = true;
@@ -142,8 +145,8 @@ pub fn chunks(text: &str) -> impl Iterator<Item = &str> {
 /// self-describing, so both ends must agree on every type.
 pub const PROTOCOL: u32 = 37;
 
-/// A window's key for a process it shows, new for each one: what an earlier one still says is
-/// dropped.
+/// A window's key for a process it shows, new for each one, so that what an earlier process
+/// still says is dropped.
 #[derive(
     Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize,
 )]
@@ -198,11 +201,11 @@ impl ActId {
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub enum ToDaemon {
-    /// The first message, and only it.
+    /// The first message, sent once.
     Hello {
         protocol: u32,
     },
-    /// Starts Claude Code for a session, known by `key` from then on.
+    /// Starts a session's program, known by `key` from then on.
     Start {
         key: Generation,
         launch: Launch,
@@ -213,43 +216,42 @@ pub enum ToDaemon {
         text: String,
         last: bool,
     },
-    /// Ends the session's process: its input closes, and what doesn't end is killed.
+    /// Ends the session's process: its input closes, and it is killed if it doesn't end.
     End {
         key: Generation,
     },
-    /// Shows a session the daemon runs in this window, known by `key` here from then on: what
-    /// it asks and wasn't answered comes again, then what it says.
+    /// Shows a session the daemon runs in this window, known by `key` from then on. What it
+    /// asked and wasn't answered comes again, then what it says.
     Attach {
         key: Generation,
         hosted: HostedId,
     },
-    /// Stops showing the session, which runs on (the window closes).
+    /// Stops showing the session, which runs on, as when the window closes.
     Detach {
         key: Generation,
     },
-    /// Claude Code's id for the session, as its process told the window: for the list.
+    /// Tells the program's id for the session, as its process told the window, for the list.
     Identify {
         key: Generation,
         session: SessionId,
     },
-    /// Something for the desktop, answered by `Done` with the same `request`.
+    /// Asks the daemon to act on its machine; answered with the same `request`.
     Act {
         request: ActId,
         act: Act,
     },
-    /// Ends every session the daemon runs, in every window, and then the daemon: the user
-    /// asked, to have the next window start the edualc installed now.
+    /// Ends every session the daemon runs, in every window, and then the daemon, so that the
+    /// next window starts the edualc installed now.
     ShutDown,
-    /// Something of Claude Code's or edualc's files, which a window doesn't read itself (a
-    /// page can't, and the native window needn't), answered by `Answer` with the same
-    /// `request`; a transcript's lines come before, as `Lines`.
+    /// Reads the programs' or edualc's files, which a page can't read itself; answered by
+    /// `Answer` with the same `request`, after a transcript's `Lines`.
     Read {
         request: ActId,
         read: Read,
     },
-    /// Makes one change to the kept config (`~/.config/edualc/config.toml`) or state
-    /// (`~/.local/state/edualc/state.json`), as they are on disk.
-    /// now; answered by `SettingsNotKept` only if it couldn't be kept.
+    /// Makes one change to the config (`~/.config/edualc/config.toml`) or state
+    /// (`~/.local/state/edualc/state.json`) as they are on disk now; answered by
+    /// `SettingsNotKept` only if it couldn't be kept.
     ChangeSettings(crate::settings::Change),
     /// Tells the window, as `Changed`, when what `target` names changes, until `Unwatch`.
     Watch {
@@ -280,7 +282,7 @@ impl Default for Watched {
 pub enum Target {
     /// The records of the sessions running (`~/.claude/sessions`).
     Records,
-    /// A transcript being written to; while it isn't there yet, the folders it will be in.
+    /// A transcript being written, or the folders it will be in while it isn't there yet.
     Transcript(Place),
 }
 
@@ -290,7 +292,7 @@ pub enum Target {
 pub enum Place {
     /// Found already.
     Path(PathBuf),
-    /// A session's, wherever it is: a worktree it entered may have moved it.
+    /// A session's, wherever it is, as a worktree the session entered may have moved it.
     Session { cwd: PathBuf, id: SessionId },
     /// A subagent's, beside its session's.
     Subagent {
@@ -310,8 +312,8 @@ pub enum Read {
     Projects,
     /// Every project with its recent sessions, for the start page: `Answer::Overview`.
     Overview,
-    /// A folder's sessions, newest first, those `known` summed up again only if their
-    /// transcript changed: `Answer::Sessions`.
+    /// A folder's sessions, newest first: `Answer::Sessions`. Those `known` are summed up
+    /// again only if their transcript changed.
     Sessions {
         cwd: PathBuf,
         limit: usize,
@@ -323,31 +325,30 @@ pub enum Read {
     WorktreeOf { cwd: PathBuf, id: SessionId },
     /// `cwd` as a git worktree, if it is a linked one: `Answer::Worktree`.
     LinkedWorktree { cwd: PathBuf },
-    /// The folder a path typed names, made whole, `~` at its start the home folder:
+    /// The folder a typed path names, resolved, with a leading `~` as the home folder:
     /// `Answer::Folder`.
     TypedFolder(String),
-    /// The folder at a path (the picker's, a worktree's), made whole, if it is one:
-    /// `Answer::Folder`.
+    /// The folder at a path, such as the picker's or a worktree's, resolved: `Answer::Folder`.
     Folder(PathBuf),
     /// What a session changed in its folder, in `scope`: `Answer::Changes`.
     Changes {
         session: SessionId,
         scope: crate::changes::Scope,
     },
-    /// How a file a session changed changed, in `scope`: `Answer::Diff`.
+    /// The diff of a file a session changed, in `scope`: `Answer::Diff`.
     Diff {
         session: SessionId,
         scope: crate::changes::Scope,
         root: PathBuf,
         path: PathBuf,
     },
-    /// Usage and plan limits for a coding agent provider on demand: `Answer::ProviderUsage`.
+    /// A program's usage and plan limits: `Answer::ProviderUsage`.
     ProviderUsage {
         backend: crate::provider::Backend,
         cwd: Option<PathBuf>,
     },
     /// Where a session's transcript is kept, and the folder it was started in: `Answer::Saved`.
-    /// For a window that opens it again before it knows where to work (the Android app).
+    /// The Android app asks this to open a session before it knows the folder.
     Saved(SessionId),
 }
 
@@ -365,8 +366,8 @@ pub struct ProjectOverview {
     pub sessions: Vec<SessionInfo>,
 }
 
-/// On-demand usage result for a coding agent provider. `report` holds at most one report in a
-/// `Vec` so `Answer` and `FromDaemon` stay small without heap-boxing a large enum variant.
+/// A program's usage, as the usage panel asked for it. `report` holds at most one report; a
+/// `Vec` keeps `Answer` and `FromDaemon` small without a `Box`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub enum ProviderUsage {
@@ -401,8 +402,8 @@ pub enum Answer {
     Projects(Vec<ProjectInfo>),
     Overview(Vec<ProjectOverview>),
     Sessions(Vec<SessionInfo>),
-    /// The end of a transcript's lines: where it was found, and the offset after its last
-    /// whole line, or why it couldn't be read.
+    /// Ends a transcript's lines: where it was found, and the offset after its last whole
+    /// line or why it couldn't be read.
     Transcript {
         path: PathBuf,
         read: Result<u64, Unread>,
@@ -419,24 +420,22 @@ pub enum Answer {
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub enum FromDaemon {
-    /// With the settings (or why they can't be read) and the sessions running now. `Hosted`
-    /// follows, before anything else.
+    /// The first message, with the settings and the sessions running now. `Hosted` follows
+    /// before anything else.
     Hello {
         protocol: u32,
         settings: Result<Settings, String>,
         live: Vec<LiveSession>,
-        /// Coding agent backends available on PATH when the window connected.
+        /// The programs on PATH.
         backends: Vec<crate::provider::Backend>,
-        /// The daemon's user's home folder, where a window with no folder of its own opens;
-        /// none where `$HOME` isn't set.
+        /// The daemon's user's home folder; `None` where `$HOME` isn't set.
         home: Option<PathBuf>,
     },
-    /// The process runs: started for the window, or running already as it attaches.
+    /// The process runs, started for the window or already running as it attaches.
     Started {
         key: Generation,
         pid: u32,
-        /// Turns under way: prompts written and not yet ended by a result (none for a process
-        /// just started).
+        /// The turns under way: prompts written and not yet ended by a result.
         turns: usize,
     },
     Failed {
@@ -458,50 +457,48 @@ pub enum FromDaemon {
     },
     /// Whether the terminal's trust dialog was accepted for the folder asked about.
     Trusted { request: ActId, trust: FolderTrust },
-    /// Whether Claude Code counts the folder as trusted, as asked by `Act::CheckClaudeTrust`,
-    /// or why that wasn't read.
+    /// Whether Claude Code counts the folder as trusted, or why that wasn't read; answers
+    /// `Act::CheckClaudeTrust`.
     ClaudeTrust {
         request: ActId,
         trusted: Result<bool, ActFailure>,
     },
-    /// The sessions the daemon runs, anew whenever that changes.
+    /// The sessions the daemon runs, sent again whenever they change.
     Hosted(Vec<Hosted>),
-    /// A window asked the daemon to shut down: its sessions end, and then it.
+    /// A window asked the daemon to shut down; its sessions end, and then the daemon.
     ShuttingDown,
-    /// What was read, as asked by `Read`.
+    /// What was read; answers `Read`.
     Answer { request: ActId, answer: Answer },
     /// Part of a large `Overview` answer, sent before `Answer::Overview`.
     OverviewChunk {
         request: ActId,
         projects: Vec<ProjectOverview>,
     },
-    /// A transcript's lines, as asked by `Read::Transcript`: its text, a piece at a time that
-    /// fits a message (a piece ends where it ends, not at a line); its `Answer` follows the
-    /// last.
+    /// A piece of a transcript's text, for `Read::Transcript`. Pieces fit a message and don't
+    /// end at lines; the `Answer` follows the last.
     Lines { request: ActId, text: String },
     /// What a watch names changed.
     Changed(Watched),
-    /// A `ChangeSettings` couldn't be kept, and why, for the user to put right.
+    /// Why a `ChangeSettings` couldn't be kept, for you to put right.
     SettingsNotKept(String),
     /// Whether the keyring holds an Anthropic API key, or why that couldn't be told.
     ApiKeyStored {
         request: ActId,
         stored: Result<bool, ActFailure>,
     },
-    /// Whether creating a new project folder succeeded, answered to `Act::CreateProject`.
+    /// The new project's folder, or why it wasn't made; answers `Act::CreateProject`.
     Created {
         request: ActId,
         result: Result<PathBuf, CreateProjectError>,
     },
-    /// The session shown under `key` ended a turn, which changed this in its folder.
+    /// What the turn that just ended changed in the folder of the session shown under `key`.
     TurnChanged {
         key: Generation,
         summary: crate::changes::Summary,
     },
 }
 
-/// The clipboard's image, decoded in the confined helper (see [`crate::decode`]), or why there
-/// is none.
+/// The clipboard's image, decoded, or why there is none.
 pub type Pasted = Result<Picture, PasteFailure>;
 
 /// Whether a folder may run Claude Code with its own configuration, as the daemon tells.
@@ -510,26 +507,24 @@ pub type Pasted = Result<Picture, PasteFailure>;
 pub enum FolderTrust {
     /// The terminal's trust dialog was accepted for it.
     Accepted,
-    /// It isn't trusted yet: what its configuration would have Claude Code run there, for the
-    /// user to decide on.
+    /// Not trusted yet, with what its configuration would have Claude Code run there.
     Untrusted(Vec<Runs>),
 }
 
 /// Something a folder's own configuration (`.claude/settings.json`, `settings.local.json`,
-/// `.mcp.json`) would have Claude Code run or set there, read before the folder is trusted, for
-/// the user to decide on. Plain text, cut short, without control characters (see
-/// [`crate::trust`]).
+/// `.mcp.json`) would have Claude Code run or set there, read before you trust the folder. The
+/// text is cut short and has no control characters (see [`crate::trust`]).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub enum Runs {
-    /// What a hook does on one of Claude Code's events, for the tools `matcher` names (all, if
-    /// empty).
+    /// What a hook does on one of Claude Code's events, for the tools `matcher` names, or all
+    /// if it is empty.
     Hook {
         event: String,
         matcher: String,
         action: HookAction,
     },
-    /// An MCP server: the command line started, or the URL reached.
+    /// An MCP server, with the command line it starts or the URL it reaches.
     McpServer { name: String, runs: String },
     /// A command whose output is used as the API key.
     ApiKeyHelper(String),
@@ -547,12 +542,11 @@ pub enum Runs {
     DefaultMode(String),
     /// Plugin marketplaces added, by name.
     Marketplaces(Vec<String>),
-    /// Settings this window doesn't read, by key: what they do isn't shown, only that they're
-    /// set.
+    /// Settings the window doesn't read, by key; only that they're set is shown.
     AlsoSets(Vec<String>),
     /// How many more entries there were than are listed.
     More(usize),
-    /// A file that couldn't be read, and why: what it would run is unknown.
+    /// A file that couldn't be read, so what it would run is unknown.
     Unreadable { file: String, reason: String },
 }
 
@@ -566,14 +560,14 @@ pub enum HookAction {
     Url(String),
     /// Calls an MCP server's tool.
     McpTool { server: String, tool: String },
-    /// Asks a model, or an agent, with a prompt; it runs no command of its own.
+    /// Asks a model or an agent with a prompt, running no command of its own.
     Prompt,
 }
 
-/// Why the clipboard gave no image, as the window is told.
+/// Why the clipboard gave no image.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, thiserror::Error)]
 pub enum PasteFailure {
-    /// The clipboard holds something else (text, say): nothing to tell.
+    /// The clipboard holds something else, such as text; not worth telling.
     #[error("the clipboard holds no PNG, JPEG, GIF or WebP image")]
     NoImage,
     #[error("couldn't read the clipboard: {0}")]
@@ -584,8 +578,7 @@ pub enum PasteFailure {
     Decoder(String),
 }
 
-/// A session the daemon runs.
-/// What a session the daemon hosts is doing right now.
+/// What a session the daemon runs is doing now.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub enum HostedState {
@@ -598,19 +591,20 @@ pub enum HostedState {
     },
 }
 
+/// A session the daemon runs.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Hosted {
     pub id: HostedId,
-    /// Claude Code's: chosen when it started (`--session-id`), or the one it continues; its
-    /// window tells a new one Claude Code moves it to. Its transcript may not be written yet.
+    /// The program's id for the session: chosen at the start (`--session-id`), or the one it
+    /// continues, and updated when the program moves it to another. Its transcript may not be
+    /// written yet.
     pub session: SessionId,
     pub cwd: PathBuf,
-    /// The coding agent backend running this hosted session.
     pub backend: crate::provider::Backend,
     /// What it was started signed in with.
     pub sign_in: crate::provider::SignInWith,
-    /// Shown in a window now.
+    /// Set while a window shows it.
     pub attached: bool,
     pub state: HostedState,
 }
@@ -619,7 +613,7 @@ pub struct Hosted {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, thiserror::Error)]
 #[serde(deny_unknown_fields)]
 pub enum Unread {
-    /// No file there yet: a session's first turn writes it.
+    /// No file there yet; a session's first turn writes it.
     #[error("it isn't written yet")]
     NotWritten,
     /// The system's words.
@@ -637,7 +631,7 @@ impl From<std::io::Error> for Unread {
     }
 }
 
-/// The name of a new project's folder: one folder, not a path, without the spaces around it.
+/// The name of a new project's folder: one folder, not a path, trimmed of spaces.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, derive_more::Display)]
 #[serde(try_from = "String")]
 pub struct ProjectName(String);
@@ -676,7 +670,7 @@ impl ProjectName {
     }
 }
 
-/// Why the daemon didn't make a new project's folder, the reasons in the system's own words.
+/// Why the daemon didn't make a new project's folder, in the system's words.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, thiserror::Error)]
 #[serde(deny_unknown_fields)]
 pub enum CreateProjectError {
@@ -692,7 +686,7 @@ pub enum CreateProjectError {
     InBrowser,
 }
 
-/// Why a session's process didn't start, or its input was refused, as the window is told.
+/// Why a session's process didn't start, or its input was refused.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, thiserror::Error)]
 pub enum StartFailure {
     #[error("{0} isn't a folder to work in")]
@@ -717,7 +711,7 @@ pub enum StartFailure {
     ApiKey(String),
 }
 
-/// Why the daemon didn't do what it was asked, as the window is told.
+/// Why the daemon didn't do what it was asked.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, thiserror::Error)]
 #[serde(deny_unknown_fields)]
 pub enum ActFailure {
@@ -727,7 +721,7 @@ pub enum ActFailure {
     Keyring(String),
     #[error("Claude Code was saving its settings the whole while; try again in a moment")]
     ClaudeCodeBusy,
-    /// Claude Code's settings couldn't be read or written: the daemon's words.
+    /// Claude Code's settings couldn't be read or written, in the daemon's words.
     #[error("couldn't record the folder as trusted for Claude Code: {0}")]
     ClaudeCodeTrust(String),
 }
@@ -738,14 +732,14 @@ pub enum Stream {
     Err,
 }
 
-/// An Anthropic API key, on its way to the keyring or to the process that signs in with it:
-/// cleared from memory once dropped, and left out of what `Debug` writes.
+/// An Anthropic API key, on its way to the keyring or to the process that signs in with it.
+/// It is cleared from memory when dropped, and `Debug` leaves it out.
 #[derive(PartialEq, Eq, Serialize, Deserialize)]
 pub struct ApiKey(zeroize::Zeroizing<String>);
 
 impl ApiKey {
-    /// The key as pasted, without the spaces and line breaks around it; none if nothing is
-    /// left, or spaces or control characters are inside it.
+    /// Reads a pasted key, trimmed of spaces and line breaks; `None` if nothing is left or
+    /// spaces or control characters are inside it.
     pub fn parse(text: &str) -> Option<Self> {
         let key = text.trim();
         let fits = !key.is_empty()
@@ -767,17 +761,17 @@ impl std::fmt::Debug for ApiKey {
     }
 }
 
-/// What the window asks the daemon to do on the daemon's machine.
+/// What the window asks the daemon to do on its machine.
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub enum Act {
-    /// Whether the terminal's trust dialog was accepted for the folder, or one it is in, which
-    /// the window can't read (see [`crate::trust`]); answered by [`FromDaemon::Trusted`].
+    /// Asks whether the terminal's trust dialog was accepted for the folder or one it is in
+    /// (see [`crate::trust`]); answered by [`FromDaemon::Trusted`].
     CheckTrust {
         folder: PathBuf,
     },
-    /// Whether Claude Code applies the folder's own permission rules: whether its record in
-    /// `~/.claude.json` says it is trusted; answered by [`FromDaemon::ClaudeTrust`].
+    /// Asks whether Claude Code applies the folder's own permission rules, which it does if
+    /// `~/.claude.json` records the folder as trusted; answered by [`FromDaemon::ClaudeTrust`].
     CheckClaudeTrust {
         folder: PathBuf,
     },
@@ -789,25 +783,26 @@ pub enum Act {
     /// Keeps the key in the desktop's keyring, in place of one kept before.
     StoreApiKey(ApiKey),
     RemoveApiKey,
-    /// Whether the keyring holds a key; answered by `ApiKeyStored`.
+    /// Asks whether the keyring holds a key; answered by `ApiKeyStored`.
     CheckApiKey,
     /// Creates a new project folder inside `parent`; answered by `FromDaemon::Created`.
     CreateProject {
         parent: PathBuf,
         name: ProjectName,
     },
-    /// You looked at a session's changes: "since you last looked" starts now. Not answered.
+    /// Records that you looked at a session's changes, so "since you last looked" starts now.
+    /// Not answered.
     ChangesLooked {
         session: SessionId,
     },
-    /// You marked a file a session changed reviewed, as it holds `now` (none: deleted). Not
-    /// answered.
+    /// Marks a file a session changed as reviewed with what it holds `now`, `None` if it was
+    /// deleted. Not answered.
     MarkReviewed {
         session: SessionId,
         path: PathBuf,
         now: Option<crate::changes::ContentId>,
     },
-    /// You took the mark off a file a session changed. Not answered.
+    /// Takes the reviewed mark off a file a session changed. Not answered.
     UnmarkReviewed {
         session: SessionId,
         path: PathBuf,
