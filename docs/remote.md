@@ -1,8 +1,8 @@
 # In a browser, or from another machine
 
 edualcd, the daemon the window starts, can also serve windows that aren't on this machine: a web
-page that is the same window, and an Android app. How it does that safely is in
-[architecture.md](architecture.md#the-network-side).
+page that is the same window, and an Android app. How it does that safely is
+[below](#how-it-is-kept-safe).
 
 ## Serving the page
 
@@ -28,6 +28,29 @@ Enter starts a new line and the send button sends; on a keyboard with keys, Ente
 The app keeps its connection only while it's on screen. Android stops an app in the background;
 the app reaches edualcd again when it comes back, so you hear of a session waiting for you only
 then. It draws images on the window's thread, which many large ones slow down.
+
+## How it is kept safe
+
+A window on this machine still uses the Unix socket, with its checks. `edualcd --listen ADDRESS`
+also accepts connections at `/api/line` over TLS, each one more window of the same daemon.
+
+On its first start, edualcd makes a certificate for itself and a token, and keeps them in
+`$XDG_STATE_HOME/edualcd`, a folder that is yours alone; write your own token to its file `token`
+to choose it. The token is taken from that file alone: never from the command line, which every
+user of the machine can read, nor from the environment, which every program edualcd runs
+inherits. `edualcd --pair` prints `https://host:port/#token=…&fingerprint=…`. The token is in the
+fragment, which is never sent to a server. A window trusts exactly the certificate it paired
+with, by its SHA-256, whatever it names or is signed by.
+
+The token lets whoever holds it run Claude Code as you, so it is kept like an SSH key:
+
+- it's held in memory that is cleared when it goes, and logs never show it;
+- it's compared in constant time;
+- it's never in an address, since proxies and servers log those. A connection shows it in its
+  first frame, of at most 1 KiB and within 5 seconds, or is closed with nothing else read.
+
+A connection that speaks another protocol is refused before the WebSocket opens. A connection is
+pinged every 15 seconds and dropped after 45 seconds in which nothing came from it.
 
 ## Building the page and the app
 

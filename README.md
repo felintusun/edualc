@@ -58,7 +58,6 @@ serve it to a browser or an Android phone: see [docs/remote.md](docs/remote.md).
 ## Building
 
 `just run` builds the window and its daemon and starts them; `just` lists the rest.
-[docs/architecture.md](docs/architecture.md) explains the code.
 
 ## License
 
