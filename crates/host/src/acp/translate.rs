@@ -1,6 +1,11 @@
 //! The adapter's core (sans-io): what the agent says over ACP made into what the daemon and the
 //! window read, and their answers into ACP.
 
+mod calls;
+mod forms;
+mod permissions;
+mod usage;
+
 use std::collections::{BTreeSet, HashMap, VecDeque};
 use std::path::PathBuf;
 
@@ -9,27 +14,30 @@ use serde_json::{Map, Value};
 
 use crate::agent::{Command, Event};
 use crate::app::Mode;
-use crate::call::{AcpCall, AcpKind, AcpOption, AcpStatus, Call, Diff, OptionId};
-use crate::edualc_tool::EdualcTool;
 use crate::external::acp::{
-    self, AgentMethod, AgyArguments, AvailableCommand, Change, Chunk, ConfigOption, Incoming,
-    Notified, OpencodeArguments, OpencodeQuestionOption, OptionKind, PermissionAsked, PlanEntry,
-    PlanStatus, Prompted, RpcError, StopReason, ToolCall, ToolContent, ToolStatus,
+    self, AgentMethod, AvailableCommand, Change, Chunk, ConfigOption, Incoming, Notified,
+    PermissionAsked, PlanEntry, PlanStatus, Prompted, RpcError, StopReason, ToolCall, ToolStatus,
 };
-use crate::external::agy::{self, QuotaWindow};
-use crate::external::tool_input::{AgentInput, KnownCall, Todo, TodoStatus, TodoWriteInput};
+use crate::external::agy;
+use crate::external::tool_input::{Todo, TodoStatus, TodoWriteInput};
 use crate::external::wire::{
-    self, Account, ApiMessage, AssistantError, CommandInfo, ContentBlock, ControlResponse, DENIED,
-    Delta, IncomingRequest, Initialized, LimitKind, MessageStart, ModeId, ModelInfo, ModelUsage,
-    ProgramMode, ProgramModes, Question, QuestionOption, Questions, ResultKind, Rule,
-    RuleDestination, StreamEvent, Suggestion, System, ToolName, TurnResult, Usage, UserContent,
+    self, Account, ApiMessage, AssistantError, CommandInfo, ContentBlock, ControlResponse, Delta,
+    IncomingRequest, Initialized, MessageStart, ModeId, ModelInfo, ModelUsage, ProgramMode,
+    ProgramModes, ResultKind, StreamEvent, System, ToolName, TurnResult, Usage, UserContent,
     UserLine,
 };
 use crate::ids::{MessageId, RequestId, SessionId, ToolUseId};
 use crate::settings::PeerMessages;
 
+pub(super) use calls::named;
+pub(crate) use usage::plan_limits;
+
 use super::Agent;
 use super::outbox::unwrapped;
+use calls::{Entry, tool_result_effects};
+use forms::Form;
+use permissions::Permission;
+use usage::{ContextUsed, context_report, is_quota_exhausted, limit_windows};
 
 /// JSON-RPC's code for a method the receiver doesn't have.
 const METHOD_NOT_FOUND: i64 = -32601;
@@ -148,34 +156,6 @@ enum Block {
     Thinking(String),
 }
 
-/// A tool call the agent announced, kept until it has its arguments and then shown.
-#[derive(Debug, Clone)]
-enum Entry {
-    /// Waits for the call's arguments.
-    Kept(ToolCall),
-    Shown(Shown),
-}
-
-/// A tool call as the window was shown it.
-#[derive(Debug, Clone)]
-struct Shown {
-    call: ToolCall,
-    drawn: Call,
-    done: bool,
-    denied: bool,
-    /// What edualc's tool answered a call of it. The agent tells nothing of an MCP tool's
-    /// result.
-    told: Option<String>,
-}
-
-/// A permission request of the agent's that the window was asked.
-#[derive(Debug, Clone, PartialEq)]
-struct Permission {
-    id: Value,
-    options: Vec<acp::PermissionOption>,
-    tool: String,
-}
-
 #[derive(Debug)]
 pub struct Translator {
     agent: Agent,
@@ -231,40 +211,6 @@ pub struct Translator {
     last_quotas: Option<agy::Quotas>,
     /// The tool calls finished this turn, for asking for the quotas every few calls.
     turn_tools: usize,
-}
-
-/// A form of the agent's, asked in the window as Claude Code's questions are.
-#[derive(Debug)]
-struct Form {
-    /// The agent's request, answered with the form filled in.
-    id: Value,
-    questions: Vec<FormQuestion>,
-}
-
-/// A question of a form, and the fields its answer goes to.
-#[derive(Debug, PartialEq, Eq)]
-struct FormQuestion {
-    question: String,
-    field: String,
-    takes: Takes,
-    options: Vec<acp::FormOption>,
-    /// The field for an answer in words, where the options don't hold it.
-    other: Option<String>,
-}
-
-/// What a question's field takes.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Takes {
-    OneOption,
-    Options,
-    Text,
-}
-
-/// How much of the model's context window the session uses, and the window's size, in tokens.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct ContextUsed {
-    used: u64,
-    size: u64,
 }
 
 impl Translator {
@@ -364,107 +310,6 @@ impl Translator {
             id,
             reply,
         }))
-    }
-
-    /// Answers a form of the agent's under the id it came with.
-    fn form_answer(id: Value, answer: acp::ElicitationAnswer) -> Effect {
-        Effect::ToAgent(acp::ToAgent::Elicited(acp::Answer {
-            jsonrpc: acp::JsonRpc::TwoPointZero,
-            id,
-            reply: acp::Reply::Result(answer),
-        }))
-    }
-
-    /// Asks a form's questions in the window, as Claude Code's AskUserQuestion does, on the
-    /// tool call the form is for.
-    fn asked_form(&mut self, id: Value, form: acp::Elicitation) -> Vec<Effect> {
-        let questions = form_questions(&form.requested_schema);
-        if form.mode != acp::ElicitationMode::Form || questions.is_empty() {
-            tracing::warn!(mode = ?form.mode, message = %form.message, "a form edualc can't ask: declined");
-            return vec![Self::form_answer(id, acp::ElicitationAnswer::Decline)];
-        }
-        let asked = wire::Questions {
-            questions: questions
-                .iter()
-                .map(|question| wire::Question {
-                    question: question.question.clone(),
-                    header: String::new(),
-                    options: question
-                        .options
-                        .iter()
-                        .map(|option| wire::QuestionOption {
-                            label: option.title.clone(),
-                            description: String::new(),
-                            preview: String::new(),
-                            rest: Map::new(),
-                        })
-                        .collect(),
-                    multi_select: question.takes == Takes::Options,
-                    rest: Map::new(),
-                })
-                .collect(),
-            answers: std::collections::BTreeMap::new(),
-            annotations: std::collections::BTreeMap::new(),
-            rest: Map::new(),
-        };
-        let input = match serde_json::to_value(&asked) {
-            Ok(input) => input,
-            Err(error) => {
-                tracing::warn!(%error, "a form's questions can't be written: cancelled");
-                return vec![Self::form_answer(id, acp::ElicitationAnswer::Cancel)];
-            }
-        };
-        let request = RequestId::from(self.local_id("form"));
-        self.forms.insert(request.clone(), Form { id, questions });
-        vec![Effect::ToWindow(Event::ControlRequest {
-            request_id: request,
-            request: IncomingRequest::CanUseTool {
-                tool_name: ToolName::AskUserQuestion,
-                input,
-                permission_suggestions: Vec::new(),
-                description: form.message,
-                tool_use_id: form.tool_call_id.map(ToolUseId::from),
-                suppress_always_allow_rule: false,
-            },
-        })]
-    }
-
-    /// Turns the window's answers to a form's questions into the form filled in, or declined.
-    fn form_answered(form: Form, reply: wire::Reply) -> Effect {
-        let answer = match reply {
-            wire::Reply::Success {
-                response: wire::PermissionResult::Allow { updated_input, .. },
-                ..
-            } => {
-                let given = match updated_input {
-                    wire::ToolInput::Answered(questions) => Some(questions.answers),
-                    wire::ToolInput::AsAsked(input) => {
-                        serde_json::from_value::<wire::GivenAnswers>(input)
-                            .inspect_err(|error| {
-                                tracing::warn!(%error, "a form's answers edualc can't read");
-                            })
-                            .ok()
-                            .map(|given| given.answers)
-                    }
-                    wire::ToolInput::Plan(_) => None,
-                };
-                match given {
-                    Some(answers) => acp::ElicitationAnswer::Accept {
-                        content: filled_in(&form.questions, &answers),
-                    },
-                    None => acp::ElicitationAnswer::Cancel,
-                }
-            }
-            wire::Reply::Success {
-                response: wire::PermissionResult::Deny { .. },
-                ..
-            } => acp::ElicitationAnswer::Decline,
-            wire::Reply::Error { error, .. } => {
-                tracing::warn!(%error, "the window couldn't ask a form's questions: cancelled");
-                acp::ElicitationAnswer::Cancel
-            }
-        };
-        Self::form_answer(form.id, answer)
     }
 
     /// Tells the agent to stop the turn under way.
@@ -848,44 +693,6 @@ impl Translator {
         }
     }
 
-    /// Answers the agent with the option you chose. An id the agent didn't offer cancels the
-    /// request rather than pick another.
-    fn window_chose(&mut self, request: &RequestId, option: &OptionId) -> Vec<Effect> {
-        let Some(permission) = self.permissions.remove(request) else {
-            return Vec::new();
-        };
-        let chosen = permission
-            .options
-            .iter()
-            .find(|offered| offered.option_id == option.as_str());
-        let outcome = match chosen {
-            Some(chosen) => {
-                let rejects = matches!(
-                    chosen.kind,
-                    OptionKind::RejectOnce | OptionKind::RejectAlways
-                );
-                if rejects && let Some(Entry::Shown(shown)) = self.entries.get_mut(&permission.tool)
-                {
-                    shown.denied = true;
-                }
-                acp::Outcome::Selected {
-                    option_id: chosen.option_id.clone(),
-                }
-            }
-            None => {
-                tracing::warn!(
-                    option = option.as_str(),
-                    "a choice the agent didn't offer: cancelled"
-                );
-                acp::Outcome::Cancelled
-            }
-        };
-        vec![Self::answer(
-            permission.id,
-            acp::Reply::Result(acp::PermissionAnswer { outcome }),
-        )]
-    }
-
     /// Shows a `!` command as not run, in the rows shown for one: the agent has no shell
     /// beside the conversation.
     fn shell_refused(&self, command: &str) -> Vec<Effect> {
@@ -957,133 +764,6 @@ impl Translator {
                     &format!("{} doesn't do this", self.agent),
                 )]
             }
-        }
-    }
-
-    /// Takes the window's answer to a permission request, the agent's or the messaging tool's.
-    fn window_answered(&mut self, reply: wire::Reply) -> Vec<Effect> {
-        let request = match &reply {
-            wire::Reply::Success { request_id, .. } | wire::Reply::Error { request_id, .. } => {
-                request_id
-            }
-        };
-        if let Some(form) = self.forms.remove(request) {
-            return vec![Self::form_answered(form, reply)];
-        }
-        if let Some(content) = self.waiting.remove(request) {
-            return match reply {
-                wire::Reply::Success {
-                    response:
-                        wire::PermissionResult::Allow {
-                            updated_permissions,
-                            ..
-                        },
-                    ..
-                } => self.let_in(content, &updated_permissions),
-                // Turned down: the agent never sees it, and its turn goes on.
-                wire::Reply::Success {
-                    response: wire::PermissionResult::Deny { .. },
-                    ..
-                } => Vec::new(),
-                wire::Reply::Error { error, .. } => {
-                    tracing::warn!(%error, "the window couldn't ask about a message: turned down");
-                    Vec::new()
-                }
-            };
-        }
-        let (request_id, verdict) = match reply {
-            wire::Reply::Success {
-                request_id,
-                response:
-                    wire::PermissionResult::Allow {
-                        updated_permissions,
-                        ..
-                    },
-            } => (
-                request_id,
-                Verdict::Allow {
-                    always: !updated_permissions.is_empty(),
-                },
-            ),
-            wire::Reply::Success {
-                request_id,
-                response: wire::PermissionResult::Deny { interrupt, .. },
-            } => (request_id, Verdict::Deny { interrupt }),
-            wire::Reply::Error { request_id, error } => {
-                tracing::warn!(%error, "the window couldn't answer a permission request: cancelled");
-                (request_id, Verdict::Unanswered)
-            }
-        };
-        let Some(permission) = self.permissions.remove(&request_id) else {
-            return Vec::new();
-        };
-        let outcome = match verdict {
-            Verdict::Allow { always: true } => outcome_of_any(
-                &permission.options,
-                &[OptionKind::AllowAlways, OptionKind::AllowOnce],
-            ),
-            Verdict::Allow { always: false } => {
-                outcome_of(&permission.options, OptionKind::AllowOnce)
-            }
-            Verdict::Deny { .. } => outcome_of(&permission.options, OptionKind::RejectOnce),
-            Verdict::Unanswered => acp::Outcome::Cancelled,
-        };
-        if let Verdict::Deny { .. } = verdict
-            && let Some(Entry::Shown(shown)) = self.entries.get_mut(&permission.tool)
-        {
-            shown.denied = true;
-        }
-        let mut effects = vec![Self::answer(
-            permission.id,
-            acp::Reply::Result(acp::PermissionAnswer { outcome }),
-        )];
-        if let Verdict::Deny { interrupt: true } = verdict
-            && let Some(session) = self.acp_session()
-        {
-            effects.push(Self::cancel(session.to_owned()));
-        }
-        effects
-    }
-
-    /// Sends a message from the agent's messaging tool without asking, as a Claude Code
-    /// session's own messages go.
-    pub fn tool_called(&mut self, call: CallId, to: String, message: String) -> Vec<Effect> {
-        if let Some(id) = self.open_call(&ToolName::Edualc(EdualcTool::SendMessage)) {
-            self.calls.insert(call, id);
-        }
-        vec![Effect::Send { call, to, message }]
-    }
-
-    /// Lists the running sessions for the agent's messaging tool, without asking.
-    pub fn listing_asked(&mut self, call: CallId) -> Vec<Effect> {
-        if let Some(id) = self.open_call(&ToolName::Edualc(EdualcTool::ListSessions)) {
-            self.calls.insert(call, id);
-        }
-        vec![Effect::List(call)]
-    }
-
-    /// Returns the agent's id for the call of `tool` under way that has no answer yet.
-    fn open_call(&self, tool: &ToolName) -> Option<String> {
-        let told: Vec<&String> = self.calls.values().collect();
-        self.entries.iter().find_map(|(id, entry)| match entry {
-            Entry::Shown(Shown {
-                drawn: Call::Named { name, .. },
-                done: false,
-                ..
-            }) if name == tool && !told.contains(&id) => Some(id.clone()),
-            Entry::Kept(_) | Entry::Shown(_) => None,
-        })
-    }
-
-    /// Keeps what edualc's tool answered `call`, shown as its result once the agent says it
-    /// ended.
-    pub fn tool_told(&mut self, call: CallId, answer: &super::tool::Answer) {
-        if let Some(Entry::Shown(shown)) = self
-            .calls
-            .remove(&call)
-            .and_then(|id| self.entries.get_mut(&id))
-        {
-            shown.told = Some(answer.text.clone());
         }
     }
 
@@ -1522,243 +1202,6 @@ impl Translator {
         effects
     }
 
-    fn tool_call(&mut self, call: &ToolCall) -> Vec<Effect> {
-        match self.entries.get(&call.tool_call_id) {
-            Some(Entry::Kept(kept)) => {
-                let merged = merged(kept, call);
-                return self.call_updated(merged);
-            }
-            Some(Entry::Shown(_)) => return self.tool_call_update(call),
-            None => {}
-        }
-        self.call_updated(call.clone())
-    }
-
-    /// Takes a tool call's fields, kept until it has its arguments or is done, then shown.
-    fn call_updated(&mut self, call: ToolCall) -> Vec<Effect> {
-        if has_arguments(self.agent, &call) || is_done(&call) {
-            self.show_call(&call)
-        } else {
-            self.entries
-                .insert(call.tool_call_id.clone(), Entry::Kept(call));
-            Vec::new()
-        }
-    }
-
-    fn show_call(&mut self, call: &ToolCall) -> Vec<Effect> {
-        let drawn = drawn(self.agent, call);
-        self.entries.insert(
-            call.tool_call_id.clone(),
-            Entry::Shown(Shown {
-                call: call.clone(),
-                drawn: drawn.clone(),
-                done: false,
-                denied: false,
-                told: None,
-            }),
-        );
-        let id = ToolUseId::from(call.tool_call_id.clone());
-        let mut effects = match drawn {
-            Call::Named { name, input } => {
-                self.message_done(Some(ContentBlock::ToolUse { id, name, input }))
-            }
-            Call::Acp(call) => {
-                let mut effects = self.message_done(None);
-                effects.push(Effect::ToWindow(Event::ToolCall {
-                    id,
-                    call,
-                    parent_tool_use_id: None,
-                }));
-                effects
-            }
-        };
-        if is_done(call) {
-            effects.extend(self.tool_call_update(call));
-        }
-        effects
-    }
-
-    fn tool_call_update(&mut self, call: &ToolCall) -> Vec<Effect> {
-        if let Some(Entry::Kept(kept)) = self.entries.get(&call.tool_call_id) {
-            let merged = merged(kept, call);
-            return self.call_updated(merged);
-        }
-        let mut effects = Vec::new();
-        let mut updated = None;
-        let finished = {
-            let Some(Entry::Shown(shown)) = self.entries.get_mut(&call.tool_call_id) else {
-                return Vec::new();
-            };
-            if shown.done {
-                return Vec::new();
-            }
-            shown.call = merged(&shown.call, call);
-            // A call shows as it first did: one the window acts on by its name stays one.
-            let redrawn = drawn(self.agent, &shown.call);
-            let same_tool = match (&redrawn, &shown.drawn) {
-                (
-                    Call::Named { name, .. },
-                    Call::Named {
-                        name: shown_name, ..
-                    },
-                ) => name == shown_name,
-                (Call::Acp(_), Call::Acp(_)) => true,
-                (Call::Named { .. }, Call::Acp(_)) | (Call::Acp(_), Call::Named { .. }) => false,
-            };
-            if same_tool && redrawn != shown.drawn {
-                shown.drawn = redrawn.clone();
-                updated = Some(redrawn);
-            }
-            let failed = match call.status {
-                Some(ToolStatus::Completed) => Some(false),
-                Some(ToolStatus::Failed) => Some(true),
-                Some(ToolStatus::Pending | ToolStatus::InProgress) | None => None,
-            };
-            failed.map(|failed| {
-                shown.done = true;
-                // An ACP agent's call has its result in it, sent as it changed.
-                let Call::Named { .. } = shown.drawn else {
-                    return None;
-                };
-                let text = match (&shown.told, shown.denied) {
-                    (_, true) => DENIED.to_owned(),
-                    (Some(told), false) => told.clone(),
-                    (None, false) => result_text(&shown.call, failed),
-                };
-                Some((text, failed || shown.denied))
-            })
-        };
-        let id = ToolUseId::from(call.tool_call_id.clone());
-        match updated {
-            Some(Call::Named { name, input }) => {
-                let message = ApiMessage {
-                    id: MessageId::from(self.local_id("message")),
-                    content: vec![ContentBlock::ToolUse { id, name, input }],
-                    usage: Usage::default(),
-                };
-                effects.push(Effect::ToWindow(Event::Assistant {
-                    message,
-                    parent_tool_use_id: None,
-                    error: None,
-                }));
-            }
-            Some(Call::Acp(call)) => effects.push(Effect::ToWindow(Event::ToolCall {
-                id,
-                call,
-                parent_tool_use_id: None,
-            })),
-            None => {}
-        }
-        let Some(result) = finished else {
-            return effects;
-        };
-        if let Some((text, is_error)) = result {
-            effects.extend(tool_result_effects(
-                call.tool_call_id.clone(),
-                text,
-                is_error,
-            ));
-        }
-        effects.extend(self.subagents());
-        self.turn_tools += 1;
-        if self.agent.reports_quotas() && self.turn_tools.is_multiple_of(5) {
-            effects.push(Effect::Quotas { request: None });
-        }
-        effects
-    }
-
-    /// Asks you in the window whether the agent's tool call may go ahead.
-    fn asked_permission(&mut self, id: Value, asked: PermissionAsked) -> Vec<Effect> {
-        let tool = asked.tool_call.tool_call_id.clone();
-        let mut effects = Vec::new();
-        match self.entries.get(&tool) {
-            Some(Entry::Kept(kept)) => {
-                let call = merged(kept, &asked.tool_call);
-                effects.extend(self.show_call(&call));
-            }
-            Some(Entry::Shown(_)) => {}
-            None => effects.extend(self.show_call(&asked.tool_call)),
-        }
-        let drawn = match self.entries.get(&tool) {
-            Some(Entry::Shown(shown)) => shown.drawn.clone(),
-            Some(Entry::Kept(_)) | None => drawn(self.agent, &asked.tool_call),
-        };
-        let (name, input) = match drawn {
-            Call::Named { name, input } => (name, input),
-            // Asked about as the agent asks: the call, and the agent's choices.
-            Call::Acp(call) => {
-                let request = RequestId::from(self.local_id("permission"));
-                let options = asked.options.iter().cloned().map(AcpOption::from).collect();
-                self.permissions.insert(
-                    request.clone(),
-                    Permission {
-                        id,
-                        options: asked.options,
-                        tool: tool.clone(),
-                    },
-                );
-                effects.push(Effect::ToWindow(Event::PermissionAsked {
-                    request_id: request,
-                    tool_use_id: ToolUseId::from(tool),
-                    call,
-                    options,
-                }));
-                return effects;
-            }
-        };
-        // The agent asks before every MCP tool, in every mode. edualc's own go without asking,
-        // as a Claude Code session's messages do.
-        if matches!(
-            name,
-            ToolName::Edualc(EdualcTool::SendMessage | EdualcTool::ListSessions)
-        ) {
-            let outcome = outcome_of(&asked.options, OptionKind::AllowOnce);
-            effects.push(Self::answer(
-                id,
-                acp::Reply::Result(acp::PermissionAnswer { outcome }),
-            ));
-            return effects;
-        }
-        let permission_suggestions = asked
-            .options
-            .iter()
-            .any(|option| option.kind == OptionKind::AllowAlways)
-            .then(|| {
-                serde_json::to_value(Suggestion::AddRules {
-                    rules: vec![Rule {
-                        tool_name: name.to_string(),
-                        rule_content: None,
-                    }],
-                    destination: RuleDestination::Session,
-                })
-                .ok()
-            })
-            .flatten()
-            .into_iter()
-            .collect();
-        let request = RequestId::from(self.local_id("permission"));
-        self.permissions.insert(
-            request.clone(),
-            Permission {
-                id,
-                options: asked.options,
-                tool: tool.clone(),
-            },
-        );
-        effects.push(Effect::ToWindow(Event::ControlRequest {
-            request_id: request,
-            request: IncomingRequest::CanUseTool {
-                tool_name: name,
-                input,
-                permission_suggestions,
-                description: asked.tool_call.title.unwrap_or_default(),
-                tool_use_id: Some(ToolUseId::from(tool)),
-                suppress_always_allow_rule: false,
-            },
-        }));
-        effects
-    }
-
     /// Ends the turn on the prompt's answer and sends what waits next. A refused sign-in goes
     /// to the window as an HTTP 401 in the turn's result, so that it offers to sign in again
     /// rather than show the agent's words.
@@ -1861,153 +1304,6 @@ impl Translator {
     }
 }
 
-impl Translator {
-    fn active_model_name(&self) -> Option<&str> {
-        self.model.as_deref().and_then(|id| {
-            self.models
-                .iter()
-                .find(|model| model.model_id == id)
-                .map(|model| model.name.as_str())
-        })
-    }
-
-    /// Takes the plan's quotas, to answer the window's `get_usage` or to update the session's
-    /// bars from the quotas the model draws on.
-    pub fn quotas_told(
-        &mut self,
-        request: Option<RequestId>,
-        told: Result<agy::Quotas, super::QuotaError>,
-    ) -> Vec<Effect> {
-        let quotas = match told {
-            Ok(quotas) => quotas,
-            Err(error) => {
-                tracing::warn!(%error, agent = %self.agent, "the plan's quotas couldn't be read");
-                return request
-                    .map(|request| {
-                        failure(
-                            request,
-                            &format!("{} couldn't say its plan's quotas: {error}", self.agent),
-                        )
-                    })
-                    .into_iter()
-                    .collect();
-            }
-        };
-        let limits = plan_limits(&quotas, self.active_model_name());
-        self.last_quotas = Some(quotas);
-        match request {
-            Some(request) => vec![success_as(
-                request,
-                &wire::UsageReport {
-                    rate_limits: wire::RateLimitReport { limits },
-                    ..wire::UsageReport::default()
-                },
-            )],
-            None => vec![Effect::ToWindow(Event::RateLimits(wire::RateLimits {
-                windows: limit_windows(&limits),
-            }))],
-        }
-    }
-}
-
-fn is_quota_exhausted(error: &str) -> bool {
-    let lower = error.to_ascii_lowercase();
-    lower.contains("quota reached") || lower.contains("quota exceeded")
-}
-
-/// Returns the questions a form asks: one for each field with options, or for text alone.
-/// agy 1.5.9 puts a field for an answer in words beside each question, `<field>_other`, which
-/// belongs to that question rather than being one of its own.
-fn form_questions(schema: &acp::FormSchema) -> Vec<FormQuestion> {
-    let fields = &schema.properties;
-    let other_of = |name: &str| {
-        let other = format!("{name}_other");
-        fields.contains_key(&other).then_some(other)
-    };
-    let beside = |name: &str| {
-        name.strip_suffix("_other").is_some_and(|base| {
-            fields
-                .get(base)
-                .is_some_and(|field| !options_of(field).1.is_empty())
-        })
-    };
-    fields
-        .iter()
-        .filter(|(name, _)| !beside(name))
-        .filter_map(|(name, field)| {
-            let (takes, options) = options_of(field);
-            if takes == Takes::Text && field.kind != acp::FieldKind::String {
-                tracing::warn!(field = %name, "a form's field edualc doesn't ask: left out");
-                return None;
-            }
-            Some(FormQuestion {
-                question: field.title.clone().unwrap_or_else(|| name.clone()),
-                field: name.clone(),
-                other: (takes != Takes::Text).then(|| other_of(name)).flatten(),
-                takes,
-                options,
-            })
-        })
-        .collect()
-}
-
-/// Returns what a form's field takes, and its options.
-fn options_of(field: &acp::FormField) -> (Takes, Vec<acp::FormOption>) {
-    if !field.one_of.is_empty() {
-        return (Takes::OneOption, field.one_of.clone());
-    }
-    match &field.items {
-        Some(items) if !items.any_of.is_empty() => (Takes::Options, items.any_of.clone()),
-        Some(_) | None => (Takes::Text, Vec::new()),
-    }
-}
-
-/// Fills in the form from the window's answers, by question. An answer that is an option's
-/// label (or labels, where several are taken) becomes the option's value; anything else was
-/// typed, and goes in the question's field for words, or its own.
-fn filled_in(
-    questions: &[FormQuestion],
-    answers: &std::collections::BTreeMap<String, String>,
-) -> acp::FormContent {
-    let mut content = acp::FormContent::new();
-    for question in questions {
-        let Some(answer) = answers.get(&question.question) else {
-            continue;
-        };
-        let value_of = |label: &str| {
-            question
-                .options
-                .iter()
-                .find(|option| option.title == label)
-                .map(|option| option.value.clone())
-        };
-        let picked = match question.takes {
-            Takes::OneOption => value_of(answer).map(acp::FieldValue::Text),
-            Takes::Options => answer
-                .split(", ")
-                .map(value_of)
-                .collect::<Option<Vec<String>>>()
-                .map(acp::FieldValue::Picked),
-            Takes::Text => None,
-        };
-        match (picked, &question.other) {
-            (Some(picked), _) => {
-                content.insert(question.field.clone(), picked);
-            }
-            (None, Some(other)) => {
-                content.insert(other.clone(), acp::FieldValue::Text(answer.clone()));
-            }
-            (None, None) => {
-                content.insert(
-                    question.field.clone(),
-                    acp::FieldValue::Text(answer.clone()),
-                );
-            }
-        }
-    }
-    content
-}
-
 /// Returns why the agent ended a turn early, in words; `None` for a turn it finished or you
 /// interrupted.
 fn cut_short(reason: StopReason) -> Option<&'static str> {
@@ -2062,18 +1358,6 @@ fn unreadable_from_window(line: &str, error: &serde_json::Error) -> Vec<Effect> 
     Vec::new()
 }
 
-/// The window's answer to a permission request, as edualc acts on it.
-enum Verdict {
-    Allow {
-        always: bool,
-    },
-    Deny {
-        interrupt: bool,
-    },
-    /// The window couldn't answer, so the request is cancelled.
-    Unanswered,
-}
-
 fn command_info(command: AvailableCommand) -> CommandInfo {
     CommandInfo {
         name: command.name,
@@ -2096,87 +1380,6 @@ fn plan_todos(entries: &[PlanEntry]) -> TodoWriteInput {
                 },
             })
             .collect(),
-    }
-}
-
-fn tool_result_effects(tool_use_id: String, text: String, is_error: bool) -> Vec<Effect> {
-    let content = UserContent::Blocks(vec![ContentBlock::ToolResult {
-        tool_use_id: ToolUseId::from(tool_use_id),
-        content: Some(UserContent::Text(text)),
-        is_error,
-    }]);
-    vec![Effect::ToWindow(Event::User(UserLine::of_session(content)))]
-}
-
-/// Returns the context's use as `get_context_usage` answers it: the conversation, and what is
-/// free.
-fn context_report(context: ContextUsed) -> wire::ContextReport {
-    let free = context.size.saturating_sub(context.used);
-    wire::ContextReport {
-        categories: [
-            ("Conversation", context.used, wire::ContextKind::Used),
-            ("Free space", free, wire::ContextKind::Free),
-        ]
-        .into_iter()
-        .filter(|(_, tokens, _)| *tokens > 0)
-        .map(|(name, tokens, kind)| wire::ContextCategory {
-            name: name.to_owned(),
-            tokens,
-            kind,
-        })
-        .collect(),
-        total_tokens: context.used,
-        max_tokens: context.size,
-    }
-}
-
-/// Returns the share of a quota used, from 0 to 1.
-fn quota_used(quota: &agy::Quota) -> f32 {
-    (1.0 - quota.remaining_fraction).clamp(0.0, 1.0)
-}
-
-/// Returns agy's quotas as the plan's limits, each named by its group. The group `model` draws
-/// on gives the session's five hours and week, which the sidebar shows.
-pub(crate) fn plan_limits(quotas: &agy::Quotas, model: Option<&str>) -> Vec<wire::PlanLimit> {
-    quotas
-        .groups
-        .iter()
-        .flat_map(|group| {
-            let drawn_on = model.is_some_and(|model| group.covers(model));
-            group.quotas.iter().map(move |quota| {
-                let (kind, span) = match (quota.window, drawn_on) {
-                    (QuotaWindow::FiveHours, true) => (LimitKind::Session, "5 hours"),
-                    (QuotaWindow::Week, true) => (LimitKind::WeeklyAll, "this week"),
-                    (QuotaWindow::FiveHours, false) => (LimitKind::Other, "5 hours"),
-                    (QuotaWindow::Week, false) => (LimitKind::Other, "this week"),
-                    (QuotaWindow::Other, _) => (LimitKind::Other, "another span"),
-                };
-                wire::PlanLimit {
-                    kind,
-                    percent: quota_used(quota) * 100.0,
-                    resets_at: Some(quota.reset_time),
-                    scope: None,
-                    label: Some(format!("{}, {span}", group.name)),
-                }
-            })
-        })
-        .collect()
-}
-
-/// Returns the sidebar's bars, the session's five hours and its week, from the plan's limits.
-fn limit_windows(limits: &[wire::PlanLimit]) -> wire::LimitWindows {
-    let window = |kind| {
-        limits
-            .iter()
-            .find(|limit| limit.kind == kind)
-            .map(|limit| wire::LimitWindow {
-                utilization: Some(limit.percent / 100.0),
-                resets_at: limit.resets_at,
-            })
-    };
-    wire::LimitWindows {
-        five_hour: window(LimitKind::Session),
-        seven_day: window(LimitKind::WeeklyAll),
     }
 }
 
@@ -2219,306 +1422,18 @@ fn command_prompt_blocks(images: &[wire::ImageBlock], text: &str) -> Vec<acp::Pr
     blocks
 }
 
-/// Returns the first option of `wanted`'s kind, if the agent offered one.
-fn outcome_of(options: &[acp::PermissionOption], wanted: OptionKind) -> acp::Outcome {
-    outcome_of_any(options, &[wanted])
-}
-
-/// Returns the first option of any kind in `wanted`, in that order, else `Cancelled`.
-fn outcome_of_any(options: &[acp::PermissionOption], wanted: &[OptionKind]) -> acp::Outcome {
-    wanted
-        .iter()
-        .find_map(|kind| options.iter().find(|option| option.kind == *kind))
-        .map_or(acp::Outcome::Cancelled, |option| acp::Outcome::Selected {
-            option_id: option.option_id.clone(),
-        })
-}
-
-/// Returns `kept` with each field that `update` has replaced.
-fn merged(kept: &ToolCall, update: &ToolCall) -> ToolCall {
-    let mut call = kept.clone();
-    let update = update.clone();
-    if update.name.is_some() {
-        call.name = update.name;
-    }
-    if update.title.is_some() {
-        call.title = update.title;
-    }
-    if update.kind.is_some() {
-        call.kind = update.kind;
-    }
-    if update.status.is_some() {
-        call.status = update.status;
-    }
-    if update.raw_input.is_some() {
-        call.raw_input = update.raw_input;
-    }
-    if update.raw_output.is_some() {
-        call.raw_output = update.raw_output;
-    }
-    if update.content.is_some() {
-        call.content = update.content;
-    }
-    if update.locations.is_some() {
-        call.locations = update.locations;
-    }
-    call
-}
-
-/// Returns whether a tool call's arguments have come. An argument the agent sends early (see
-/// [`Agent::early_arguments`]) doesn't count, and a patch waits for its diff.
-fn has_arguments(agent: Agent, call: &ToolCall) -> bool {
-    if call
-        .name
-        .as_deref()
-        .is_some_and(|name| matches!(name.to_ascii_lowercase().as_str(), "apply_patch" | "patch"))
-        && !call
-            .content
-            .iter()
-            .flatten()
-            .any(|part| matches!(part, ToolContent::Diff { .. }))
-    {
-        return false;
-    }
-    match &call.raw_input {
-        None => false,
-        Some(Value::Object(fields)) => fields
-            .keys()
-            .any(|field| !agent.early_arguments().contains(&field.as_str())),
-        Some(_) => true,
-    }
-}
-
-fn is_done(call: &ToolCall) -> bool {
-    matches!(
-        call.status,
-        Some(ToolStatus::Completed | ToolStatus::Failed)
-    )
-}
-
-/// Returns a tool call as the window shows it: by the window's name for a call edualc acts on
-/// (see [`named`]), else as the agent gives it.
-pub(super) fn drawn(agent: Agent, call: &ToolCall) -> Call {
-    match named(agent, call) {
-        Some((name, input)) => Call::Named { name, input },
-        None => Call::Acp(acp_call(call)),
-    }
-}
-
-/// Returns the window's name and input for a call edualc acts on: a question for you, a to-do
-/// list, a subagent whose steps nest under it, or edualc's messaging tools.
-pub(super) fn named(agent: Agent, call: &ToolCall) -> Option<(ToolName, Value)> {
-    let input = call.raw_input.clone().unwrap_or(Value::Null);
-    if let Some(name) = normalized_tool_name(call)
-        && let Some(mapped) = extra_tool(agent, &name, call, &input)
-    {
-        return Some(mapped);
-    }
-    let known = call
-        .name
-        .as_deref()
-        .and_then(|name| agent.tool(name, call))?;
-    Some(as_known(&known, input))
-}
-
-/// Returns the call as the agent gives it, titled with the agent's words for it, else the
-/// tool's name.
-fn acp_call(call: &ToolCall) -> AcpCall {
-    AcpCall {
-        title: call
-            .title
-            .clone()
-            .or_else(|| call.name.clone())
-            .unwrap_or_else(|| "Tool".to_owned()),
-        kind: call.kind.map(AcpKind::from),
-        locations: call
-            .locations
-            .iter()
-            .flatten()
-            .map(|location| location.path.clone())
-            .collect(),
-        diffs: call
-            .content
-            .iter()
-            .flatten()
-            .filter_map(|part| match part {
-                ToolContent::Diff {
-                    path,
-                    old_text,
-                    new_text,
-                } => Some(Diff {
-                    path: path.clone(),
-                    old_text: old_text.clone(),
-                    new_text: new_text.clone(),
-                }),
-                ToolContent::Content { .. } | ToolContent::Other => None,
-            })
-            .collect(),
-        input: call.raw_input.clone(),
-        status: call.status.map_or(AcpStatus::Pending, AcpStatus::from),
-        output: output_of(call),
-    }
-}
-
-fn normalized_tool_name(call: &ToolCall) -> Option<String> {
-    if let Some(name) = &call.name {
-        return Some(name.to_ascii_lowercase());
-    }
-    let title = call.title.as_deref()?.trim();
-    (!title.is_empty() && !title.contains(char::is_whitespace) && !title.contains('/'))
-        .then(|| title.to_ascii_lowercase())
-}
-
-fn parse_args<Arguments: serde::de::DeserializeOwned + Default>(call: &ToolCall) -> Arguments {
-    let Some(input) = call.raw_input.clone() else {
-        return Arguments::default();
-    };
-    serde_json::from_value::<Option<Arguments>>(input)
-        .ok()
-        .flatten()
-        .unwrap_or_default()
-}
-
-fn encode_tool(name: ToolName, value: &impl serde::Serialize, raw: &Value) -> (ToolName, Value) {
-    let encoded = serde_json::to_value(value).unwrap_or_else(|error| {
-        tracing::warn!(%error, tool = %name, "a tool's input that can't be written");
-        raw.clone()
-    });
-    (name, encoded)
-}
-
-fn extra_tool(agent: Agent, name: &str, call: &ToolCall, raw: &Value) -> Option<(ToolName, Value)> {
-    match agent {
-        Agent::Agy => agy_extra_tool(name, call, raw),
-        Agent::Opencode => opencode_extra_tool(name, call, raw),
-    }
-}
-
-fn agy_extra_tool(name: &str, call: &ToolCall, raw: &Value) -> Option<(ToolName, Value)> {
-    let given: AgyArguments = parse_args(call);
-    let title = || call.title.clone().unwrap_or_default();
-    match name {
-        "invoke_subagent" => Some(as_known(
-            &KnownCall::Agent(AgentInput {
-                description: given.subagent_name.clone().unwrap_or_else(title),
-                prompt: given.prompt.unwrap_or_default(),
-                subagent_type: given.subagent_name,
-            }),
-            raw.clone(),
-        )),
-        _ => None,
-    }
-}
-
-fn opencode_extra_tool(name: &str, call: &ToolCall, raw: &Value) -> Option<(ToolName, Value)> {
-    let given: OpencodeArguments = parse_args(call);
-    let title = || call.title.clone().unwrap_or_default();
-    match name {
-        "todowrite" | "todo_write" => Some(encode_tool(
-            ToolName::TodoWrite,
-            &plan_todos(&given.todos),
-            raw,
-        )),
-        "task" | "agent" => Some(as_known(
-            &KnownCall::Agent(AgentInput {
-                description: given.description.unwrap_or_else(title),
-                prompt: given.prompt.unwrap_or_default(),
-                subagent_type: given.subagent_type,
-            }),
-            raw.clone(),
-        )),
-        "question" => {
-            let questions = Questions {
-                questions: given
-                    .questions
-                    .into_iter()
-                    .map(|asked| Question {
-                        question: asked.question,
-                        header: asked.header,
-                        options: asked
-                            .options
-                            .into_iter()
-                            .map(|option| match option {
-                                OpencodeQuestionOption::Detailed { label, description } => {
-                                    QuestionOption {
-                                        label,
-                                        description,
-                                        preview: String::new(),
-                                        rest: Map::new(),
-                                    }
-                                }
-                                OpencodeQuestionOption::Plain(label) => QuestionOption {
-                                    label,
-                                    description: String::new(),
-                                    preview: String::new(),
-                                    rest: Map::new(),
-                                },
-                            })
-                            .collect(),
-                        multi_select: asked.multiple,
-                        rest: Map::new(),
-                    })
-                    .collect(),
-                answers: std::collections::BTreeMap::new(),
-                annotations: std::collections::BTreeMap::new(),
-                rest: Map::new(),
-            };
-            Some(as_known(&KnownCall::Questions(questions), raw.clone()))
-        }
-        _ => None,
-    }
-}
-
-/// Returns a known call's name and input for the window. Where the input can't be written (a
-/// path that isn't UTF-8), the agent's own input is shown instead.
-fn as_known(known: &KnownCall, raw: Value) -> (ToolName, Value) {
-    let input = known.input().unwrap_or_else(|error| {
-        tracing::warn!(%error, tool = %known.name(), "a tool's input that can't be written");
-        raw
-    });
-    (known.name(), input)
-}
-
-/// Returns what a finished tool call gave, as text, or a word for how it ended.
-fn result_text(call: &ToolCall, failed: bool) -> String {
-    output_of(call).unwrap_or_else(|| if failed { "Failed." } else { "Done." }.to_owned())
-}
-
-/// Returns what a call printed or said: its text, else the output in its raw result.
-fn output_of(call: &ToolCall) -> Option<String> {
-    let mut parts: Vec<String> = Vec::new();
-    for content in call.content.iter().flatten() {
-        match content {
-            ToolContent::Content {
-                content: Chunk::Text { text },
-            } => parts.push(text.clone()),
-            // The call's card shows the change itself.
-            ToolContent::Diff { .. }
-            | ToolContent::Content {
-                content: Chunk::Other,
-            }
-            | ToolContent::Other => {}
-        }
-    }
-    if parts.is_empty()
-        && let Some(Ok(printed)) = call
-            .raw_output
-            .as_ref()
-            .map(<acp::PrintedOutput as serde::Deserialize>::deserialize)
-    {
-        parts.push(printed.output);
-    }
-    (!parts.is_empty()).then(|| parts.join("\n"))
-}
-
 #[cfg(test)]
 mod tests {
     use serde_json::json;
 
+    use super::calls::{drawn, result_text};
     use super::*;
     use crate::app::PermissionMode;
     use crate::call::AcpOptionKind;
+    use crate::call::{AcpCall, AcpKind, AcpOption, AcpStatus, Call, Diff, OptionId};
+    use crate::edualc_tool::EdualcTool;
     use crate::external::acp::Location;
+    use crate::external::acp::ToolContent;
     use crate::external::wire::{ControlRequest, MediaType, ModeId};
 
     const ID: &str = "11111111-2222-4333-8444-555555555555";
