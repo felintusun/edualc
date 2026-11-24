@@ -18,17 +18,17 @@ use crate::web::widgets::{Icon, IconButton, Lucide};
 /// The scrolling list's id, by which the page finds it to scroll it.
 pub(super) const LIST: &str = "transcript";
 
-/// How close to the end (in CSS pixels) still counts as at the end.
+/// How close to the end, in CSS pixels, still counts as at the end.
 const END_SLACK: f64 = 8.0;
 
-/// How long the rows' height must hold still before an opened transcript shows (ms), how often
-/// that is looked at, and how many looks at most (a moment and a half in all).
+/// How long the rows' height must hold still before an opened transcript shows.
 const SETTLED_MS: f64 = 100.0;
+/// How often the height is looked at meanwhile, and how many times at most.
 const SETTLE_LOOK_MS: u32 = 30;
 const SETTLE_LOOKS: u32 = 50;
 
-/// The heron's flight: how many wing beats it takes, each how long (ms), and the wait before it
-/// sets off to fly in, so that it starts from out of sight.
+/// The heron's flight: its wing beats, how long each takes, and the wait before it flies in,
+/// so that it starts from out of sight.
 const BEATS: u32 = 10;
 const BEAT_MS: u32 = 110;
 const APPROACH_MS: u32 = 50;
@@ -41,7 +41,7 @@ const HERON: [Asset; 4] = [
     asset!("/assets/heron/heron-wings-level.svg"),
 ];
 
-/// The list, the page's clock and its pixel ratio, through the browser: read at once, as the
+/// The list, the page's clock and its pixel ratio, read through the browser at once, as the
 /// list moves with each line streamed.
 #[cfg(feature = "web")]
 mod dom {
@@ -96,9 +96,9 @@ mod dom {
     }
 }
 
-/// The list in the Android app's WebView, reached by its script, which answers later than a
-/// keystroke: the WebView moves a focused list by its keys itself, so the window takes none
-/// (`focused` is never so). Rendered on the server, none of it runs.
+/// The list in the Android app's WebView, reached by script, which answers later than a
+/// keystroke. The WebView scrolls a focused list by its keys itself, so the window takes none
+/// and `focused` is always false. Rendered on the server, none of it runs.
 #[cfg(not(feature = "web"))]
 mod dom {
     use dioxus::prelude::{ReadableExt as _, document};
@@ -130,7 +130,7 @@ mod dom {
             .map_or(0.0, |since| since.as_secs_f64() * 1000.0)
     }
 
-    /// Device pixels to a CSS pixel, as the app read it from the WebView (1 on the server).
+    /// Device pixels to a CSS pixel, as the app read it from the WebView; 1 on the server.
     pub fn pixel_ratio(view: crate::web::View) -> f64 {
         view.page.peek().pixel_ratio
     }
@@ -406,10 +406,10 @@ fn AssistantText(entry: Entry) -> Element {
     }
 }
 
-/// A message's blocks. Prose holds to the column's measure; code and tables are never narrower,
-/// and wider as they need, up to the wide measure or the room there is: they start where the
-/// prose starts and grow to its right, moving left only where that runs out of room. `flat`
-/// (inside a tool's card) lets every block fill the width.
+/// A message's blocks. Prose holds to the column's measure. Code and tables are as wide as they
+/// need, from the column's measure up to the wide measure or the room there is; they start
+/// where the prose starts and grow to the right, moving left only where that runs out of room.
+/// `flat`, inside a tool's card, lets every block fill the width.
 #[component]
 fn Markdown(blocks: Vec<MdBlock>, #[props(default)] flat: bool) -> Element {
     rsx! {
@@ -490,9 +490,9 @@ fn Thinking(entry: Entry) -> Element {
     }
 }
 
-/// Before a tool call's name: how far it got, by shape as well as colour (Gruvbox's green and
-/// yellow are close): a dot while it runs, a hand while it waits for the user, a check, a
-/// cross, a slashed circle.
+/// How far a tool call got, shown before its name: a dot while it runs, a hand while it waits
+/// for you, a check, a cross, a slashed circle. Shape tells them apart as well as colour, since
+/// Gruvbox's green and yellow are close.
 #[component]
 fn StateMark(state: ToolState) -> Element {
     let (class, icon) = match state {
@@ -542,9 +542,9 @@ fn RunLine(entry: Entry) -> Element {
     }
 }
 
-/// A tool call's card in its row: as wide as the prose, or as its content needs where there is
-/// room; it starts where the prose starts, moving left only where it runs out of room to the
-/// right, as code does. A run's calls are indented under its line.
+/// A tool call's card in its row, as wide as the prose or as its content needs where there is
+/// room. Like code, it starts where the prose starts and moves left only where it runs out of
+/// room to the right. A run's calls are indented under its line.
 #[component]
 fn ToolRow(entry: Entry) -> Element {
     let class = match entry.group {
@@ -694,10 +694,10 @@ fn DiffRow(line: DiffLine) -> Element {
     }
 }
 
-/// An image in the conversation: its pixels at the screen's scale, at most 480px wide and the
-/// room there is, its shape kept; a frame while it is decoded; why, if it isn't shown. `origin`
-/// (a tool call's summary, the file read, say) names it for assistive technology; empty for
-/// one the user sent.
+/// An image in the conversation, at the screen's scale and at most 480px wide or the room
+/// there is, its shape kept. A frame stands in while it is decoded, and a reason if it can't be
+/// shown. `origin`, such as a tool call's summary or the file read, names it for assistive
+/// technology; it is empty for an image you sent.
 #[component]
 fn ImageView(shown: ShownImage, #[props(default)] origin: String) -> Element {
     let view = use_context::<View>();
