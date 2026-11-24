@@ -707,7 +707,8 @@ fn merge_live(mut live: Vec<LiveSession>, external: &[ExternalSession]) -> Vec<L
 }
 
 fn merge_projects(local: Vec<ProjectInfo>, external: &[ExternalSession]) -> Vec<ProjectInfo> {
-    let mut by_path: HashMap<PathBuf, SystemTime> = local
+    // A time is newer than none, so `max` keeps the newest time there is.
+    let mut by_path: HashMap<PathBuf, Option<SystemTime>> = local
         .into_iter()
         .map(|project| (project.path, project.modified))
         .collect();
@@ -718,17 +719,13 @@ fn merge_projects(local: Vec<ProjectInfo>, external: &[ExternalSession]) -> Vec<
         let modified = if ext.backend == Backend::Agy {
             agy_brain_transcript(&ext.id)
                 .and_then(|path| path.metadata().ok()?.modified().ok())
-                .map_or(ext.modified, |brain_mod| brain_mod.max(ext.modified))
+                .max(ext.modified)
         } else {
             ext.modified
         };
         by_path
             .entry(ext.cwd.clone())
-            .and_modify(|existing| {
-                if modified > *existing {
-                    *existing = modified;
-                }
-            })
+            .and_modify(|existing| *existing = (*existing).max(modified))
             .or_insert(modified);
     }
     let mut projects: Vec<ProjectInfo> = by_path
@@ -764,7 +761,7 @@ fn merge_sessions(
         } else {
             (None, None)
         };
-        let modified = brain_mod.map_or(ext.modified, |m| m.max(ext.modified));
+        let modified = brain_mod.max(ext.modified);
         merged.push(SessionInfo {
             backend: ext.backend,
             id: ext.id.clone(),
@@ -1461,7 +1458,7 @@ mod tests {
             backend: crate::provider::Backend::Claude,
             id: crate::ids::SessionId::from(uuid::Uuid::from_u128(at as u128)),
             title: "x".repeat(300),
-            modified: std::time::SystemTime::now(),
+            modified: Some(std::time::SystemTime::now()),
             worktree: None,
             last_said: None,
         };
@@ -1474,7 +1471,7 @@ mod tests {
 
     #[test]
     fn large_overviews_are_chunked_so_each_message_fits() {
-        let now = std::time::SystemTime::now();
+        let now = Some(std::time::SystemTime::now());
         let make_project = |idx: usize| ProjectOverview {
             path: PathBuf::from(format!("/code/project-{idx}-{}", "x".repeat(400))),
             modified: now,
@@ -1687,7 +1684,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("edualc-merge-{}", std::process::id()));
         std::fs::create_dir_all(&dir).expect("a scratch dir");
         let now = SystemTime::now();
-        let earlier = now - Duration::from_secs(60);
+        let (now, earlier) = (Some(now), Some(now - Duration::from_secs(60)));
         let local_id = SessionId::new_random();
         let new_ext_id = SessionId::for_external(Backend::Opencode, "ses_new1");
         let other_dir = dir.join("other");
@@ -1738,6 +1735,46 @@ mod tests {
             [(new_ext_id, Backend::Opencode), (local_id, Backend::Agy),]
         );
         std::fs::remove_dir_all(&dir).expect("scratch cleaned");
+    }
+
+    #[test]
+    fn a_session_listed_without_a_time_comes_last_and_undated() {
+        let dir = std::env::temp_dir();
+        let dated = SessionInfo {
+            backend: Backend::Claude,
+            id: SessionId::new_random(),
+            title: "Dated".to_owned(),
+            modified: Some(SystemTime::UNIX_EPOCH),
+            worktree: None,
+            last_said: None,
+        };
+        let undated = ExternalSession {
+            backend: Backend::Opencode,
+            raw_id: "ses_undated".to_owned(),
+            id: SessionId::for_external(Backend::Opencode, "ses_undated"),
+            cwd: dir.clone(),
+            title: "Undated".to_owned(),
+            modified: None,
+        };
+        let merged = merge_sessions(
+            vec![dated.clone()],
+            std::slice::from_ref(&undated),
+            &dir,
+            10,
+        );
+        let listed: Vec<_> = merged
+            .iter()
+            .map(|session| (&session.id, session.modified))
+            .collect();
+        assert_eq!(listed, [(&dated.id, dated.modified), (&undated.id, None)]);
+        let projects = merge_projects(Vec::new(), &[undated]);
+        assert_eq!(
+            projects
+                .iter()
+                .map(|project| project.modified)
+                .collect::<Vec<_>>(),
+            [None]
+        );
     }
 
     #[test]

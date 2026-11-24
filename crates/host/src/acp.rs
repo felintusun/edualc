@@ -327,15 +327,20 @@ pub(crate) struct ExternalSession {
     pub id: SessionId,
     pub cwd: PathBuf,
     pub title: String,
-    pub modified: std::time::SystemTime,
+    /// When it last changed; `None` where `session/list` gives no `updatedAt` that reads as a
+    /// time.
+    pub modified: Option<std::time::SystemTime>,
 }
 
-fn parse_rfc3339(text: Option<&str>) -> std::time::SystemTime {
-    text.and_then(|value| value.parse::<jiff::Timestamp>().ok())
-        .map_or(
-            std::time::SystemTime::UNIX_EPOCH,
-            std::time::SystemTime::from,
-        )
+fn parse_rfc3339(text: Option<&str>) -> Option<std::time::SystemTime> {
+    let text = text?;
+    match text.parse::<jiff::Timestamp>() {
+        Ok(timestamp) => Some(timestamp.into()),
+        Err(error) => {
+            tracing::debug!(%error, text, "a session's updatedAt that isn't a time");
+            None
+        }
+    }
 }
 
 async fn send_and_wait_response(

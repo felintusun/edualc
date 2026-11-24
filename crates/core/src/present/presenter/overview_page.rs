@@ -28,9 +28,7 @@ impl<F: Frontend> Presenter<F> {
             .waiting
             .iter()
             .map(|item| {
-                let waited = item
-                    .since
-                    .map(sessions::age)
+                let waited = Some(sessions::age(item.since))
                     .filter(|age| !age.is_empty())
                     .map_or_else(|| "waiting".to_owned(), |age| format!("waiting {age}"));
                 WaitingItem {

@@ -112,7 +112,8 @@ pub struct SessionInfo {
     pub backend: crate::provider::Backend,
     pub id: SessionId,
     pub title: String,
-    pub modified: SystemTime,
+    /// When it last changed; `None` where the program doesn't say.
+    pub modified: Option<SystemTime>,
     /// The worktree it last worked in, if that still exists.
     pub worktree: Option<Worktree>,
     /// The first sentence of the last assistant reply, if one is in the tail.
@@ -178,7 +179,8 @@ pub fn folder_name(path: &Path) -> String {
 #[serde(deny_unknown_fields)]
 pub struct ProjectInfo {
     pub path: PathBuf,
-    pub modified: SystemTime,
+    /// When a session in it last changed; `None` where no program says.
+    pub modified: Option<SystemTime>,
 }
 
 /// A session a Claude Code process runs now, in a terminal, an editor or the background, as
@@ -507,7 +509,7 @@ pub fn list(
             let id = SessionId::try_from(path.file_stem()?.to_string_lossy().into_owned()).ok()?;
             if let Some(same) = known
                 .remove(&id)
-                .filter(|session| session.modified == modified)
+                .filter(|session| session.modified == Some(modified))
             {
                 return Some(same);
             }
@@ -516,7 +518,7 @@ pub fn list(
                 backend: backend_of(&path),
                 id,
                 title: found.title,
-                modified,
+                modified: Some(modified),
                 worktree: found.worktree,
                 last_said: found.last_said,
             })
@@ -541,7 +543,10 @@ pub fn projects(home: &ClaudeHome) -> Vec<ProjectInfo> {
         .filter_map(|entry| {
             let (newest, modified) = transcripts(&entry.path()).into_iter().next()?;
             let path = recorded_cwd(&newest)?;
-            path.is_dir().then_some(ProjectInfo { path, modified })
+            path.is_dir().then_some(ProjectInfo {
+                path,
+                modified: Some(modified),
+            })
         })
         .collect();
     projects.sort_by_key(|project| std::cmp::Reverse(project.modified));
@@ -981,8 +986,11 @@ fn read_range(file: &mut File, start: u64, end: u64) -> Option<String> {
     Some(String::from_utf8_lossy(&bytes).into_owned())
 }
 
-/// Says how long ago, briefly: "now", "5m", "3h", "2d", "6w".
-pub fn age(modified: SystemTime) -> String {
+/// Says how long ago, briefly: "now", "5m", "3h", "2d", "6w"; nothing for no time.
+pub fn age(modified: Option<SystemTime>) -> String {
+    let Some(modified) = modified else {
+        return String::new();
+    };
     let seconds = SystemTime::now()
         .duration_since(modified)
         .map_or(0, |elapsed| elapsed.as_secs());

@@ -192,10 +192,8 @@ const FOLDERS: &[(Folder, Duration)] = &[
     (Folder::GpxViewer, Duration::from_secs(2 * HOUR)),
 ];
 
-fn ago(age: Duration) -> SystemTime {
-    SystemTime::now()
-        .checked_sub(age)
-        .unwrap_or(SystemTime::UNIX_EPOCH)
+fn ago(age: Duration) -> Option<SystemTime> {
+    SystemTime::now().checked_sub(age)
 }
 
 /// Returns a transcript's title, as Claude Code wrote it in.

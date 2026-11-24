@@ -143,7 +143,7 @@ pub fn chunks(text: &str) -> impl Iterator<Item = &str> {
 
 /// Bumped with any change to the messages below, or to their framing: postcard isn't
 /// self-describing, so both ends must agree on every type.
-pub const PROTOCOL: u32 = 37;
+pub const PROTOCOL: u32 = 38;
 
 /// A window's key for a process it shows, new for each one, so that what an earlier process
 /// still says is dropped.
@@ -362,7 +362,7 @@ pub struct Unkept(pub String);
 #[serde(deny_unknown_fields)]
 pub struct ProjectOverview {
     pub path: PathBuf,
-    pub modified: SystemTime,
+    pub modified: Option<SystemTime>,
     pub sessions: Vec<SessionInfo>,
 }
 

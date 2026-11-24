@@ -3496,12 +3496,12 @@ mod tests {
         let proj = PathBuf::from("/tmp/proj-wait");
         test.send(Event::OverviewListed(vec![ProjectOverview {
             path: proj.clone(),
-            modified: std::time::SystemTime::UNIX_EPOCH,
+            modified: None,
             sessions: vec![SessionInfo {
                 backend: provider::Backend::Claude,
                 id: wait_id.clone(),
                 title: "Fix parser".to_owned(),
-                modified: std::time::SystemTime::UNIX_EPOCH,
+                modified: None,
                 worktree: None,
                 last_said: Some("Ready for review.".to_owned()),
             }],
@@ -3666,7 +3666,7 @@ mod tests {
                 backend: provider::Backend::Claude,
                 id: id.clone(),
                 title: "Chat".to_owned(),
-                modified: std::time::SystemTime::UNIX_EPOCH,
+                modified: None,
                 worktree: None,
                 last_said: None,
             }],
@@ -3931,13 +3931,13 @@ mod tests {
             backend: provider::Backend::Opencode,
             id,
             title: title.to_owned(),
-            modified: std::time::SystemTime::UNIX_EPOCH,
+            modified: None,
             worktree: None,
             last_said: None,
         };
         test.send(Event::OverviewListed(vec![ProjectOverview {
             path: proj.clone(),
-            modified: std::time::SystemTime::UNIX_EPOCH,
+            modified: None,
             sessions: vec![info(s1.clone(), "From overview")],
         }]));
         test.send(Event::Action(Action::EnterProject(proj.clone())));

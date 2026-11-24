@@ -84,7 +84,7 @@ impl Running {
 pub struct Earlier {
     pub id: SessionId,
     pub title: String,
-    pub modified: SystemTime,
+    pub modified: Option<SystemTime>,
     pub worktree: Option<String>,
     pub shown: bool,
     /// Its backend; a saved transcript doesn't say what Claude Code signed in with.
@@ -258,7 +258,7 @@ mod tests {
             backend: crate::provider::Backend::Claude,
             id: id(number),
             title: title.to_owned(),
-            modified: SystemTime::UNIX_EPOCH + Duration::from_secs(u64::from(number)),
+            modified: Some(SystemTime::UNIX_EPOCH + Duration::from_secs(u64::from(number))),
             worktree: None,
             last_said: None,
         }

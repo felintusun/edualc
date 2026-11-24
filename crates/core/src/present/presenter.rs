@@ -1152,7 +1152,7 @@ mod tests {
             cards: vec![overview::Card {
                 path: std::path::PathBuf::from("/code/edualc"),
                 name: "edualc".to_owned(),
-                modified: web_time::SystemTime::UNIX_EPOCH,
+                modified: None,
                 needs_you: 1,
                 running: 1,
                 last_said: Some("Checked the tests.".to_owned()),
@@ -1160,7 +1160,7 @@ mod tests {
                     opens: overview::SessionRef::Session(id.clone()),
                     title: "Fix shell".to_owned(),
                     state: Some(LiveStatus::Waiting),
-                    modified: web_time::SystemTime::UNIX_EPOCH,
+                    modified: None,
                     last_said: Some("Checked the tests.".to_owned()),
                     program: crate::provider::Program::Claude,
                     worktree: Some("rework".to_owned()),

@@ -32,7 +32,7 @@ impl Options<'_> {
 pub struct Card {
     pub path: PathBuf,
     pub name: String,
-    pub modified: SystemTime,
+    pub modified: Option<SystemTime>,
     pub needs_you: usize,
     pub running: usize,
     pub last_said: Option<String>,
@@ -81,7 +81,7 @@ pub struct CardSession {
     pub opens: SessionRef,
     pub title: String,
     pub state: Option<LiveStatus>,
-    pub modified: SystemTime,
+    pub modified: Option<SystemTime>,
     pub last_said: Option<String>,
     pub program: Program,
     pub worktree: Option<String>,
@@ -279,7 +279,7 @@ fn collect_projects(
         if home == Some(item.path.as_path()) || options.is_removed(&item.path) {
             continue;
         }
-        let opened = SystemTime::UNIX_EPOCH + Duration::from_secs(item.opened_secs);
+        let opened = Some(SystemTime::UNIX_EPOCH + Duration::from_secs(item.opened_secs));
         if let Some(&idx) = seen.get(&item.path) {
             if let Some(existing) = entries.get_mut(idx) {
                 existing.modified = existing.modified.max(opened);
@@ -293,7 +293,7 @@ fn collect_projects(
             });
         }
     }
-    let now = SystemTime::now();
+    let now = Some(SystemTime::now());
     for item in hosted {
         if home == Some(item.cwd.as_path())
             || options.is_removed(&item.cwd)
@@ -661,7 +661,7 @@ mod tests {
             backend: Backend::Claude,
             id: session_id(number),
             title: title.to_owned(),
-            modified: time(modified),
+            modified: Some(time(modified)),
             worktree: None,
             last_said: last_said.map(ToOwned::to_owned),
         }
@@ -670,7 +670,7 @@ mod tests {
     fn project(path: &str, modified: u64, sessions: Vec<SessionInfo>) -> ProjectOverview {
         ProjectOverview {
             path: PathBuf::from(path),
-            modified: time(modified),
+            modified: Some(time(modified)),
             sessions,
         }
     }
