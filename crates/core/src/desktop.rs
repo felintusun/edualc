@@ -20,7 +20,6 @@ use crate::external::niri;
 )]
 #[strum(serialize_all = "kebab-case")]
 pub enum Program {
-    NotifySend,
     FcList,
     FcMatch,
     Gsettings,
@@ -189,32 +188,7 @@ fn read_beside(mut pipe: impl Read + Send + 'static) -> mpsc::Receiver<Vec<u8>> 
 /// names, and its AppStream id.
 pub const APP_ID: &str = "io.github.felintusun.edualc";
 /// What people see edualc called, in a notification's header.
-const APP_NAME: &str = "edualc";
-
-/// Shows a desktop notification. Its texts come from other sessions' records: they are taken
-/// as text, never as options or markup (which notification daemons render in the body).
-pub fn notify(summary: &str, body: &str) -> Result<(), Error> {
-    let body = body
-        .replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;");
-    let desktop_entry = format!("string:desktop-entry:{APP_ID}");
-    run(
-        Program::NotifySend,
-        &[
-            "--app-name",
-            APP_NAME,
-            "--icon",
-            APP_ID,
-            "--hint",
-            &desktop_entry,
-            "--",
-            summary,
-            &body,
-        ],
-    )
-    .map(drop)
-}
+pub const APP_NAME: &str = "edualc";
 
 /// Focuses the window that process `pid` runs in: the one whose process is `pid` or one of
 /// its ancestors (a terminal, an editor). Only niri is asked.
@@ -268,10 +242,10 @@ mod tests {
 
     #[test]
     fn a_program_run_gives_what_it_printed() {
-        let said = run_within(Program::NotifySend, "echo".as_ref(), &["hello"], RUN_LIMIT);
+        let said = run_within(Program::FcList, "echo".as_ref(), &["hello"], RUN_LIMIT);
         assert_eq!(said.ok(), Some(b"hello\n".to_vec()));
         let failed = run_within(
-            Program::NotifySend,
+            Program::FcList,
             "sh".as_ref(),
             &["-c", "echo no >&2; exit 3"],
             RUN_LIMIT,
@@ -284,7 +258,7 @@ mod tests {
         let limit = Duration::from_millis(300);
         let started = Instant::now();
         let hung = run_within(
-            Program::NotifySend,
+            Program::FcList,
             "sh".as_ref(),
             &["-c", "sleep 30 & wait"],
             limit,
@@ -292,13 +266,13 @@ mod tests {
         assert!(matches!(
             hung,
             Err(Error::TimedOut {
-                program: Program::NotifySend
+                program: Program::FcList
             })
         ));
         assert!(started.elapsed() < Duration::from_secs(2));
         let started = Instant::now();
         let left_open = run_within(
-            Program::NotifySend,
+            Program::FcList,
             "sh".as_ref(),
             &["-c", "echo done; sleep 30 &"],
             limit,

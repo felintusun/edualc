@@ -9,6 +9,8 @@ mod colourist;
 mod connect;
 mod highlight;
 #[cfg(not(target_arch = "wasm32"))]
+mod seat;
+#[cfg(not(target_arch = "wasm32"))]
 mod start;
 #[cfg(target_arch = "wasm32")]
 mod web;

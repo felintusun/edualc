@@ -102,11 +102,9 @@ impl Connected {
                     | FromDaemon::Output { .. }
                     | FromDaemon::Ended { .. }
                     | FromDaemon::Done { .. }
-                    | FromDaemon::Picked { .. }
                     | FromDaemon::Trusted { .. }
                     | FromDaemon::Hosted(_)
                     | FromDaemon::ShuttingDown
-                    | FromDaemon::Pasted { .. }
                     | FromDaemon::Answer { .. }
                     | FromDaemon::Lines { .. }
                     | FromDaemon::Changed(_)

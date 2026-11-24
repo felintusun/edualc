@@ -6,14 +6,14 @@ use crate::agent::Agent;
 use crate::chat::Chat;
 use crate::external::wire::TranscriptLine;
 use crate::ids::SessionId;
-use crate::ipc::{self, Act, Hosted, Read, Target};
+use crate::ipc::{self, Hosted, Read, Target};
 use crate::present::Frontend;
 use crate::provider::{self, Resume};
 use crate::sessions;
 
 use super::{
-    Acting, ApiKeyKept, App, ClaudeTrustAsk, INITIALIZE, LimitWait, Location, Modes, Reading,
-    Recall, Redraw, Refresh, Request, SideChat, SignIn, Watch,
+    ApiKeyKept, App, ClaudeTrustAsk, INITIALIZE, LimitWait, Location, Modes, Reading, Recall,
+    Redraw, Refresh, Request, SideChat, SignIn, Watch,
 };
 
 impl<F: Frontend> App<F> {
@@ -439,6 +439,6 @@ impl<F: Frontend> App<F> {
         if pid == 0 {
             return;
         }
-        self.ask_desktop(Act::FocusWindowOf { pid }, Acting::Desktop);
+        self.view.seat(crate::present::Seat::FocusWindowOf { pid });
     }
 }

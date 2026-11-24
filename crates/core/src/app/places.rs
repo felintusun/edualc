@@ -174,7 +174,7 @@ impl<F: Frontend> App<F> {
         } else {
             PathBuf::from(parent.trim())
         };
-        self.ask_desktop(
+        self.ask_daemon(
             Act::CreateProject {
                 parent: parent_path,
                 name,

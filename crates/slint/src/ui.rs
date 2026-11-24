@@ -303,6 +303,8 @@ pub(crate) struct SlintFrontend {
     /// What the side panel and the request bar were set to last, to colour their code again.
     prompt: Option<present::Prompt>,
     side: Option<present::Side>,
+    #[cfg(not(target_arch = "wasm32"))]
+    desk: crate::seat::Desk,
 }
 
 impl SlintFrontend {
@@ -327,6 +329,8 @@ impl SlintFrontend {
         window
             .global::<slint_ui::Transcript>()
             .set_entries(ModelRc::new(entries.clone().filter(|entry| !entry.hidden)));
+        #[cfg(not(target_arch = "wasm32"))]
+        let desk = crate::seat::Desk::start(events.clone());
         let (orders, colourist) =
             colourist::spawn(&window.global::<slint_ui::Theme>().get_syntax(), events);
         Self {
@@ -337,6 +341,8 @@ impl SlintFrontend {
             shown: Vec::new(),
             prompt: None,
             side: None,
+            #[cfg(not(target_arch = "wasm32"))]
+            desk,
         }
     }
 
@@ -521,6 +527,17 @@ impl Frontend for SlintFrontend {
 
     fn keep_images(&mut self, shown: &HashSet<ImageKey>) {
         self.drawing.images.retain(|key, _| shown.contains(key));
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    fn seat(&mut self, seat: crate::present::Seat) {
+        self.desk.ask(seat);
+    }
+
+    // The browser demo has no desktop of its own to ask.
+    #[cfg(target_arch = "wasm32")]
+    fn seat(&mut self, seat: crate::present::Seat) {
+        tracing::debug!(?seat, "the browser demo does nothing on the desktop");
     }
 
     fn command(&mut self, command: Command) {

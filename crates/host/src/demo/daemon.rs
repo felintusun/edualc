@@ -5,8 +5,8 @@ use std::path::Path;
 
 use crate::daemon::Line;
 use crate::ipc::{
-    Act, ActFailure, ActId, Answer, FromDaemon, Generation, PROTOCOL, PasteFailure, Place, Read,
-    StartFailure, ToDaemon,
+    Act, ActFailure, ActId, Answer, FromDaemon, Generation, PROTOCOL, Place, Read, StartFailure,
+    ToDaemon,
 };
 use crate::settings::Settings;
 use edualc_core::demo::script::{Session, Sink};
@@ -70,10 +70,7 @@ fn greet(outbox: &Sender<FromDaemon>) {
         FromDaemon::Hello {
             protocol: PROTOCOL,
             settings: Ok(settings),
-
             live: demo::running(),
-            finds_windows: false,
-            local: false,
             home: demo::Folder::Trailhead.path().to_path_buf(),
             backends: vec![crate::provider::Backend::Claude],
         },
@@ -185,20 +182,6 @@ fn acted(outbox: &Sender<FromDaemon>, request: ActId, act: Act) {
         Act::ChangesLooked { .. } | Act::MarkReviewed { .. } | Act::UnmarkReviewed { .. } => {
             return;
         }
-        Act::PickFolder => FromDaemon::Picked {
-            request,
-            folder: None,
-        },
-        Act::PasteImage => FromDaemon::Pasted {
-            request,
-            piece: postcard::to_stdvec(&Err::<crate::decode::Picture, _>(PasteFailure::NoImage))
-                .unwrap_or_default(),
-            last: true,
-        },
-        Act::OpenUrl(_) | Act::Notify { .. } | Act::FocusWindowOf { .. } => FromDaemon::Done {
-            request,
-            result: Err(ActFailure::NotHere),
-        },
         // The demo has no keyring to keep a key in.
         Act::CheckApiKey => FromDaemon::ApiKeyStored {
             request,

@@ -41,7 +41,7 @@ impl<F: Frontend> App<F> {
                 "That isn't an API key: paste the key alone, without spaces in it.".to_owned();
             return;
         };
-        self.ask_desktop(Act::StoreApiKey(key), Acting::ApiKey);
+        self.ask_daemon(Act::StoreApiKey(key), Acting::ApiKey);
     }
 
     /// The keyring stored or removed the key, or failed to: the settings say so.

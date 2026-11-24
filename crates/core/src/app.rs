@@ -264,15 +264,8 @@ pub struct SessionTarget {
 /// What a request to the daemon was for.
 #[derive(Debug)]
 enum Acting {
-    /// Something for the desktop the user asked for; only its failure is told.
+    /// Something the user asked of the daemon; only its failure is told.
     Desktop,
-    /// A notification about a session elsewhere, which the user didn't ask for: its failure is
-    /// only logged, not put in the conversation (a desktop without a notification service
-    /// would have an error there for each).
-    Notifying,
-    /// Stopping a session elsewhere, to continue it here.
-    /// Reading the clipboard's image, for the next message.
-    Pasting,
     /// The folder picker, for opening a folder or choosing a projects directory.
     Picking(PickingTarget),
     /// Creating a new project folder.
@@ -1072,8 +1065,6 @@ pub struct App<F: Frontend> {
     side: SideChat,
     /// The session the frontend was last told it shows (`Command::SessionShown`).
     told_shown: Option<SessionId>,
-    /// The window is on the daemon's machine (see `Desktop`).
-    local: bool,
     settings: Settings,
     /// The desktop's text size, in logical pixels, which the zoom scales.
     desktop_text_size: f32,
@@ -1151,7 +1142,6 @@ impl<F: Frontend> App<F> {
         } = start;
         let Desktop {
             finds_windows,
-            local,
             text_size: desktop_text_size,
             backends: available_backends,
         } = desktop_found;
@@ -1226,7 +1216,6 @@ impl<F: Frontend> App<F> {
             records: None,
             side: SideChat::default(),
             told_shown: None,
-            local,
             settings,
             desktop_text_size,
             default_backend: backend,
@@ -1525,23 +1514,18 @@ impl<F: Frontend> App<F> {
             }
             Action::ContinueWith(sign_in) => self.continue_with(sign_in),
             Action::StoreApiKey(pasted) => self.store_api_key(&pasted.0),
-            Action::RemoveApiKey => self.ask_desktop(Act::RemoveApiKey, Acting::ApiKey),
+            Action::RemoveApiKey => self.ask_daemon(Act::RemoveApiKey, Acting::ApiKey),
             Action::OpenSession(id) => self.open_session(id),
             Action::OpenStart => self.open_start(),
             Action::EnterProject(folder) => self.enter_project(folder),
             Action::JumpTo(target) => self.jump_to(target),
             Action::NextWaiting => self.next_waiting(),
             Action::Back => self.back(),
-            Action::BrowseNewProjectParent => self.ask_desktop(
-                Act::PickFolder,
-                Acting::Picking(PickingTarget::NewProjectParent),
-            ),
+            Action::BrowseNewProjectParent => self.pick_folder(PickingTarget::NewProjectParent),
             Action::CreateProject { parent, name } => self.create_project(&parent, name),
             Action::ClearNewProjectError => self.view.set_new_project_error(""),
             Action::OpenProject(typed) => self.read_folder(Read::TypedFolder(typed), true),
-            Action::BrowseProject => {
-                self.ask_desktop(Act::PickFolder, Acting::Picking(PickingTarget::OpenFolder));
-            }
+            Action::BrowseProject => self.pick_folder(PickingTarget::OpenFolder),
             Action::ListProjects => {
                 self.view.set_project_problem("");
                 self.read(Read::Projects, Reading::Projects);
@@ -1560,7 +1544,7 @@ impl<F: Frontend> App<F> {
                 }
             }
             Action::Copy(text) => self.view.copy(&text),
-            Action::OpenUrl(url) => self.ask_desktop(Act::OpenUrl(url), Acting::Desktop),
+            Action::OpenUrl(url) => self.view.seat(Seat::OpenUrl(url)),
             Action::Allow(request) => self.allow(&request, false),
             Action::AllowAlways(request) => self.allow(&request, true),
             Action::Deny { request, feedback } => self.deny(&request, &feedback),
@@ -1694,11 +1678,8 @@ impl<F: Frontend> App<F> {
                 let next = (!trimmed.is_empty()).then(|| PathBuf::from(trimmed));
                 self.set_new_projects_in(next);
             }
-            Action::BrowseNewProjectsIn => self.ask_desktop(
-                Act::PickFolder,
-                Acting::Picking(PickingTarget::DefaultProjectsDir),
-            ),
-            Action::PasteImage => self.ask_desktop(Act::PasteImage, Acting::Pasting),
+            Action::BrowseNewProjectsIn => self.pick_folder(PickingTarget::DefaultProjectsDir),
+            Action::PasteImage => self.view.seat(Seat::PasteImage),
             Action::RemoveImage(index) => {
                 if index < self.attached.len() {
                     self.attached.remove(index);
@@ -1984,34 +1965,8 @@ impl<F: Frontend> App<F> {
         }
     }
 
-    /// Has the daemon do something for the desktop; its answer comes as `Event::Acted`. A window
-    /// that isn't on the daemon's machine has its own desktop do what it can (`Seat`): a link
-    /// opened, a notification, the clipboard's image.
-    fn ask_desktop(&mut self, act: Act, acting: Acting) {
-        if !self.local && act.needs_its_desktop() {
-            match act {
-                Act::OpenUrl(url) => self.view.seat(Seat::OpenUrl(url)),
-                Act::Notify { summary, body } => self.view.seat(Seat::Notify { summary, body }),
-                Act::PasteImage => self.view.seat(Seat::PasteImage),
-                // Other programs' windows and a folder to pick are the daemon's machine's; a
-                // window elsewhere doesn't offer them.
-                Act::PickFolder
-                | Act::FocusWindowOf { .. }
-                | Act::CheckTrust { .. }
-                | Act::CheckClaudeTrust { .. }
-                | Act::TrustForClaudeCode { .. }
-                | Act::StoreApiKey(_)
-                | Act::RemoveApiKey
-                | Act::CheckApiKey
-                | Act::CreateProject { .. }
-                | Act::ChangesLooked { .. }
-                | Act::MarkReviewed { .. }
-                | Act::UnmarkReviewed { .. } => {
-                    tracing::debug!("not asked of the daemon's desktop: this window isn't on it");
-                }
-            }
-            return;
-        }
+    /// Asks the daemon to do something on its machine; its answer comes as `Event::Acted`.
+    fn ask_daemon(&mut self, act: Act, acting: Acting) {
         self.last_act = self.last_act.next();
         let request = self.last_act;
         if link::send(&self.link, ToDaemon::Act { request, act }).is_err() {
@@ -2021,29 +1976,24 @@ impl<F: Frontend> App<F> {
         self.acting.insert(request, acting);
     }
 
+    /// Asks the frontend's desktop for a folder, for `target`; it comes as `Event::Picked`.
+    fn pick_folder(&mut self, target: PickingTarget) {
+        self.last_act = self.last_act.next();
+        self.acting.insert(self.last_act, Acting::Picking(target));
+        self.view.seat(Seat::PickFolder(self.last_act));
+    }
+
     fn acted(&mut self, request: ActId, result: Result<(), ActFailure>) {
         match (self.acting.remove(&request), result) {
             (Some(Acting::ApiKey), result) => self.api_key_changed(result),
             (Some(Acting::Desktop), Err(failure)) => {
-                tracing::warn!(%failure, "the desktop didn't do it");
+                tracing::warn!(%failure, "the daemon didn't do it");
                 self.chat.error(failure.to_string());
             }
-            (Some(Acting::Notifying), Err(failure)) => {
-                tracing::warn!(%failure, "couldn't notify");
-            }
-            // A paste is answered as `Pasted`, a folder picked as `Picked`, a project as `Created`.
-            (
-                Some(
-                    Acting::Desktop
-                    | Acting::Notifying
-                    | Acting::Pasting
-                    | Acting::Picking(_)
-                    | Acting::CreatingProject,
-                ),
-                Ok(()),
-            )
+            // A folder picked is answered as `Picked`, a project as `Created`.
+            (Some(Acting::Desktop | Acting::Picking(_) | Acting::CreatingProject), Ok(()))
             | (None, _) => {}
-            (Some(Acting::Pasting | Acting::Picking(_)), Err(failure)) => {
+            (Some(Acting::Picking(_)), Err(failure)) => {
                 self.chat.error(failure.to_string());
             }
             (Some(Acting::CreatingProject), Err(failure)) => {
@@ -2163,7 +2113,7 @@ impl<F: Frontend> App<F> {
                 self.notified.insert(session.id.clone(), now);
                 let summary = format!("{} needs you", session.name);
                 let body = session.cwd.display().to_string();
-                self.ask_desktop(Act::Notify { summary, body }, Acting::Notifying);
+                self.view.seat(Seat::Notify { summary, body });
             }
         }
         if let Some(watch) = self.watch.as_mut()
@@ -2205,13 +2155,11 @@ pub struct Start {
     pub model: Option<String>,
 }
 
-/// What the desktop has and says: the daemon's word, and what the window's desktop says.
+/// What the daemon told the window, and what the window's own desktop offers.
 #[derive(Debug)]
 pub struct Desktop {
-    /// Other programs' windows can be found, as the daemon says.
+    /// Other programs' windows can be found from this window.
     finds_windows: bool,
-    /// The window is on the daemon's machine: the daemon does what the desktop is asked.
-    local: bool,
     /// In logical pixels.
     text_size: f32,
     /// Coding agent backends available on PATH when the window connected.
@@ -2219,12 +2167,11 @@ pub struct Desktop {
 }
 
 impl Desktop {
-    /// What the daemon told, and the text size of the desktop the window is on, in logical
-    /// pixels.
-    pub fn of(greeting: &link::Greeting, text_size: f32) -> Self {
+    /// Takes what the daemon told, the desktop's text size in logical pixels, and whether other
+    /// programs' windows can be found here.
+    pub fn of(greeting: &link::Greeting, text_size: f32, finds_windows: bool) -> Self {
         Self {
-            finds_windows: greeting.finds_windows,
-            local: greeting.local,
+            finds_windows,
             text_size,
             backends: greeting.backends.clone(),
         }
@@ -2235,7 +2182,6 @@ impl Desktop {
     pub fn in_the_browser(text_size: f32) -> Self {
         Self {
             finds_windows: false,
-            local: true,
             text_size,
             backends: vec![provider::Backend::Claude],
         }
@@ -2352,7 +2298,6 @@ mod tests {
                     finds_windows: false,
                     text_size: 14.0,
                     backends: vec![provider::Backend::Claude],
-                    local: true,
                 },
                 Ok(Settings::default()),
                 Start {
@@ -3267,7 +3212,6 @@ mod tests {
                     finds_windows: false,
                     text_size: 14.0,
                     backends: vec![provider::Backend::Claude],
-                    local: true,
                 },
                 Ok(settings),
                 Start {

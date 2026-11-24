@@ -127,7 +127,7 @@ impl<F: Frontend> App<F> {
             }
         };
         // As the card says: trusted for Claude Code too, so its permission rules apply.
-        self.ask_desktop(
+        self.ask_daemon(
             Act::TrustForClaudeCode {
                 folder: cwd.clone(),
             },
@@ -182,7 +182,7 @@ impl<F: Frontend> App<F> {
 
     pub(super) fn trust_for_claude_code(&mut self) {
         if let ClaudeTrustAsk::Asking(folder) = std::mem::take(&mut self.claude_trust_ask) {
-            self.ask_desktop(Act::TrustForClaudeCode { folder }, Acting::Desktop);
+            self.ask_daemon(Act::TrustForClaudeCode { folder }, Acting::Desktop);
         }
     }
 

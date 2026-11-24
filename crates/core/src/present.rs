@@ -55,20 +55,22 @@ pub enum EntriesChange {
     Set(usize, model::Entry),
 }
 
-/// What the window does on the desktop it is on, which is the user's, when edualcd isn't on that
-/// machine (a window on edualcd's own machine has edualcd do it for it): edualcd may run where
-/// no one is at the desktop. What fails is told as `Event::SeatFailed`, but for a notification
-/// (a desktop without a notification service would have an error for each); a paste comes back
-/// as `Event::Pasted`.
+/// What the window does on the desktop it is on, which is the user's; edualcd may run where no
+/// one sits. A failure comes back as `Event::SeatFailed`, but a notification's doesn't: a
+/// desktop without a notification service would show an error for each.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Seat {
-    /// A web page or mail, in the desktop's browser (checked to be one, see
+    /// Opens a web page or mail in the desktop's browser; anything else is refused (see
     /// `desktop::is_web_link`).
     OpenUrl(String),
-    /// A notification; its texts come from other sessions' records, and are taken as text.
+    /// Shows a notification. Its texts come from other sessions' records: show them as text.
     Notify { summary: String, body: String },
-    /// The clipboard's image, if it holds one, made ready to send.
+    /// Reads the clipboard's image; answered by `Event::Pasted`.
     PasteImage,
+    /// Asks the desktop's folder picker for a folder; answered by `Event::Picked`.
+    PickFolder(crate::ipc::ActId),
+    /// Brings forward the window of the program that runs process `pid`.
+    FocusWindowOf { pid: u32 },
 }
 
 /// What the window is told to do, rather than to show: its own state the app sets now and
@@ -145,8 +147,7 @@ pub trait Frontend {
     /// Lets go of the images but those `shown` holds: the conversation was replaced.
     fn keep_images(&mut self, shown: &HashSet<ImageKey>);
     fn command(&mut self, command: Command);
-    /// Does something on the desktop the frontend is on, the user's (see [`Seat`]). A window
-    /// on edualcd's own machine is never asked: edualcd does it.
+    /// Does something on the desktop the frontend is on (see [`Seat`]).
     fn seat(&mut self, _seat: Seat) {}
     /// What the composer holds now.
     fn draft(&self) -> String;

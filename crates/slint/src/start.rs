@@ -185,7 +185,7 @@ pub(crate) fn main() -> Result<std::process::ExitCode, slint::PlatformError> {
             .unwrap_or_else(|panic| std::panic::resume_unwind(panic));
         (fonts, text_size)
     });
-    let desktop = app::Desktop::of(&greeting, text_size);
+    let desktop = app::Desktop::of(&greeting, text_size, crate::seat::finds_windows());
     let (events, received) = async_channel::unbounded();
     let link = match connect::run(line, events.clone()) {
         Ok(link) => link,

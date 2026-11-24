@@ -35,10 +35,6 @@ subtle.workspace = true
 clap.workspace = true
 # The agents edualc runs through ACP, named by their variants.
 strum = { version = "0.28", features = ["derive"] }
-# Opens links in the browser.
-open = "5"
-# The desktop's own folder picker, through its portal on Linux.
-rfd = "0.18"
 # The Anthropic API key, kept in the desktop's keyring (the Secret Service) rather than a file;
 # its D-Bus (zbus) is already built for a dependency.
 oo7 = { version = "0.7", default-features = false, features = ["tokio", "native_crypto"] }
@@ -46,10 +42,6 @@ axum.workspace = true
 rcgen.workspace = true
 rustls.workspace = true
 tokio-rustls.workspace = true
-
-# rfd's Wayland client, loaded as it is needed rather than linked: edualcd also runs where no
-# Wayland is installed. The window's Slint asks the same; edualcd alone doesn't.
-wayland-backend = { version = "0.3", features = ["dlopen"] }
 
 [dev-dependencies]
 proptest.workspace = true

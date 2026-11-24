@@ -24,7 +24,6 @@ pub mod ws;
 pub use token::{Auth, Token};
 
 use crate::decode::{Picture, Refusal};
-use crate::desktop::Program;
 use crate::external::wire::TaskId;
 use crate::ids::SessionId;
 use crate::provider::Launch;
@@ -141,7 +140,7 @@ pub fn chunks(text: &str) -> impl Iterator<Item = &str> {
 
 /// Bumped with any change to the messages below, or to their framing: postcard isn't
 /// self-describing, so both ends must agree on every type.
-pub const PROTOCOL: u32 = 35;
+pub const PROTOCOL: u32 = 36;
 
 /// A window's key for a process it shows, new for each one: what an earlier one still says is
 /// dropped.
@@ -426,15 +425,8 @@ pub enum FromDaemon {
         protocol: u32,
         settings: Result<Settings, String>,
         live: Vec<LiveSession>,
-        /// Other programs' windows can be found (niri runs).
-        finds_windows: bool,
         /// Coding agent backends available on PATH when the window connected.
         backends: Vec<crate::provider::Backend>,
-        /// The window is on the daemon's machine, by its Unix socket: the daemon does what the
-        /// desktop is asked for it (links, notifications, the clipboard, editors, the folder
-        /// picker, finding windows). A line over the network is no such window's: what the
-        /// desktop is asked there is the window's own to do, and the daemon refuses it.
-        local: bool,
         /// The daemon's user's home folder, where a window with no folder of its own opens.
         home: PathBuf,
     },
@@ -463,11 +455,6 @@ pub enum FromDaemon {
         request: ActId,
         result: Result<(), ActFailure>,
     },
-    /// The folder picked, if one was.
-    Picked {
-        request: ActId,
-        folder: Option<PathBuf>,
-    },
     /// Whether the terminal's trust dialog was accepted for the folder asked about.
     Trusted { request: ActId, trust: FolderTrust },
     /// Whether Claude Code counts the folder as trusted, as asked by `Act::CheckClaudeTrust`,
@@ -480,13 +467,6 @@ pub enum FromDaemon {
     Hosted(Vec<Hosted>),
     /// A window asked the daemon to shut down: its sessions end, and then it.
     ShuttingDown,
-    /// The clipboard's image, or why there is none: a [`Pasted`], postcard-encoded, in pieces
-    /// that fit messages; the last piece ends it.
-    Pasted {
-        request: ActId,
-        piece: Vec<u8>,
-        last: bool,
-    },
     /// What was read, as asked by `Read`.
     Answer { request: ActId, answer: Answer },
     /// Part of a large `Overview` answer, sent before `Answer::Overview`.
@@ -736,26 +716,10 @@ pub enum StartFailure {
     ApiKey(String),
 }
 
-/// Why the desktop didn't do what it was asked, as the window is told.
+/// Why the daemon didn't do what it was asked, as the window is told.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, thiserror::Error)]
 #[serde(deny_unknown_fields)]
 pub enum ActFailure {
-    #[error("couldn't run {program}: {reason}")]
-    Run { program: Program, reason: String },
-    #[error("{program} failed: {stderr}")]
-    Failed { program: Program, stderr: String },
-    #[error("{0}")]
-    Niri(String),
-    #[error(
-        "no window holds process {0}; it may run in the background or in a terminal multiplexer"
-    )]
-    NoWindow(u32),
-    #[error("finding a session's window needs niri (NIRI_SOCKET is unset)")]
-    NoNiri,
-    #[error("not opened: {0}\nOnly web links open from here; copy it to open it yourself.")]
-    NotAWebLink(String),
-    #[error("couldn't open {link}: {reason}")]
-    Open { link: String, reason: String },
     #[error("the daemon failed doing it")]
     Crashed,
     #[error("the keyring: {0}")]
@@ -765,39 +729,6 @@ pub enum ActFailure {
     /// Claude Code's settings couldn't be read or written: the daemon's words.
     #[error("couldn't record the folder as trusted for Claude Code: {0}")]
     ClaudeCodeTrust(String),
-    #[error("the daemon is on another machine: its desktop isn't yours")]
-    NotHere,
-}
-
-impl From<crate::desktop::Error> for ActFailure {
-    fn from(error: crate::desktop::Error) -> Self {
-        use crate::desktop::Error;
-        use crate::external::niri;
-        match error {
-            Error::Run { program, source } => Self::Run {
-                program,
-                reason: source.to_string(),
-            },
-            Error::Failed { program, stderr } => Self::Failed { program, stderr },
-            Error::Niri(niri::Error::NotRunning) => Self::NoNiri,
-            Error::Niri(
-                error @ (niri::Error::Socket(_)
-                | niri::Error::Request(_)
-                | niri::Error::Answer(_)
-                | niri::Error::Refused(_)),
-            ) => Self::Niri(error.to_string()),
-            Error::NoWindow(pid) => Self::NoWindow(pid),
-            // Told as a program that couldn't run, which every window reads, not as a reason
-            // of its own.
-            Error::TimedOut { program } => Self::Run {
-                program,
-                reason: format!(
-                    "it didn't end within {}s",
-                    crate::desktop::RUN_LIMIT.as_secs()
-                ),
-            },
-        }
-    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -835,16 +766,10 @@ impl std::fmt::Debug for ApiKey {
     }
 }
 
-/// What the window can have the desktop do, through the daemon.
+/// What the window asks the daemon to do on the daemon's machine.
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub enum Act {
-    /// A link from the conversation: only web pages and mail are opened.
-    OpenUrl(String),
-    /// The desktop's folder picker, for a folder to open; answered by `Picked`.
-    PickFolder,
-    /// The clipboard's image, if it holds one; answered by `Pasted`.
-    PasteImage,
     /// Whether the terminal's trust dialog was accepted for the folder, or one it is in, which
     /// the window can't read (see [`crate::trust`]); answered by [`FromDaemon::Trusted`].
     CheckTrust {
@@ -859,13 +784,6 @@ pub enum Act {
     /// dialog would; answered by `Done`.
     TrustForClaudeCode {
         folder: PathBuf,
-    },
-    Notify {
-        summary: String,
-        body: String,
-    },
-    FocusWindowOf {
-        pid: u32,
     },
     /// Keeps the key in the desktop's keyring, in place of one kept before.
     StoreApiKey(ApiKey),
@@ -893,33 +811,6 @@ pub enum Act {
         session: SessionId,
         path: PathBuf,
     },
-}
-
-impl Act {
-    /// Whether it is done on the desktop of the daemon's machine, which only a window there
-    /// (its Unix socket) has any say in.
-    #[must_use]
-    pub fn needs_its_desktop(&self) -> bool {
-        match self {
-            Self::OpenUrl(_)
-            | Self::PickFolder
-            | Self::PasteImage
-            | Self::Notify { .. }
-            | Self::FocusWindowOf { .. } => true,
-            // edualcd's machine's, where the window's sessions run: its keyring holds the API key
-            // they sign in with.
-            Self::CheckTrust { .. }
-            | Self::CheckClaudeTrust { .. }
-            | Self::TrustForClaudeCode { .. }
-            | Self::StoreApiKey(_)
-            | Self::RemoveApiKey
-            | Self::CheckApiKey
-            | Self::CreateProject { .. }
-            | Self::ChangesLooked { .. }
-            | Self::MarkReviewed { .. }
-            | Self::UnmarkReviewed { .. } => false,
-        }
-    }
 }
 
 #[cfg(test)]

@@ -32,21 +32,6 @@ const QUIET: Duration = Duration::from_secs(60 * 60);
 const QUEUE: usize = 1024;
 /// Permission requests kept for a window to come: more unanswered than this is a runaway.
 const MAX_PENDING: usize = 64;
-/// How long the clipboard's owner gets to hand over what it holds.
-const CLIPBOARD: Duration = Duration::from_secs(5);
-/// The most of the clipboard's list of types read: a few dozen names.
-const MAX_CLIPBOARD_TYPES_BYTES: usize = 64 * 1024;
-
-/// How a window reaches the daemon, and so how far it is trusted with the machine.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Reach {
-    /// By the Unix socket: a program on this machine, this user's, installed beside the daemon.
-    /// What the desktop is asked, the daemon does for it.
-    Local,
-    /// Over the network, with the token: a page or an app, whose desktop is its own, and whose
-    /// asks of this one are refused.
-    Network,
-}
 
 /// A window's line, whatever carries it: what it asks (its hello first) and where what the
 /// daemon says to it goes. Whatever carries the line makes the messages and takes them.
@@ -191,7 +176,6 @@ async fn serve(listener: ipc::Listener, options: Options) -> Result<(), ipc::Err
                     last_window = last_window.next();
                     windows.spawn(window_over(
                         line,
-                        Reach::Network,
                         last_window,
                         hub.clone(),
                         keeper.clone(),
@@ -264,7 +248,7 @@ mod tests {
     use std::collections::BTreeSet;
     use std::path::{Path, PathBuf};
 
-    use super::acts::{act_for, create_project};
+    use super::acts::create_project;
     use super::connection::{Ask, Connection, Effect};
     use super::hub::{Order, Step, ToHub};
     use super::pending::Pending;
@@ -276,51 +260,19 @@ mod tests {
     use crate::external::wire;
     use crate::ids::SessionId;
     use crate::ipc::{
-        Act, ActFailure, ActId, CreateProjectError, Generation, HostedId, HostedState, ProjectName,
-        StartFailure, Stream,
+        CreateProjectError, Generation, HostedId, HostedState, ProjectName, StartFailure, Stream,
     };
     use crate::provider::{Conversation, FolderConfiguration, Launch, SignInWith};
     use crate::spawn;
 
     #[tokio::test]
-    async fn a_line_over_the_network_has_no_say_in_this_machines_desktop() {
-        let (outbox, mut says) = mpsc::channel(8);
-        let request = ActId::default();
-        for act in [
-            Act::OpenUrl("https://example.org/".to_owned()),
-            Act::Notify {
-                summary: "a".to_owned(),
-                body: "b".to_owned(),
-            },
-            Act::FocusWindowOf { pid: 1 },
-        ] {
-            act_for(request, act, Reach::Network, outbox.clone()).await;
-            assert!(matches!(
-                says.recv().await,
-                Some(FromDaemon::Done {
-                    result: Err(ActFailure::NotHere),
-                    ..
-                })
-            ));
-        }
-        act_for(request, Act::PickFolder, Reach::Network, outbox.clone()).await;
-        assert!(matches!(
-            says.recv().await,
-            Some(FromDaemon::Picked { folder: None, .. })
-        ));
-        act_for(request, Act::PasteImage, Reach::Network, outbox).await;
-        assert!(matches!(says.recv().await, Some(FromDaemon::Pasted { .. })));
-    }
-
-    #[tokio::test]
-    async fn the_hello_of_a_network_line_says_it_is_not_local() {
+    async fn a_line_over_the_network_is_greeted() {
         let (line, asks, mut says) = Line::pair();
         let (hub, _hub_requests) = mpsc::channel(8);
         let (settings_keeper, _settings_changes) = mpsc::channel(8);
         let (catalog, _catalog_queries) = mpsc::channel(8);
         let window = tokio::spawn(window_over(
             line,
-            Reach::Network,
             WindowId(1),
             hub,
             no_keeper(),
@@ -332,15 +284,10 @@ mod tests {
         })
         .await
         .expect("sent");
-        let Some(FromDaemon::Hello {
-            local,
-            finds_windows,
-            ..
-        }) = says.recv().await
-        else {
-            panic!("the daemon greets the window");
-        };
-        assert!(!local && !finds_windows);
+        assert!(matches!(
+            says.recv().await,
+            Some(FromDaemon::Hello { protocol, .. }) if protocol == ipc::PROTOCOL
+        ));
         drop(asks);
         window
             .await
@@ -442,7 +389,7 @@ mod tests {
     fn a_connection_works_out_what_requests_come_to() {
         let key = Generation::default().next();
         let unused_key = key.next();
-        let mut connection = Connection::new(WindowId(1), Reach::Local);
+        let mut connection = Connection::new(WindowId(1));
         assert_eq!(
             connection.handle(ToDaemon::Start {
                 key,
@@ -868,7 +815,7 @@ mod tests {
 
     #[test]
     fn a_window_asks_the_hub_to_shut_down() {
-        let mut connection = Connection::new(WindowId(1), Reach::Local);
+        let mut connection = Connection::new(WindowId(1));
         assert_eq!(
             connection.handle(ToDaemon::ShutDown),
             [Effect::Hub(Ask::ShutDown)]

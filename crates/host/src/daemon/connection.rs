@@ -15,7 +15,7 @@ use crate::{files, sessions, settings, snapshots};
 
 use super::acts::act_for;
 use super::hub::ToHub;
-use super::{HELLO, Line, QUEUE, Reach, keep, tell};
+use super::{HELLO, Line, QUEUE, keep, tell};
 
 /// A window's connection by the socket: its two directions pumped into a [`Line`].
 pub(super) async fn window(
@@ -46,16 +46,7 @@ pub(super) async fn window(
         }
     });
     let writer = tokio::spawn(write(writing, answers));
-    window_over(
-        line,
-        Reach::Local,
-        id,
-        hub,
-        keeper,
-        settings_keeper,
-        catalog,
-    )
-    .await;
+    window_over(line, id, hub, keeper, settings_keeper, catalog).await;
     reader.abort();
     if let Err(error) = writer.await {
         tracing::debug!(%error, "the writer ended");
@@ -66,7 +57,6 @@ pub(super) async fn window(
 /// [`Connection`], and what the hub, sessions and the desktop say back, until it hangs up.
 pub(super) async fn window_over(
     line: Line,
-    reach: Reach,
     id: WindowId,
     hub: mpsc::Sender<ToHub>,
     keeper: mpsc::Sender<snapshots::Job>,
@@ -79,7 +69,6 @@ pub(super) async fn window_over(
     } = line;
     match tokio::time::timeout(HELLO, requests.recv()).await {
         Ok(Some(ToDaemon::Hello { protocol })) => {
-            let local = reach == Reach::Local;
             let (settings, live, backends) = tokio::task::spawn_blocking(move || {
                 (
                     settings::load().map_err(|error| error.to_string()),
@@ -93,8 +82,6 @@ pub(super) async fn window_over(
                 protocol: ipc::PROTOCOL,
                 settings,
                 live,
-                finds_windows: local && std::env::var_os("NIRI_SOCKET").is_some(),
-                local,
                 home: dirs::home_dir().unwrap_or_else(|| std::path::PathBuf::from("/")),
                 backends,
             };
@@ -112,7 +99,7 @@ pub(super) async fn window_over(
             return;
         }
     }
-    let connection = Connection::new(id, reach)
+    let connection = Connection::new(id)
         .event_loop(requests, outbox, hub, keeper, settings_keeper, catalog)
         .await;
     tracing::info!(window = ?connection.id, "a window's connection ended");
@@ -198,15 +185,13 @@ impl WindowId {
 #[derive(Debug, PartialEq, Eq)]
 pub(super) struct Connection {
     pub(super) id: WindowId,
-    pub(super) reach: Reach,
     pub(super) keys: BTreeMap<Generation, String>,
 }
 
 impl Connection {
-    pub(super) fn new(id: WindowId, reach: Reach) -> Self {
+    pub(super) fn new(id: WindowId) -> Self {
         Self {
             id,
-            reach,
             keys: BTreeMap::new(),
         }
     }
@@ -280,7 +265,7 @@ impl Connection {
                     }
                     Effect::Act { request, act } => {
                         let outbox = outbox.clone();
-                        tokio::spawn(act_for(request, act, self.reach, outbox));
+                        tokio::spawn(act_for(request, act, outbox));
                     }
                     Effect::Refuse { key, failure } => {
                         tell(&outbox, FromDaemon::Failed { key, failure }).await;

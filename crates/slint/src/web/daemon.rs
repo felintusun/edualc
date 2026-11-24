@@ -8,7 +8,7 @@ use async_channel::{Receiver, Sender};
 use crate::app::Event;
 use crate::demo::script::{Session, Sink};
 use crate::demo::world as demo;
-use crate::ipc::{Act, ActFailure, ActId, Answer, Generation, PasteFailure, Place, Read, ToDaemon};
+use crate::ipc::{Act, ActFailure, ActId, Answer, Generation, Place, Read, ToDaemon};
 
 /// Answers the window until it closes.
 pub(crate) async fn run(requests: Receiver<ToDaemon>, events: Sender<Event>) {
@@ -134,14 +134,6 @@ fn acted(events: &Sender<Event>, request: ActId, act: Act) {
             request,
             trusted: Ok(true),
         },
-        Act::PickFolder => Event::Picked {
-            request,
-            folder: None,
-        },
-        Act::PasteImage => Event::Pasted {
-            request,
-            pasted: Err(PasteFailure::NoImage),
-        },
         // A page has no keyring to keep a key in.
         Act::CheckApiKey => Event::ApiKeyStored(Ok(false)),
         Act::StoreApiKey(_) | Act::RemoveApiKey => Event::Acted {
@@ -158,10 +150,7 @@ fn acted(events: &Sender<Event>, request: ActId, act: Act) {
         Act::ChangesLooked { .. } | Act::MarkReviewed { .. } | Act::UnmarkReviewed { .. } => {
             return;
         }
-        Act::OpenUrl(_)
-        | Act::Notify { .. }
-        | Act::FocusWindowOf { .. }
-        | Act::TrustForClaudeCode { .. } => Event::Acted {
+        Act::TrustForClaudeCode { .. } => Event::Acted {
             request,
             result: Ok(()),
         },

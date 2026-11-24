@@ -118,7 +118,7 @@ impl<F: Frontend> App<F> {
     /// Closes the view: "since you last looked" starts from here.
     pub(super) fn close_changes(&mut self) {
         if let Some(view) = self.changes.take() {
-            self.ask_desktop(
+            self.ask_daemon(
                 Act::ChangesLooked {
                     session: view.session,
                 },
@@ -276,7 +276,7 @@ impl<F: Frontend> App<F> {
                 now: file.now,
             }
         };
-        self.ask_desktop(act, Acting::Desktop);
+        self.ask_daemon(act, Acting::Desktop);
         self.redraw.changes = true;
     }
 

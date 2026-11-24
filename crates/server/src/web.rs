@@ -160,7 +160,8 @@ pub fn begin(
         view::PageFrontend::new(view),
         events,
         link,
-        Desktop::of(&greeting, view::DESKTOP_TEXT_SIZE),
+        // A page or a phone can't bring another program's window forward.
+        Desktop::of(&greeting, view::DESKTOP_TEXT_SIZE, false),
         greeting.settings.clone(),
         edualc_core::app::Start {
             cwd,

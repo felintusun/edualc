@@ -301,6 +301,11 @@ impl Frontend for PageFrontend {
             Seat::OpenUrl(url) => platform::open_url(&url),
             Seat::Notify { summary, body } => platform::notify(&summary, &body),
             Seat::PasteImage => platform::paste_image(self.view),
+            // The page doesn't offer these: a folder is typed, and a page brings forward no
+            // other program's window.
+            Seat::PickFolder(_) | Seat::FocusWindowOf { .. } => {
+                tracing::debug!(?seat, "not offered on a page");
+            }
         }
     }
 
