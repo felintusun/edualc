@@ -15,7 +15,7 @@ const CONTINUE_PROMPT: &str = "Your claude.ai usage limit has reset. Continue th
 const AFTER_RESET: SignedDuration = SignedDuration::from_secs(30);
 
 impl<F: Frontend> App<F> {
-    /// A turn ended on the plan's usage limit: Claude Code is asked when it resets.
+    /// Asks Claude Code when the limit resets, after a turn ended on the plan's usage limit.
     pub(super) fn limit_reached(&mut self) {
         self.status.limit_wait = LimitWait::Asking;
         if !self.ask_limits() {
@@ -66,7 +66,7 @@ impl<F: Frontend> App<F> {
         self.set_limit_reset();
     }
 
-    /// The user doesn't want the turn to go on by itself.
+    /// Stops waiting for the limit to reset, as you don't want the turn to go on by itself.
     pub(super) fn cancel_limit_wait(&mut self) {
         self.status.limit_wait = LimitWait::Idle;
         self.chat
@@ -101,8 +101,8 @@ impl<F: Frontend> App<F> {
             .start(wait, self.events.clone(), || Event::LimitReset);
     }
 
-    /// A limit started over: the bars are asked for again, and a turn that waited for it
-    /// goes on. The timer fires once: it is set again for the next reset.
+    /// Asks for the bars again once a limit resets, and lets a turn that waited for it go on.
+    /// The timer fires once and is set again for the next reset.
     pub(super) fn limit_reset(&mut self) {
         self.limit_reset.stop();
         if let LimitWait::Until(at) = self.status.limit_wait

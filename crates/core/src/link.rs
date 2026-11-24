@@ -32,7 +32,7 @@ pub fn send(link: &Link, message: ToDaemon) -> Result<(), Lost> {
     }
 }
 
-/// A command for a session, in pieces that each fit a message.
+/// Sends a command for a session in pieces that each fit a message.
 pub fn send_command(link: &Link, key: Generation, line: &str) -> Result<(), Lost> {
     let mut pieces = ipc::chunks(line).peekable();
     while let Some(text) = pieces.next() {
@@ -61,7 +61,7 @@ pub struct Greeting {
     pub settings: Result<Settings, String>,
     /// The daemon's user's home folder, if it has one.
     pub home: Option<std::path::PathBuf>,
-    /// Coding agent backends available on PATH when the window connected.
+    /// The programs on PATH when the window connected.
     pub backends: Vec<crate::provider::Backend>,
 }
 
@@ -77,11 +77,12 @@ pub enum NotGreeted {
     OutOfTurn,
 }
 
-/// The daemon's greeting, from its first two messages (its hello, then the sessions it runs),
-/// and the D-Bus the window is to use, which only a window on its machine has any use for.
+/// Reads the daemon's greeting from its first two messages: its hello, then the sessions it
+/// runs.
 ///
 /// # Errors
-/// If the first is another version's hello or not one, or the second isn't the sessions.
+///
+/// Fails if the first is another version's hello or not one, or the second isn't the sessions.
 pub fn greeted(hello: FromDaemon, hosted: FromDaemon) -> Result<Greeting, NotGreeted> {
     let FromDaemon::Hello {
         protocol,
@@ -121,7 +122,8 @@ pub struct Inbox {
 }
 
 impl Inbox {
-    /// What `message` makes of the app's events, if it makes one (a piece of a line doesn't).
+    /// Takes a message and returns the app's event it makes, if any; a piece of a line makes
+    /// none.
     pub fn take(&mut self, message: FromDaemon) -> Option<Event> {
         match message {
             FromDaemon::Started { key, pid, turns } => {

@@ -28,7 +28,7 @@ pub enum SignIn {
 }
 
 impl SignIn {
-    /// Whether the user is being shown how to sign in.
+    /// Returns whether you are being shown how to sign in.
     pub fn waits_for_user(&self) -> bool {
         matches!(self, Self::Refused { .. } | Self::Asked)
     }
@@ -205,10 +205,10 @@ impl<F: Frontend> App<F> {
         self.process.is_some()
     }
 
-    /// Whether the session shown has something under way that ending its process would cut
-    /// short: a turn (from its prompt being written on), a `!` command, a request waiting for
-    /// the user, or a task running in the background (a subagent, a shell, a monitor), which a
-    /// stopped turn leaves running.
+    /// Returns whether the session shown has something under way that ending its process would
+    /// cut short: a turn from its prompt being written on, a `!` command, a request waiting for
+    /// you, or a background task (a subagent, a shell, a monitor), which a stopped turn leaves
+    /// running.
     pub(super) fn under_way(&self) -> bool {
         self.status.in_turn()
             || self.chat.shell_running()
@@ -261,9 +261,10 @@ impl<F: Frontend> App<F> {
         }
     }
 
-    /// The line to edualcd is back: what was watched is watched again, and the session shown
-    /// is opened again, from its transcript, which has what was said meanwhile. One this window
-    /// ran was let go of as the window came again (see the daemon's hub), and is attached to.
+    /// Picks up again once the line to edualcd is back: watches again what was watched, and
+    /// opens the session shown from its transcript, which has what was said meanwhile. A
+    /// session this window ran was let go of as the window came back (see the daemon's hub),
+    /// and is attached to again.
     pub(super) fn reconnected(&mut self, hosted: Vec<Hosted>, live: Vec<LiveSession>) {
         self.view.set_running_sessions(hosted.len());
         self.hosted = hosted;

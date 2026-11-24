@@ -99,7 +99,7 @@ pub struct ChangeSet {
 }
 
 impl ChangeSet {
-    /// Lines added and removed, over all its files.
+    /// Counts the lines added and removed over all its files.
     pub fn lines(&self) -> (u32, u32) {
         self.files.iter().fold((0, 0), |(added, removed), file| {
             (
@@ -170,7 +170,8 @@ pub struct Diff {
 }
 
 impl Diff {
-    /// `hunks`, at most [`MOST_DIFF_LINES`] lines of at most [`LONGEST_DIFF_LINE`] characters.
+    /// Cuts `hunks` to at most [`MOST_DIFF_LINES`] lines of at most [`LONGEST_DIFF_LINE`]
+    /// characters.
     pub fn fitted(hunks: Vec<Hunk>) -> Self {
         let mut left = MOST_DIFF_LINES;
         let mut cut = false;
@@ -203,7 +204,7 @@ impl Diff {
     }
 }
 
-/// Lines added and removed from `old` to `new`.
+/// Counts the lines added and removed from `old` to `new`.
 pub fn counts(old: &str, new: &str) -> (u32, u32) {
     let diff = similar::TextDiff::from_lines(old, new);
     diff.iter_all_changes()
@@ -216,7 +217,6 @@ pub fn counts(old: &str, new: &str) -> (u32, u32) {
         })
 }
 
-/// The hunks from `old` to `new`.
 pub fn hunks(old: &str, new: &str) -> Vec<Hunk> {
     let diff = similar::TextDiff::from_lines(old, new);
     let number = |index: Option<usize>| {

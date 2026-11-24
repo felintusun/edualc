@@ -29,11 +29,11 @@ pub enum Standing {
 }
 
 impl CjkText {
-    /// The CJK characters in `text`, if it has any: Japanese with kana among them, Korean
-    /// with Hangul, `han` with Han characters alone. They are the main script with at least
-    /// half as many as other letters (a CJK character carries about what a short word does),
-    /// and guests with fewer, as in an English text that quotes a word. Code, between
-    /// backticks, doesn't count.
+    /// Returns the CJK characters in `text`, if it has any: Japanese with kana among them,
+    /// Korean with Hangul, `han` with Han characters alone. They are the main script with at
+    /// least half as many as other letters, as a CJK character carries about what a short word
+    /// does, and guests with fewer, as in an English text that quotes a word. Code between
+    /// backticks doesn't count.
     pub fn of(text: &str, han: CjkLanguage) -> Option<Self> {
         let mut has_kana = false;
         let mut has_hangul = false;
@@ -72,7 +72,7 @@ impl CjkText {
 }
 
 impl CjkLanguage {
-    /// The CJK language a locale ("ja_JP.UTF-8", "zh_TW") names, if it names one.
+    /// Returns the CJK language a locale ("ja_JP.UTF-8", "zh_TW") names, if it names one.
     pub fn of_locale(locale: &str) -> Option<Self> {
         let locale = locale.to_ascii_lowercase().replace('-', "_");
         let traditional = ["zh_tw", "zh_hk", "zh_mo", "zh_hant"];
@@ -89,7 +89,7 @@ impl CjkLanguage {
         }
     }
 
-    /// The desktop's language, if it is a CJK one: the first locale set of `LC_ALL`,
+    /// Returns the desktop's language if it is a CJK one: the first locale set of `LC_ALL`,
     /// `LC_MESSAGES` and `LANG`.
     pub fn of_desktop() -> Option<Self> {
         ["LC_ALL", "LC_MESSAGES", "LANG"]
@@ -100,7 +100,8 @@ impl CjkLanguage {
     }
 }
 
-/// The characters of `text` outside code, which Markdown sets between runs of backticks.
+/// Returns the characters of `text` outside code, which Markdown sets between runs of
+/// backticks.
 fn outside_code(text: &str) -> impl Iterator<Item = char> + '_ {
     let mut in_code = false;
     let mut after_backtick = false;

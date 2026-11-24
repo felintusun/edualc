@@ -22,7 +22,7 @@ pub enum FolderError {
 }
 
 impl Folder {
-    /// The folder a path typed by the user names; `~` at its start is `home`.
+    /// Reads the folder a typed path names, with a leading `~` as `home`.
     pub fn typed(text: &str, home: Option<&Path>) -> Result<Self, FolderError> {
         let text = text.trim();
         let path = match (text.strip_prefix('~'), home) {
@@ -34,7 +34,7 @@ impl Folder {
         Self::at(path)
     }
 
-    /// The folder at `path`, as the folder picker gives it.
+    /// Reads the folder at `path`, as the folder picker gives it.
     pub fn at(path: PathBuf) -> Result<Self, FolderError> {
         match path.canonicalize() {
             Ok(canonical) if canonical.is_dir() => Ok(Self(canonical)),
@@ -46,7 +46,7 @@ impl Folder {
         }
     }
 
-    /// A folder the daemon found to be one, and made whole (`ipc::Read::Folder`).
+    /// Takes a folder the daemon checked and resolved (`ipc::Read::Folder`).
     pub fn checked(path: PathBuf) -> Self {
         Self(path)
     }

@@ -40,8 +40,8 @@ pub enum Error {
 }
 
 impl Error {
-    /// Whether reaching edualcd again could go otherwise: not if it refused the window's token
-    /// or version, nor shows another certificate.
+    /// Returns whether reaching edualcd again could go otherwise: not if it refused the
+    /// window's token or version, or shows another certificate.
     fn passes(&self) -> bool {
         match self {
             Self::Line(ws::Error::Token | ws::Error::Version(_) | ws::Error::Certificate(_))
@@ -66,8 +66,8 @@ pub struct Connected {
 }
 
 impl Connected {
-    /// Where edualcd keeps the session `id`'s transcript, as it says: the folder it was started
-    /// in, if that is known, for a window that goes on with it.
+    /// Asks edualcd where it keeps session `id`'s transcript, and the folder the session was
+    /// started in if that is known, for a window that goes on with it.
     pub fn saved(&mut self, id: &SessionId) -> Result<Saved, Error> {
         let Answer::Saved(saved) = self.ask(Read::Saved(id.clone()))? else {
             return Err(Error::Unanswered);
@@ -147,9 +147,9 @@ pub fn connect(server: &Server) -> Result<Connected, Error> {
     })
 }
 
-/// The handshakes and the token, the hello, then the sessions edualcd runs, which come first;
-/// each bounded in time, so that a line that opens and then says nothing (the network changing
-/// just then, say) is given up rather than waited on.
+/// Goes through the handshakes and the token, then takes the hello and the sessions edualcd
+/// runs, which come first. Each step is bounded in time, so that a line that opens and then
+/// says nothing, as when the network changes just then, is given up rather than waited on.
 async fn greet(
     server: &Server,
     addresses: &[SocketAddr],

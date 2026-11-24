@@ -40,7 +40,7 @@ pub enum Answer {
 }
 
 impl SideChat {
-    /// The answered questions, as the CLI takes them for a follow-up.
+    /// Returns the answered questions as Claude Code takes them for a follow-up.
     fn history(&self) -> Vec<SideTurn> {
         self.answered()
             .map(|(question, response)| SideTurn {
@@ -59,7 +59,7 @@ impl SideChat {
             })
     }
 
-    /// What was asked and answered, for the conversation (or a branch of it) to take up.
+    /// Writes what was asked and answered, for the conversation or a branch of it to take up.
     fn transcript(&self) -> String {
         let exchanges: Vec<String> = self
             .answered()
@@ -223,7 +223,7 @@ impl<F: Frontend> App<F> {
         self.send(&prompt);
     }
 
-    /// The process stopped: answers it owed won't come.
+    /// Stops waiting for side answers, as the process that owed them stopped.
     pub(super) fn side_lost(&mut self) {
         let program = self.status.backend.program();
         for exchange in &mut self.side.exchanges {

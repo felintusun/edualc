@@ -102,20 +102,20 @@ impl<Message: DeserializeOwned> Deframer<Message> {
         Ok(())
     }
 
-    /// The next whole message, if one came.
+    /// Takes the next whole message, if one came.
     pub fn take(&mut self) -> Option<Message> {
         self.ready.pop_front()
     }
 }
 
-/// The message in one frame (as [`frame`] makes it, its `0` left off or on): for a frame that
-/// came whole, the first of a line.
+/// Reads the message in one frame as [`frame`] makes it, with or without its `0`, for a frame
+/// that came whole, such as the first of a line.
 pub fn deframe<T: DeserializeOwned>(frame: &[u8]) -> Result<T, Error> {
     let mut bytes = frame.strip_suffix(&[0]).unwrap_or(frame).to_vec();
     postcard::from_bytes_cobs::<T>(&mut bytes).map_err(|_unreadable| Error::Unreadable)
 }
 
-/// A message as a frame: postcard's COBS, ended by a `0`.
+/// Writes a message as a frame: postcard's COBS, ended by a `0`.
 pub fn frame(message: &impl Serialize) -> Result<Vec<u8>, Error> {
     let frame = postcard::to_stdvec_cobs(message).map_err(Error::Encode)?;
     if frame.len() > MAX_FRAME {

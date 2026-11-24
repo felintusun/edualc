@@ -89,7 +89,7 @@ impl AcpOptionKind {
     }
 }
 
-/// The agent's choice of `kinds` that comes first, in that order.
+/// Returns the agent's choice of the first of `kinds` it offers, in that order.
 pub fn first_of<'options>(
     options: &'options [AcpOption],
     kinds: &[AcpOptionKind],
@@ -138,7 +138,7 @@ impl Call {
         }
     }
 
-    /// The file it reads, writes or edits.
+    /// Returns the file it reads, writes or edits.
     pub fn file(&self) -> Option<PathBuf> {
         match self {
             Self::Named { name, input } => tools::file_of(name, input),
@@ -146,7 +146,8 @@ impl Call {
         }
     }
 
-    /// Whether its card opens as it comes: one that changes files shows the change.
+    /// Returns whether its card opens as it comes, as one that changes files does to show the
+    /// change.
     pub fn opens_expanded(&self) -> bool {
         match self {
             Self::Named { name, .. } => name.opens_expanded(),
@@ -156,7 +157,7 @@ impl Call {
 }
 
 impl AcpCall {
-    /// The file it changes, or else the first it works on.
+    /// Returns the file it changes, or else the first it works on.
     pub fn file(&self) -> Option<&Path> {
         self.diffs
             .first()

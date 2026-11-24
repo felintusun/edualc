@@ -34,7 +34,7 @@ pub enum RunState {
     Failed,
 }
 
-/// How each of `entries` is shown; `open` holds the runs opened, by their first entry.
+/// Returns how each of `entries` is shown; `open` holds the runs opened, by their first entry.
 pub fn group(entries: &[Entry], open: &HashSet<usize>, cwd: &Path) -> Vec<Grouping> {
     let mut shown = vec![Grouping::Alone; entries.len()];
     let mut start = 0;
@@ -60,7 +60,8 @@ pub fn group(entries: &[Entry], open: &HashSet<usize>, cwd: &Path) -> Vec<Groupi
     shown
 }
 
-/// A tool call that may fold into a run: any but one waiting for the user.
+/// Returns the entry's tool call if it may fold into a run, as any may but one waiting for
+/// you.
 fn foldable(entry: &Entry) -> Option<&Tool> {
     match &entry.body {
         Body::Tool { tool, .. } if tool.state != ToolState::Awaiting => Some(tool),
@@ -77,8 +78,8 @@ fn foldable(entry: &Entry) -> Option<&Tool> {
     }
 }
 
-/// Where the run starting at `start` ends: foldable calls made by the same agent (the main
-/// conversation, or one subagent's calls nested under it).
+/// Returns where the run starting at `start` ends. A run is foldable calls made by the same
+/// agent: the main conversation, or one subagent whose calls nest under it.
 fn run_end(entries: &[Entry], start: usize) -> usize {
     let Some(first) = entries.get(start).filter(|entry| foldable(entry).is_some()) else {
         return start;
