@@ -51,7 +51,7 @@ fn io(path: &Path) -> impl FnOnce(std::io::Error) -> Error + '_ {
     }
 }
 
-/// Where the changes are kept.
+/// Returns where the changes are kept.
 pub fn home() -> Option<PathBuf> {
     dirs::state_dir().map(|state| state.join("edualc").join("changes"))
 }
@@ -116,7 +116,7 @@ pub struct Store {
 }
 
 impl Store {
-    /// The changes of `session` kept under `home`; none yet if it has none.
+    /// Opens the changes of `session` kept under `home`, empty if it has none yet.
     pub fn open(home: &Path, session: &SessionId) -> Result<Self, Error> {
         let dir = home.join("sessions").join(session.as_str());
         let index = read_json(&dir.join("index.json"))?.unwrap_or_default();
@@ -127,15 +127,15 @@ impl Store {
         })
     }
 
-    /// A turn starts in `root`: the folder as it is before it.
+    /// Keeps the folder `root` as it is before a turn starts.
     pub fn turn_started(&mut self, root: &Path) -> Result<(), Error> {
         let before = self.snapshot(root)?;
         self.index.open = Some(before);
         self.save_index()
     }
 
-    /// The turn under way ended, Claude's editing tools having named `touched`: the folder as it
-    /// is after it, and the turn's changes in short. None if no turn was under way.
+    /// Keeps the folder as it is after the turn under way, whose editing tools named `touched`,
+    /// and returns the turn's changes in short; `None` if no turn was under way.
     pub fn turn_ended(&mut self, touched: BTreeSet<PathBuf>) -> Result<Option<Summary>, Error> {
         let Some(before) = self.index.open.take() else {
             return Ok(None);
@@ -152,13 +152,13 @@ impl Store {
         Ok(Some(Summary::from(&changes)))
     }
 
-    /// You looked at the changes: "since you last looked" starts here.
+    /// Records that you looked at the changes, so "since you last looked" starts here.
     pub fn looked(&mut self) -> Result<(), Error> {
         self.index.looked = self.index.snapshots.len().checked_sub(1);
         self.save_index()
     }
 
-    /// You marked the file at `path` reviewed, or took the mark off.
+    /// Marks the file at `path` reviewed, or takes the mark off.
     pub fn mark_reviewed(&mut self, path: PathBuf, mark: Mark) -> Result<(), Error> {
         match mark {
             Mark::On(now) => {
@@ -171,7 +171,7 @@ impl Store {
         self.save_index()
     }
 
-    /// The changes in `scope`.
+    /// Returns the changes in `scope`.
     pub fn changes(&self, scope: Scope) -> Result<ChangeSet, Error> {
         let mut manifests = Manifests::default();
         let mut changes = ChangeSet::default();
@@ -213,7 +213,7 @@ impl Store {
         Ok(changes)
     }
 
-    /// The hunks of the file at `path` in `root`, in `scope`.
+    /// Returns the hunks of the file at `path` in `root`, in `scope`.
     pub fn hunks(&self, scope: Scope, root: &Path, path: &Path) -> Result<Vec<Hunk>, Error> {
         let mut manifests = Manifests::default();
         for (from, to) in self.pairs(scope) {
@@ -229,7 +229,8 @@ impl Store {
         Ok(Vec::new())
     }
 
-    /// The snapshots `scope` compares, one pair per folder: from the earliest to the latest.
+    /// Returns the snapshots `scope` compares, one pair per folder, from the earliest to the
+    /// latest.
     fn pairs(&self, scope: Scope) -> Vec<(usize, usize)> {
         let snapshots = &self.index.snapshots;
         match scope {
@@ -271,7 +272,8 @@ impl Store {
         }
     }
 
-    /// Who changed `path` in `root` between snapshots `from` and `to`, by the turns between.
+    /// Returns who changed `path` in `root` between snapshots `from` and `to`, by the turns
+    /// between.
     fn who(
         &self,
         root: &Path,
@@ -317,7 +319,7 @@ impl Store {
             .ok_or(Error::NoSnapshot(index))
     }
 
-    /// Snapshot `index` whole, from its deltas.
+    /// Rebuilds snapshot `index` whole from its deltas.
     fn manifest<'a>(
         &self,
         index: usize,
@@ -339,7 +341,7 @@ impl Store {
         manifests.0.get(&index).ok_or(Error::NoSnapshot(index))
     }
 
-    /// What a file holds as text, or nothing for one that isn't there.
+    /// Returns what a file holds as text, empty for one that isn't there.
     fn text(&self, seen: Option<&Seen>) -> Result<String, Error> {
         let Some(seen) = seen else {
             return Ok(String::new());
@@ -353,7 +355,7 @@ impl Store {
         self.dir.join(format!("snapshot-{index}.json"))
     }
 
-    /// The folder `root` as it is now, kept as snapshot n, which is returned.
+    /// Keeps the folder `root` as it is now as a new snapshot, and returns its index.
     fn snapshot(&mut self, root: &Path) -> Result<usize, Error> {
         let base = (0..self.index.snapshots.len()).rev().find(|index| {
             self.index
@@ -400,7 +402,7 @@ impl Store {
 #[derive(Debug, Default)]
 struct Manifests(HashMap<usize, Manifest>);
 
-/// The files that differ between two snapshots of a folder: each with what it was and is.
+/// Lists the files that differ between two snapshots of a folder, each with what it was and is.
 fn differing(before: &Manifest, after: &Manifest) -> Vec<(PathBuf, Option<Seen>, Option<Seen>)> {
     let paths: BTreeSet<&PathBuf> = before.keys().chain(after.keys()).collect();
     paths
@@ -413,8 +415,8 @@ fn differing(before: &Manifest, after: &Manifest) -> Vec<(PathBuf, Option<Seen>,
         .collect()
 }
 
-/// Looks at the files in `root`: those unchanged in size and time since `earlier` are taken as
-/// they were, the others read, and their contents kept under `home`.
+/// Looks at the files in `root`. Those unchanged in size and time since `earlier` are taken as
+/// they were; the others are read, and their contents kept under `home`.
 fn look(root: &Path, earlier: &Manifest, home: &Path) -> Result<(Manifest, LeftOut), Error> {
     let mut manifest = Manifest::new();
     let mut left_out = LeftOut::default();
@@ -546,8 +548,8 @@ fn write_json<T: Serialize>(path: &Path, value: &T) -> Result<(), Error> {
     crate::files::write_atomically(folder, name, &bytes).map_err(io(path))
 }
 
-/// The files an ACP agent's call changes, if it edits or writes: those it shows changed, else
-/// those it works on.
+/// Returns the files an ACP agent's editing call changes: those it shows changed, else those it
+/// works on.
 pub fn edited_by(call: &AcpCall) -> Vec<PathBuf> {
     match call.kind() {
         ToolKind::Edit | ToolKind::Write if call.diffs.is_empty() => call.locations.clone(),
@@ -563,7 +565,7 @@ pub fn edited_by(call: &AcpCall) -> Vec<PathBuf> {
     }
 }
 
-/// The files an editing tool call names inside an assistant message's blocks.
+/// Returns the files the editing tool calls in an assistant message's blocks name.
 pub fn edited_in(blocks: &[ContentBlock]) -> Vec<PathBuf> {
     blocks
         .iter()
