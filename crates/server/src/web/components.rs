@@ -43,9 +43,9 @@ enum Area {
     Side,
 }
 
-/// The area after `from` (or before, not `forward`), of those shown: the side panel while it
-/// is. From nowhere, or from an area not shown, the round starts at what is written, as the
-/// native window's focus does.
+/// Returns the area shown after `from`, or before it if not `forward`; the side panel counts
+/// while it is shown. From nowhere, or from an area not shown, the round starts at the
+/// composer, as the native window's focus does.
 fn next_area(from: Option<Area>, forward: bool, side: bool) -> Area {
     let shown: Vec<Area> = [Area::Conversation, Area::Writing, Area::Side]
         .into_iter()

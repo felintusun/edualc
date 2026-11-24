@@ -31,7 +31,8 @@ impl Grab {
         *self.serial.write() += 1;
     }
 
-    /// Whether the focus is still to be taken; the effect asking runs again at every ask.
+    /// Returns whether the focus is still to be taken; the effect asking runs again at every
+    /// ask.
     fn asked(self) -> bool {
         (self.serial)();
         *self.pending.peek()
@@ -42,8 +43,8 @@ impl Grab {
     }
 }
 
-/// The request shown as `serial`, as an answer names it, if it is still the one waiting: an
-/// answer meant for a request that went away is not given to the next.
+/// Returns the request shown as `serial`, as an answer names it, if it is still the one
+/// waiting, so that an answer meant for a request that went away isn't given to the next.
 fn request(view: View, serial: i32) -> Option<RequestId> {
     let prompt = view.prompt.peek();
     (prompt.serial == serial).then(|| RequestId::from(prompt.request.clone()))
@@ -325,7 +326,7 @@ fn QuestionsPrompt(armed: bool, grab: Grab, current: Signal<usize>) -> Element {
     }
 }
 
-/// A tab's mark: whether its question is answered.
+/// Draws a tab's mark, which says whether its question is answered.
 fn answered_mark(answered: bool) -> Element {
     if answered {
         rsx! {
@@ -338,7 +339,7 @@ fn answered_mark(answered: bool) -> Element {
     }
 }
 
-/// A question's name on its tab: its header, or its place.
+/// Returns a question's name on its tab: its header, or its place.
 fn header(question: &Question, q: usize) -> String {
     if question.header.is_empty() {
         format!("Question {}", q + 1)
@@ -522,8 +523,8 @@ fn QuestionEntry(
     }
 }
 
-/// An option's look: picked, and ringed where the arrow keys are on it (the hover's colour
-/// alone doesn't show on one picked).
+/// Returns an option's class: picked, and ringed where the arrow keys are on it, as the hover's
+/// colour alone doesn't show on one picked.
 fn option_class(selected: bool, ringed: bool) -> &'static str {
     match (selected, ringed) {
         (true, true) => "prompt-option selected ringed",
@@ -533,7 +534,8 @@ fn option_class(selected: bool, ringed: bool) -> &'static str {
     }
 }
 
-/// An option's mark: a box for one of any number, a circle for a single choice.
+/// Returns an option's mark: a box where any number may be picked, a circle for a single
+/// choice.
 fn option_icon(multi: bool, selected: bool) -> Lucide {
     match (multi, selected) {
         (true, true) => Lucide::SquareCheck,

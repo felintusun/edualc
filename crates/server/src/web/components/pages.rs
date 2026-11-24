@@ -63,7 +63,8 @@ impl DialogOpen {
     }
 }
 
-/// Whether `needle` (lower case, trimmed) is in any of `texts`; an empty one is in all.
+/// Returns whether `needle`, lower case and trimmed, is in any of `texts`; an empty one is in
+/// all.
 fn matches(needle: &str, texts: &[&str]) -> bool {
     needle.is_empty()
         || texts
@@ -71,7 +72,8 @@ fn matches(needle: &str, texts: &[&str]) -> bool {
             .any(|text| text.to_lowercase().contains(needle))
 }
 
-/// The cards the filter leaves: by a project's name, where it is, or what was said last in it.
+/// Returns the cards the filter leaves, matched by a project's name, where it is, or what was
+/// said last in it.
 fn shown_cards<'a>(cards: &'a [ProjectCard], filter: &str) -> Vec<&'a ProjectCard> {
     let needle = filter.trim().to_lowercase();
     cards
@@ -80,8 +82,8 @@ fn shown_cards<'a>(cards: &'a [ProjectCard], filter: &str) -> Vec<&'a ProjectCar
         .collect()
 }
 
-/// The sessions the switcher's query leaves, by where each is in `items`: by title, project,
-/// or how they are doing.
+/// Returns where in `items` the sessions the switcher's query leaves are, matched by title,
+/// project, or how they are doing.
 fn shown_sessions(items: &[SwitcherItem], query: &str) -> Vec<usize> {
     let needle = query.trim().to_lowercase();
     items
@@ -132,8 +134,8 @@ fn PageFilter(
     }
 }
 
-/// The page's filter takes the focus as the page is shown, and when the app asks (Ctrl+K, F6):
-/// not from a dialog over the page, which took it as it opened.
+/// Gives the page's filter the focus as the page is shown and when the app asks (Ctrl+K, F6),
+/// but not from a dialog over the page, which took it as it opened.
 fn use_page_focus(view: View) {
     let dialog = use_context::<DialogOpen>().0;
     let asked = use_memo(move || view.page.read().focus_page);
@@ -531,7 +533,8 @@ const NEW_SESSION_PROGRAMS: &[Program] = &[
     Program::Opencode,
 ];
 
-/// The element id, title, and description shown for `program` in the new-session dialog.
+/// Returns the element id, title and description shown for `program` in the New session
+/// dialog.
 fn program_choice(program: Program) -> (&'static str, &'static str, &'static str) {
     match program {
         Program::Claude => (

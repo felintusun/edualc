@@ -109,7 +109,7 @@ fn default_listen() -> SocketAddr {
         .unwrap_or_else(|_| SocketAddr::from(([127, 0, 0, 1], 7878)))
 }
 
-/// The daemon's network side, made ready; or, for `--pair`, the address printed and nothing
+/// Readies the daemon's network side, or for `--pair` prints the address and returns nothing
 /// to run.
 fn network(
     listen: SocketAddr,
@@ -149,8 +149,8 @@ fn network(
     }))
 }
 
-/// The host windows are told to reach edualcd at: the address it listens at, or this machine's
-/// name where it listens on all.
+/// Returns the host windows are told to reach edualcd at: the address it listens at, or this
+/// machine's name where it listens on all.
 fn host_of(ip: IpAddr) -> String {
     if ip.is_unspecified() {
         machine_name().unwrap_or_else(|| "localhost".to_owned())
@@ -166,8 +166,8 @@ fn machine_name() -> Option<String> {
         .filter(|name| !name.is_empty())
 }
 
-/// What a certificate made now names: this machine by its names and loopback addresses, and the
-/// address and name it is reached by.
+/// Returns what a certificate made now names: this machine by its names and loopback
+/// addresses, and the address and name it is reached by.
 fn certificate_names(ip: IpAddr, name: Option<String>) -> Vec<String> {
     let mut names: Vec<String> = ["localhost", "127.0.0.1", "::1"]
         .into_iter()
@@ -200,8 +200,8 @@ fn tell_address(pairing: &Pairing) {
     }
 }
 
-/// The folder the page's files are served from: `DIOXUS_PUBLIC_PATH`'s, else `public` beside this
-/// program, where `dx bundle` puts it. Dioxus panics if it isn't there, so it is checked first.
+/// Checks the folder the page's files are served from: `DIOXUS_PUBLIC_PATH`'s, else `public`
+/// beside this program, where `dx bundle` puts it. Dioxus panics if it isn't there.
 fn page_files() -> Result<(), String> {
     let folder = std::env::var_os("DIOXUS_PUBLIC_PATH")
         .map(std::path::PathBuf::from)
@@ -223,7 +223,7 @@ fn page_files() -> Result<(), String> {
     }
 }
 
-/// The demo, over plain HTTP: it runs nothing and holds no secret.
+/// Serves the demo over plain HTTP, as it runs nothing and holds no secret.
 fn serve_demo(listen: SocketAddr) -> std::process::ExitCode {
     if let Err(message) = page_files() {
         eprintln!("edualcd: {message}");

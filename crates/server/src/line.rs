@@ -63,7 +63,7 @@ mod web {
     }
 
     impl Receiver {
-        /// The next message; text frames are passed over.
+        /// Waits for the next message, passing over text frames.
         pub async fn recv(&mut self) -> Result<FromDaemon, String> {
             loop {
                 if let Some(message) = self.deframer.take() {

@@ -31,7 +31,7 @@ const TALLEST_DRAGGED: f64 = 600.0;
 #[derive(Clone, Copy)]
 struct CommandIndex(Signal<usize>);
 
-/// The command the arrow keys are on, made the first time either part asks.
+/// Returns the command the arrow keys are on, made the first time either part asks.
 fn use_command_index() -> Signal<usize> {
     use_hook(|| {
         try_consume_context::<CommandIndex>()
@@ -59,8 +59,8 @@ struct Measured {
     tallest: f64,
 }
 
-/// A height in whole logical pixels, as the settings keep it: within what a `u16` holds, and 0 for
-/// what isn't a number.
+/// Returns a height in whole logical pixels as the settings keep it: within what a `u16`
+/// holds, and 0 for what isn't a number.
 fn whole_pixels(height: f64) -> u16 {
     height
         .round()
@@ -709,8 +709,8 @@ pub fn Composer() -> Element {
     }
 }
 
-/// The permission mode's icon and colour, by how much it lets through: ask, edits, plan, auto,
-/// bypass.
+/// Returns the permission mode's icon and colour, by how much it lets through: ask, edits,
+/// plan, auto, bypass.
 fn mode_look(mode: PermissionKind) -> (Lucide, &'static str) {
     match mode {
         PermissionKind::AcceptEdits => (Lucide::FilePenLine, "tint-warning"),
@@ -893,8 +893,9 @@ mod dom {
         on_input(&format!("{SET} {FOCUS}"), text);
     }
 
-    /// A click on the composer: on its ground, not one of its controls, it writes. Where it
-    /// landed is the script's to see: the pointer's last press, which [`watch_presses`] keeps.
+    /// Focuses the text box after a click on the composer's ground, not one of its controls.
+    /// The script sees where it landed from the pointer's last press, which
+    /// [`watch_presses`] keeps.
     pub fn clicked(draft: &str) {
         on_input(
             &format!("if (!window.edualcPressed?.closest({CONTROLS:?})) {{ {SET} {FOCUS} }}"),
@@ -914,13 +915,13 @@ mod dom {
         );
     }
 
-    /// Ctrl+Enter, which the text box itself ignores: a line break in place of the selection,
-    /// as typed (undone as typing is, and an edit like any other).
+    /// Puts a line break in place of the selection for Ctrl+Enter, which the text box ignores,
+    /// as if typed, so that it undoes as typing does and counts as an edit.
     pub fn break_line() {
         document::eval("document.execCommand('insertText', false, '\\n');");
     }
 
-    /// The text's box's height and the conversation's column's, in CSS pixels.
+    /// Returns the text box's height and the conversation column's, in CSS pixels.
     pub async fn heights() -> (Option<f64>, Option<f64>) {
         let asked = document::eval(
             "const scroll = document.getElementById('composer-scroll');
@@ -946,8 +947,9 @@ mod dom {
         ));
     }
 
-    /// The caret is at the end of the draft, nothing selected; read in the keystroke, which the
-    /// app's WebView answers too late for (→ takes a command there only from Tab and a tap).
+    /// Returns whether the caret is at the end of the draft with nothing selected, read during
+    /// the keystroke. The app's WebView answers too late for that, so there → takes a command
+    /// only from Tab and a tap.
     pub fn caret_at_end() -> bool {
         #[cfg(feature = "web")]
         {
@@ -969,8 +971,8 @@ mod dom {
         false
     }
 
-    /// The images among what was pasted, each read and made ready to send in the page (the
-    /// sandbox the decoder is on Linux), for the next message.
+    /// Attaches the images among what was pasted to the next message, each read and made ready
+    /// to send in the page, which is to it what the decoder's sandbox is on Linux.
     #[cfg(feature = "web")]
     pub fn paste_images(event: &dioxus::prelude::ClipboardEvent, view: crate::web::View) {
         use dioxus::prelude::ReadableExt as _;

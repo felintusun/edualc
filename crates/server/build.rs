@@ -36,7 +36,7 @@ fn main() {
     std::fs::write(out.join("icons.rs"), code).expect("write the icons");
 }
 
-/// The text of every Rust source under `folder`.
+/// Reads the text of every Rust source under `folder` into `into`.
 fn read_sources(folder: &std::path::Path, into: &mut String) {
     for entry in std::fs::read_dir(folder).expect("the page's sources") {
         let path = entry.expect("an entry").path();
@@ -48,7 +48,7 @@ fn read_sources(folder: &std::path::Path, into: &mut String) {
     }
 }
 
-/// Whether `text` says `Lucide::<variant>`, as a whole word.
+/// Returns whether `text` says `Lucide::<variant>` as a whole word.
 fn names_icon(text: &str, variant: &str) -> bool {
     let needle = format!("Lucide::{variant}");
     text.match_indices(&needle).any(|(at, _)| {

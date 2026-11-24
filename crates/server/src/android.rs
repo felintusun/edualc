@@ -65,7 +65,8 @@ impl Kept {
     const SERVERS: &str = "servers.json";
     const LAST: &str = "last-shown.json";
 
-    /// What was kept, asked of Android beside the window; why nothing was, if nothing was.
+    /// Reads what was kept, asking Android beside the window; with why nothing was, if nothing
+    /// was.
     async fn load() -> (Self, Option<String>) {
         let (answer, answered) = async_channel::bounded(1);
         java::files_dir(move |dir| {
@@ -132,7 +133,7 @@ impl Kept {
         self.last = Some(last);
     }
 
-    /// The session shown last on the edualcd paired as `name`, if any.
+    /// Returns the session shown last on the edualcd paired as `name`, if any.
     fn last_on(&self, name: &str) -> Option<SessionId> {
         self.last
             .as_ref()

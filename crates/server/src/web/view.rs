@@ -83,9 +83,9 @@ pub struct View {
 }
 
 impl View {
-    /// What a line opened afresh starts from in a window that showed another (the app reaches
-    /// another edualcd): not closed, nothing lost, no session shown, no draft; `unencrypted`, a
-    /// demo's line. What the presenter shows it sets anew.
+    /// Resets the view for a line opened afresh in a window that showed another, as when the
+    /// app reaches another edualcd: not closed, nothing lost, no session shown, no draft.
+    /// `unencrypted` marks a demo's line. What the presenter shows, it sets anew.
     #[cfg(feature = "mobile")]
     pub fn fresh_line(self, unencrypted: bool) {
         {
@@ -271,7 +271,7 @@ impl Frontend for PageFrontend {
         shown.set(usage.clone());
     }
 
-    /// The newest prompt, pinned above the conversation: the page doesn't pin it.
+    // The page doesn't pin the newest prompt above the conversation.
     fn transcript(&mut self, _old: Option<&model::Transcript>, _transcript: &model::Transcript) {}
 
     fn show_image(&mut self, key: ImageKey, shown: Result<&Pixels, String>) {
@@ -362,7 +362,7 @@ pub fn data_url(pixels: &Pixels) -> Option<String> {
     Some(format!("data:image/png;base64,{encoded}"))
 }
 
-/// `pixels` as a PNG file's bytes.
+/// Encodes `pixels` as a PNG file's bytes.
 fn png(pixels: &Pixels) -> Option<Vec<u8>> {
     let image = image::RgbaImage::from_raw(pixels.width_px, pixels.height_px, pixels.rgba.clone())?;
     let mut png = std::io::Cursor::new(Vec::new());
@@ -370,9 +370,9 @@ fn png(pixels: &Pixels) -> Option<Vec<u8>> {
     Some(png.into_inner())
 }
 
-/// `pixels` as a PNG the browser holds, named by a short `blob:` URL: the conversation's images
-/// are drawn again as rows change, and copying a URL of megabytes each time would cost. Let go
-/// of with [`let_go`].
+/// Hands `pixels` to the browser as a PNG named by a short `blob:` URL, to let go of with
+/// [`let_go`]. The conversation's images are drawn again as rows change, and copying a URL of
+/// megabytes each time would cost.
 #[cfg(all(feature = "web", not(feature = "mobile")))]
 fn object_url(pixels: &Pixels) -> Option<String> {
     let bytes = png(pixels)?;
@@ -397,11 +397,11 @@ fn let_go(url: &str) {
     }
 }
 
-/// A `data:` URL is let go of with the text that holds it.
+/// Does nothing, as a `data:` URL goes with the text that holds it.
 #[cfg(feature = "mobile")]
 fn let_go(_url: &str) {}
 
-/// An image of the presentation model as a URL to show; empty for none (yet).
+/// Returns an image of the presentation model as a URL to show; empty for none, or none yet.
 pub fn image_url(image: &Image, images: &HashMap<ImageKey, String>) -> String {
     match image {
         Image::None => String::new(),

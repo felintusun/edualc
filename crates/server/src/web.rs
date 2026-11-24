@@ -118,7 +118,7 @@ pub fn Fonts() -> Element {
     }
 }
 
-/// The page's address: its token, and the folder it is to open (`#token=…&dir=…`).
+/// Reads the page's address: its token, and the folder it is to open (`#token=…&dir=…`).
 #[cfg(feature = "web")]
 fn address() -> (String, Option<String>) {
     use edualc_core::ipc::pairing::decoded;

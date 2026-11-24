@@ -24,8 +24,8 @@ fn who_words(who: ChangeWho, agent: &str) -> String {
     }
 }
 
-/// The line a row's comment is on, by its number: the new file's, or the old one's for a line
-/// taken out.
+/// Returns the number of the line a row's comment is on: the new file's, or the old one's for
+/// a line taken out.
 fn line_of(row: &DiffRow) -> &str {
     if row.new.is_empty() {
         &row.old

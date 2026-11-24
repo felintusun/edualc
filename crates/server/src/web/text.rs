@@ -54,7 +54,8 @@ pub fn markdown_html(source: &str) -> String {
     html
 }
 
-/// The `lang` attribute a text's CJK characters ask for, so the browser picks their glyphs.
+/// Returns the `lang` attribute a text's CJK characters ask for, so that the browser picks
+/// their glyphs.
 pub fn lang(cjk: &CjkChars) -> &'static str {
     use edualc_core::present::model::Cjk;
     match cjk.language {

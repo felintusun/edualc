@@ -23,8 +23,8 @@ pub fn focus(element: Option<MountedEvent>) {
     }
 }
 
-/// How near its limit a share is, as a class (`theme.slint`'s thresholds): `danger` from nine
-/// tenths, `warning` from seven, otherwise none.
+/// Returns how near its limit a share is as a class, by `theme.slint`'s thresholds: `danger`
+/// from nine tenths, `warning` from seven, otherwise none.
 pub fn level(fraction: f32) -> &'static str {
     if fraction >= 0.9 {
         "danger"
@@ -35,7 +35,7 @@ pub fn level(fraction: f32) -> &'static str {
     }
 }
 
-/// A share in whole percent, from 0 to 100.
+/// Returns a share in whole percent, from 0 to 100.
 pub fn percent(fraction: f32) -> f32 {
     (fraction.clamp(0.0, 1.0) * 100.0).round()
 }

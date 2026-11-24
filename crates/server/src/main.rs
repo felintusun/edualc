@@ -19,7 +19,7 @@ fn main() {
     dioxus::launch(web::App);
 }
 
-/// The Android app: the same window, its line native (`android`).
+/// Starts the Android app: the same window, with a native line (`android`).
 #[cfg(all(feature = "mobile", not(feature = "server")))]
 fn main() {
     dioxus::launch(android::App);

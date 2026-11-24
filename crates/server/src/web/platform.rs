@@ -34,8 +34,8 @@ mod here {
         java::copy(text.to_owned());
     }
 
-    /// The clipboard's image, read and made ready to send beside the window (the decoder's
-    /// sandbox is Linux's), for the next message.
+    /// Attaches the clipboard's image to the next message, read and made ready to send beside
+    /// the window, which is to it what the decoder's sandbox is on Linux.
     pub fn paste_image(view: View) {
         let Some(events) = view.events.peek().clone() else {
             return;
@@ -61,9 +61,8 @@ mod here {
         tokio::time::sleep(std::time::Duration::from_millis(u64::from(ms))).await;
     }
 
-    /// Whether a keyboard with keys is attached, so that Enter sends: on the screen's keyboard
-    /// alone, which has no Shift+Enter, Enter starts a new line. Asked of Android beside the
-    /// window.
+    /// Asks Android, beside the window, whether a keyboard with keys is attached, so that Enter
+    /// sends. On the screen's keyboard alone, which has no Shift+Enter, Enter starts a new line.
     pub async fn keyboard_attached() -> bool {
         let (answer, answered) = async_channel::bounded(1);
         java::has_keyboard(move |has| {
@@ -149,7 +148,7 @@ mod here {
         gloo_timers::future::TimeoutFuture::new(ms).await;
     }
 
-    /// A browser's page is typed into with a keyboard with keys: Enter sends.
+    /// Returns true: a browser's page is typed into with a keyboard with keys, so Enter sends.
     #[expect(clippy::unused_async, reason = "as the app's, which asks Android")]
     pub async fn keyboard_attached() -> bool {
         true

@@ -36,7 +36,7 @@ impl SettingsOpen {
     }
 }
 
-/// Whether the settings are open (see [`SettingsOpen`]).
+/// Returns whether the settings are open (see [`SettingsOpen`]).
 pub fn use_settings_open() -> Signal<bool> {
     use_context::<SettingsOpen>().0
 }

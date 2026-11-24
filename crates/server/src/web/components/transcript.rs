@@ -72,12 +72,12 @@ mod dom {
         }
     }
 
-    /// How high the list's view is.
+    /// Returns how high the list's view is.
     pub fn height() -> f64 {
         list().map_or(0.0, |list| f64::from(list.client_height()))
     }
 
-    /// Whether the list itself has the focus, rather than something in it.
+    /// Returns whether the list itself has the focus, rather than something in it.
     pub fn focused() -> bool {
         web_sys::window()
             .and_then(|window| window.document())
@@ -143,7 +143,8 @@ fn act_on(view: View, index: i32, action: fn(usize) -> Action) {
     }
 }
 
-/// The class of text whose CJK characters are its main script: its lines further apart.
+/// Returns the class of text whose CJK characters are its main script, which sets its lines
+/// further apart.
 fn cjk_class(cjk: &CjkChars) -> &'static str {
     if cjk.main { "cjk" } else { "" }
 }

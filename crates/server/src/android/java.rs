@@ -68,7 +68,7 @@ enum Beside {
 }
 
 impl Beside {
-    /// What it says as it fails.
+    /// Returns what it says as it fails.
     fn failed(self) -> &'static str {
         match self {
             Self::Copying => "the clipboard refused the text",
@@ -87,7 +87,7 @@ fn beside_logged(work: impl Work<()>, what: Beside) {
     });
 }
 
-/// A system service, by its name (`Context.CLIPBOARD_SERVICE`'s, say).
+/// Returns a system service by its name, such as `Context.CLIPBOARD_SERVICE`'s.
 fn service<'local>(
     env: &mut JNIEnv<'local>,
     activity: &JObject<'_>,
@@ -108,7 +108,7 @@ fn service<'local>(
     Ok(service)
 }
 
-/// A Java string as Rust's.
+/// Reads a Java string as Rust's.
 fn text(env: &mut JNIEnv<'_>, string: JObject<'_>) -> Result<String, Refused> {
     Ok(env.get_string(&JString::from(string))?.into())
 }
@@ -120,9 +120,9 @@ fn sdk(env: &mut JNIEnv<'_>) -> Result<i32, Refused> {
         .i()?)
 }
 
-/// The folder the app keeps its files in, its own, and kept out of Android's backups
-/// (`Context.getNoBackupFilesDir`): a token there lets whoever holds it run Claude Code as the
-/// user, and must not go to a cloud or to another phone with them. Handed to `done`.
+/// Hands `done` the app's own folder for its files, kept out of Android's backups
+/// (`Context.getNoBackupFilesDir`). A token there lets whoever holds it run Claude Code as you,
+/// so it must not go to a cloud or to another phone with them.
 pub fn files_dir(done: impl FnOnce(Result<std::path::PathBuf, Refused>) + Send + 'static) {
     let work = |env: &mut JNIEnv<'_>, activity: &JObject<'_>| {
         let dir = env
@@ -136,10 +136,10 @@ pub fn files_dir(done: impl FnOnce(Result<std::path::PathBuf, Refused>) + Send +
     beside(work, done);
 }
 
-/// Whether a keyboard with keys is attached and out (`Configuration.keyboard` is
-/// `KEYBOARD_QWERTY`, and `hardKeyboardHidden` is `HARDKEYBOARDHIDDEN_NO`): Enter then sends,
-/// as at a desk; on the screen's keyboard alone it starts a new line. Asked beside the window,
-/// whose thread doesn't wait for Java; the answer goes to `done`.
+/// Hands `done` whether a keyboard with keys is attached and out (`Configuration.keyboard` is
+/// `KEYBOARD_QWERTY`, and `hardKeyboardHidden` is `HARDKEYBOARDHIDDEN_NO`). Enter then sends,
+/// as at a desk; on the screen's keyboard alone it starts a new line. We ask beside the
+/// window, whose thread doesn't wait for Java.
 pub fn has_keyboard(done: impl FnOnce(Result<bool, Refused>) + Send + 'static) {
     let work = |env: &mut JNIEnv<'_>, activity: &JObject<'_>| {
         let resources = env
@@ -192,8 +192,8 @@ pub fn copy(copied: String) {
     beside_logged(work, Beside::Copying);
 }
 
-/// The clipboard's image, its bytes as its file has them, up to `limit` (reading stops just
-/// past it), or none if it holds no image (text, say, or nothing): handed to `done`.
+/// Hands `done` the clipboard's image, its bytes as its file has them, read until just past
+/// `limit`; `None` if it holds no image, such as text or nothing.
 pub fn clipboard_image(
     limit: usize,
     done: impl FnOnce(Result<Option<Vec<u8>>, Refused>) + Send + 'static,
@@ -267,7 +267,7 @@ pub fn clipboard_image(
     beside(work, done);
 }
 
-/// What `stream` holds, up to `limit` bytes (reading stops just past it).
+/// Reads what `stream` holds, until just past `limit` bytes.
 fn read_up_to(
     env: &mut JNIEnv<'_>,
     stream: &JObject<'_>,
@@ -436,8 +436,8 @@ fn set(
     Ok(())
 }
 
-/// A notification's id for `summary`: the same for the same session's, which replaces its
-/// last (FNV-1a, folded to an `int`).
+/// Returns a notification's id for `summary`, the same for the same session's, so that it
+/// replaces the last (FNV-1a, folded to an `int`).
 fn notification_id(summary: &str) -> i32 {
     let hash = summary.bytes().fold(0x811c_9dc5_u32, |hash, byte| {
         (hash ^ u32::from(byte)).wrapping_mul(0x0100_0193)
@@ -448,7 +448,7 @@ fn notification_id(summary: &str) -> i32 {
 /// The permission to notify, by its name.
 const POST_NOTIFICATIONS: &str = "android.permission.POST_NOTIFICATIONS";
 
-/// Whether the user lets the app notify.
+/// Returns whether you let the app notify.
 fn may_notify(env: &mut JNIEnv<'_>, activity: &JObject<'_>) -> Result<bool, Refused> {
     let permission = env.new_string(POST_NOTIFICATIONS)?;
     let granted = env
@@ -463,7 +463,7 @@ fn may_notify(env: &mut JNIEnv<'_>, activity: &JObject<'_>) -> Result<bool, Refu
     Ok(granted == 0)
 }
 
-/// What opens the app, as a notification is tapped; null if Android names no way in.
+/// Returns what opens the app when a notification is tapped; null if Android names no way in.
 fn opens_the_app<'local>(
     env: &mut JNIEnv<'local>,
     activity: &JObject<'_>,
