@@ -72,8 +72,8 @@ pub enum Event {
         sessions: Vec<SessionInfo>,
     },
     ProjectsListed(Vec<ProjectInfo>),
-    /// A saved session read from its start, as a conversation; where its transcript was
-    /// found, and how far into it the conversation reaches.
+    /// A saved session read from its start, with where its transcript is and how far it was
+    /// read.
     SessionLoaded {
         id: SessionId,
         path: PathBuf,
@@ -89,32 +89,32 @@ pub enum Event {
         task: wire::TaskId,
         result: Result<(Vec<TranscriptLine>, u64), ipc::Unread>,
     },
-    /// What the daemon read, as asked (`App::read`), with a transcript's lines, read.
+    /// What the daemon read for `App::read`, with a transcript's lines parsed.
     Answered {
         request: ActId,
         answer: ipc::Answer,
         lines: Vec<TranscriptLine>,
     },
-    /// `cwd` as a linked git worktree, if it is one; `replace` says the process said it works
-    /// there, which goes before what was known.
+    /// Whether `cwd` is a linked git worktree. `replace` is set when the process said it works
+    /// there, which overrides what was known.
     LinkedWorktreeRead {
         cwd: PathBuf,
         worktree: Option<Worktree>,
         replace: bool,
     },
-    /// The folder to open, made whole by the daemon, or why it isn't one; `typed` in the list
-    /// of folders, which says what is wrong there.
+    /// The folder to open as the daemon resolved it, or why it isn't one. `typed` is set when it
+    /// was typed into the folder list, which then shows the problem.
     FolderRead {
         typed: bool,
         result: Result<PathBuf, String>,
     },
     LiveListed(Vec<LiveSession>),
-    /// The daemon did what the desktop was asked, or says why not.
+    /// The daemon's answer to an `Act`.
     Acted {
         request: ActId,
         result: Result<(), ActFailure>,
     },
-    /// The folder the daemon's picker came back with.
+    /// The folder picked in the desktop's folder picker, if one was.
     Picked {
         request: ActId,
         folder: Option<PathBuf>,
@@ -139,16 +139,15 @@ pub enum Event {
         key: ImageKey,
         shown: Result<Pixels, images::ShowError>,
     },
-    /// The window's code is coloured, off the event loop, by its own thread: it is to draw it
-    /// (`Command::DrawColouredCode`).
+    /// Code was coloured on its own thread and is ready to draw (`Command::DrawColouredCode`).
     CodeColoured,
-    /// The frontend couldn't do something on its desktop (see `present::Seat`): why.
+    /// Why the frontend couldn't do something on its desktop (see `present::Seat`).
     SeatFailed(String),
-    /// The daemon is gone, and the sessions it ran for this window.
+    /// The daemon is gone, and with it the sessions it ran for this window.
     DaemonLost,
-    /// A window asked the daemon to shut down: the sessions end, and then it.
+    /// A window asked the daemon to shut down; its sessions end, then the daemon.
     DaemonShuttingDown,
-    /// The sessions the daemon runs, anew.
+    /// The sessions the daemon runs, sent again whenever they change.
     Hosted(Vec<Hosted>),
     /// The worktree a session's transcript says it works in.
     WorktreeRead {
@@ -170,11 +169,11 @@ pub enum Event {
     },
     /// Something watched changed: the running sessions' records, or a followed transcript.
     Changed(Watched),
-    /// Now and then: sessions whose process ended without saying so are let go.
+    /// Sent now and then, to let go of sessions whose process ended without saying so.
     Tick,
-    /// Every little while during a turn: whether Claude Code has gone quiet.
+    /// Sent during a turn, to check whether Claude Code has gone quiet.
     Listen,
-    /// Every second while a command is followed: what it printed since.
+    /// Sent every second while a command is followed, to read what it printed since.
     PollOutput,
     /// A usage limit of the plan started over (see [`limits`]).
     LimitReset,
@@ -182,23 +181,22 @@ pub enum Event {
     ApiKeyStored(Result<bool, ActFailure>),
     /// Known projects and their recent sessions, for the start page and switcher.
     OverviewListed(Vec<ProjectOverview>),
-    /// Answer to creating a new project folder via the daemon.
+    /// The daemon's answer to `Act::CreateProject`.
     ProjectCreated {
         request: ActId,
         result: Result<PathBuf, CreateProjectError>,
     },
     /// A change to the settings wasn't kept, and why.
     SettingsNotKept(String),
-    /// On-demand usage result for a coding agent provider.
+    /// A program's usage, as the usage panel asked for it.
     ProviderUsageRead {
         backend: provider::Backend,
         usage: ipc::ProviderUsage,
     },
-    /// The line to edualcd over the network is lost, and is being reached again: what was asked
-    /// on it isn't answered, and the sessions it ran for this window are no longer shown here
-    /// (they run on there).
+    /// The network line to edualcd was lost and is being reached again. What was asked on it
+    /// goes unanswered; the sessions it ran for this window run on there.
     LineLost,
-    /// The line to edualcd was reached again: the sessions it runs and those running now.
+    /// The line to edualcd is back, with the sessions it runs and those running now.
     Reconnected {
         hosted: Vec<Hosted>,
         live: Vec<LiveSession>,
@@ -216,12 +214,11 @@ pub struct SentPrompt {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Daemon {
     Running,
-    /// A window asked it to shut down: its end that follows is no loss to tell of.
+    /// A window asked it to shut down, so its end isn't reported as a loss.
     ShuttingDown,
 }
 
-/// Where the window is in the shell: the start page (no folder), one project's session list, or
-/// one session.
+/// Where the window is: the start page, a project's session list, or a session.
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Location {
     Start,
@@ -268,7 +265,6 @@ enum Acting {
     Desktop,
     /// The folder picker, for opening a folder or choosing a projects directory.
     Picking(PickingTarget),
-    /// Creating a new project folder.
     CreatingProject,
     /// Storing or removing the Anthropic API key in the keyring.
     ApiKey,
@@ -295,51 +291,51 @@ impl std::fmt::Debug for PastedKey {
 pub enum Action {
     Send(String),
     Interrupt,
-    /// A new session, running this program, signed in so if it is Claude Code.
+    /// Starts a new session of this program, signed in this way if it is Claude Code.
     NewSession(provider::Backend, provider::SignInWith),
-    /// A new session started from the project page for this program.
+    /// Starts a new session of this program from the project page.
     NewSessionInProject(provider::Backend, provider::SignInWith),
-    /// A new Claude Code session with the API key, with this model (an alias Claude Code
-    /// takes), or the model menu's.
+    /// Starts a Claude Code session with the API key, with this model (an alias Claude Code
+    /// takes) or the model menu's.
     NewApiKeySession(Option<String>),
-    /// The session waiting for it continues signed in so; none: it isn't continued.
+    /// Continues the session waiting for it, signed in this way; `None` doesn't continue it.
     ContinueWith(Option<provider::SignInWith>),
-    /// An Anthropic API key, as pasted, for the keyring.
+    /// Keeps an Anthropic API key, as pasted, in the keyring.
     StoreApiKey(PastedKey),
     RemoveApiKey,
     OpenSession(SessionId),
-    /// Return to the start page (Projects grid and Needs you).
+    /// Goes to the start page.
     OpenStart,
-    /// Open a project's session list page without starting a session yet.
+    /// Opens a project's session list without starting a session.
     EnterProject(PathBuf),
-    /// Open or attach to a session across any project.
+    /// Opens or attaches to a session in any project.
     JumpTo(SessionTarget),
-    /// Go to the next waiting session from the top-bar badge.
+    /// Goes to the next session waiting for you.
     NextWaiting,
-    /// Go up one navigation level (session -> project, project -> start).
+    /// Goes back one level: from a session to its project, from a project to the start page.
     Back,
-    /// Browse for a parent folder in the New project dialog.
+    /// Picks the New project dialog's parent folder in the desktop's picker.
     BrowseNewProjectParent,
-    /// Create a new project folder, add it to trusted folders, and open a session in it.
+    /// Makes a project folder, trusts it, and opens a session in it.
     CreateProject {
         parent: String,
         name: String,
     },
     ClearNewProjectError,
-    /// A folder typed into the list of folders, to open.
+    /// Opens a folder typed into the folder list.
     OpenProject(String),
     BrowseProject,
     ListProjects,
     ChooseModel(usize),
     ChooseMode(usize),
     DraftEdited(String),
-    /// A command from the list matching the draft, put in the draft.
+    /// Puts a command from the list matching the draft into the draft.
     PickCommand(usize),
-    /// Up on the composer's first line: the prompt before the one shown, or the newest.
+    /// Shows the prompt before the one shown, or the newest (Up on the first line).
     RecallOlder,
-    /// Down on its last line, while a prompt is recalled: the next one, or the draft again.
+    /// Shows the next prompt, or the draft again (Down on the last line).
     RecallNewer,
-    /// A command from the list matching the draft, sent as it is.
+    /// Sends a command from the list matching the draft as it is.
     RunCommand(usize),
     Toggle(usize),
     CopyEntry(usize),
@@ -381,8 +377,6 @@ pub enum Action {
     ToggleSide,
     DismissSide,
     CopySide(usize),
-    /// The Changes view: open it, close it, its scope, the file whose diff it shows, marking
-    /// that file reviewed, and comments on its lines, sent together.
     ShowChanges,
     CloseChanges,
     ChangesScope(crate::changes::Scope),
@@ -392,7 +386,7 @@ pub enum Action {
     SetLineComment(usize, String),
     CancelLineComment,
     SendLineComments,
-    /// Follow a subagent's conversation in the side panel.
+    /// Follows a subagent's conversation in the side panel.
     OpenPeek(wire::TaskId),
     ClosePeek,
     StopTask(wire::TaskId),
@@ -402,26 +396,26 @@ pub enum Action {
     /// Opens the session's worktree in this window.
     OpenWorktree,
     Zoom(Zoom),
-    /// The other look (Gruvbox or plain).
+    /// Switches between the Gruvbox and the plain look.
     SwitchLook,
-    /// Code's colours changed: the look, or the desktop's dark or light.
+    /// Colours the code again, after the look or the desktop's dark or light changed.
     RecolourCode,
-    /// The key that sends the draft, as chosen in the settings.
+    /// Sets the key that sends the draft.
     SendWith(settings::SendKey),
-    /// How messages from other sessions come in, as chosen in the settings.
+    /// Sets how messages from other sessions come in.
     PeerMessages(settings::PeerMessages),
-    /// The language of text in Han characters alone, as chosen in the settings.
+    /// Sets the language of text in Han characters alone.
     HanLanguage(crate::cjk::CjkLanguage),
-    /// The composer's height as dragged, in logical pixels; none to fit it to its text again.
+    /// Sets the composer's height in logical pixels; `None` fits it to its text.
     ComposerHeight(Option<u16>),
-    /// The folder new projects are made in, as typed in the settings.
+    /// Sets the folder new projects are made in.
     SetNewProjectsIn(String),
     BrowseNewProjectsIn,
-    /// Ctrl+V in the composer: the clipboard's image, if it holds one, goes with the message.
+    /// Attaches the clipboard's image, if it holds one, to the next message (Ctrl+V).
     PasteImage,
-    /// An image taken off the next message, by its place.
+    /// Takes the image at this place off the next message.
     RemoveImage(usize),
-    /// The `>_` button: the draft made a shell command, or a message again.
+    /// Turns the draft into a shell command, or back into a message (the `>_` button).
     ToggleShell,
     FilterSessions(String),
     /// Opens or folds the run of tool calls whose first call is at this place.
@@ -437,20 +431,18 @@ pub enum Action {
     ToggleShowHiddenProjects,
     ToggleShowAllProjects,
     FilterStartProjects(String),
-    /// Signed in elsewhere: starts Claude Code again, and sends what failed for want of it.
+    /// Starts Claude Code again after you signed in elsewhere, and sends again what failed.
     TrySignInAgain,
-    /// Puts away how to sign in.
+    /// Hides the sign-in help.
     DismissSignIn,
-    /// Trusts the folder shown, to start Claude Code in it, and for Claude Code too.
+    /// Trusts the folder shown, here and for Claude Code, and starts Claude Code in it.
     TrustFolder,
-    /// The folder shown, trusted here, is to be trusted for Claude Code too; or not, and not
-    /// asked about again.
+    /// Trusts the folder shown, already trusted here, for Claude Code too.
     TrustForClaudeCode,
     NotForClaudeCode,
     /// Starts Claude Code in the folder shown this once, without its configuration.
     StartWithoutFolderSettings,
-    /// Ends every session the daemon runs, in every window, and then the daemon (asked in the
-    /// settings, there confirmed).
+    /// Ends every session the daemon runs, in every window, and then the daemon.
     ShutDown,
     Quit,
 }
@@ -467,36 +459,37 @@ pub struct ModelChoice {
 pub struct Status {
     pub session_id: Option<SessionId>,
     pub title: Option<String>,
-    /// The program the session talks to: the one picked for a new session (the command line's
-    /// at first), the transcript's for one continued.
+    /// The program the session runs: the one picked for a new session, or the transcript's for
+    /// one continued.
     pub backend: provider::Backend,
     /// What a Claude Code session signs in with, as picked when it was started or continued.
     pub sign_in_with: provider::SignInWith,
     /// The model in use, as the CLI resolved it.
     pub model: String,
     pub models: Vec<wire::ModelInfo>,
-    /// Picked in the menu or on the command line: kept for the processes after this one that
-    /// run the same program.
+    /// The model picked in the menu or on the command line, kept for later processes of the
+    /// same program.
     pub model_choice: Option<ModelChoice>,
     pub modes: Modes,
-    /// Picked in the menu for this session: applied again if its process is restarted.
+    /// The mode picked for this session, applied again if its process restarts.
     pub mode_choice: Option<ChosenMode>,
     pub commands: Vec<wire::CommandInfo>,
     pub account: wire::Account,
-    /// Last known Claude subscription plan name ("max", "pro", etc.), kept across pages.
+    /// The Claude plan's name as last told ("max", "pro"), kept across pages.
     pub claude_subscription: String,
     pub sign_in: SignIn,
     /// Claude Code's version, as it told at `initialize`.
     pub version: String,
     /// Prompts sent and not answered yet.
     pub turns: usize,
-    /// The user stopped the turn under way, with Stop or by denying a tool call with nothing
-    /// said: it ends as failed, which isn't to be shown as a failure.
+    /// Set when you stopped the turn, with Stop or by denying a call without saying why. The
+    /// turn then ends as failed, but isn't shown as a failure.
     pub stop_asked: bool,
     pub doing: Doing,
     /// What runs besides the turn's own steps: subagents, commands, workflows.
     pub tasks: Tasks,
-    /// The user stopped a turn and tasks ran on, which their list says until the next prompt.
+    /// Set when you stopped a turn and its tasks ran on; their list says so until the next
+    /// prompt.
     pub tasks_left_running: bool,
     pub context_tokens: u64,
     pub context_window: u64,
@@ -504,25 +497,24 @@ pub struct Status {
     pub limits: PlanLimits,
     pub limit_wait: LimitWait,
     pub worktree: Option<Worktree>,
-    /// What its last turn changed in its folder, as the daemon's snapshots tell; none before a
-    /// turn changed anything.
+    /// What the last turn changed in the folder, from the daemon's snapshots.
     pub turn_changed: Option<crate::changes::Summary>,
 }
 
 impl Status {
-    /// A turn is under way: one this window prompted, or one the session started itself, such
-    /// as for a message from another session, which only its output shows.
+    /// Returns whether a turn is under way, prompted here or started by the session itself
+    /// (for a message from another session, which only its output shows).
     pub(crate) fn in_turn(&self) -> bool {
         self.turns > 0 || self.doing != Doing::Nothing
     }
 
-    /// Features this session's provider supports with its active sign-in method.
+    /// Returns what the session's program supports with its sign-in.
     pub(crate) fn capabilities(&self) -> crate::provider::Capabilities {
         self.backend.capabilities(self.sign_in_with)
     }
 
-    /// The limits of the plan that pays for the session: Claude Code's account's, or agy's;
-    /// none for an API key or a provider that doesn't report limits.
+    /// Returns the limits of the plan paying for the session; `None` for an API key or a
+    /// program that reports none.
     pub(crate) fn plan_limits(&self) -> Option<Limits> {
         if !self.capabilities().plan_limits {
             return None;
@@ -534,8 +526,8 @@ impl Status {
         }
     }
 
-    /// Where the limits the session's program reports are kept; none when that provider
-    /// doesn't report plan limits.
+    /// Returns where the limits the session's program reports are kept; `None` for a program
+    /// that reports none.
     pub(crate) fn limits_mut(&mut self) -> Option<&mut Limits> {
         if !self
             .backend
@@ -551,7 +543,7 @@ impl Status {
         }
     }
 
-    /// The model picked for the program the session runs; none if it was picked for the other.
+    /// Returns the model picked for the session's program; `None` if it was picked for another.
     pub(crate) fn chosen_model(&self) -> Option<&str> {
         self.model_choice
             .as_ref()
@@ -579,7 +571,7 @@ pub enum Doing {
     Preparing(ToolName),
     #[display("Running {_0}")]
     Running(ToolName),
-    /// An ACP agent's call runs, told by what the agent says it does.
+    /// An ACP agent's call runs, named as the agent names it.
     #[display("{_0}")]
     Calling(String),
     /// Going on after the user answered.
@@ -624,13 +616,13 @@ impl std::fmt::Display for Retry {
     }
 }
 
-/// A turn the plan's usage limit stopped, continued once the limit resets, as Claude Code's
-/// terminal does (behind a pipe it doesn't).
+/// A turn the plan's usage limit stopped, continued once the limit resets. Claude Code's
+/// terminal does this; behind a pipe it doesn't.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub enum LimitWait {
     #[default]
     Idle,
-    /// Claude Code was asked when the limit resets.
+    /// Asked Claude Code when the limit resets.
     Asking,
     /// The turn goes on at this time.
     Until(jiff::Timestamp),
@@ -689,7 +681,7 @@ pub struct Limits {
 
 #[derive(Debug, Clone, Copy)]
 pub struct LimitUse {
-    /// 0 to 1.
+    /// The share used, from 0 to 1.
     pub used: f32,
     pub resets_at: Option<jiff::Timestamp>,
 }
@@ -703,7 +695,7 @@ impl From<&wire::PlanLimit> for LimitUse {
     }
 }
 
-/// Per-provider usage state for one tab of the Usage popover.
+/// One program's tab in the usage panel.
 #[derive(Debug, Default)]
 pub struct ProviderUsageState {
     pub report: Option<wire::UsageReport>,
@@ -714,7 +706,7 @@ pub struct ProviderUsageState {
     pub available: bool,
 }
 
-/// The usage panel: each coding agent's `/usage` (and `/context` for the active session).
+/// The usage panel: each program's `/usage`, and `/context` for the session shown.
 #[derive(Debug, Default)]
 pub struct UsagePanel {
     pub open: bool,
@@ -777,8 +769,8 @@ pub struct Watch {
     watched: Option<Watched>,
 }
 
-/// Reading again what other processes write: one read at a time, and one more after it if
-/// what is read changed meanwhile.
+/// Rereads what other processes write: one read at a time, and one more after it if the file
+/// changed meanwhile.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 enum Refresh {
     #[default]
@@ -789,7 +781,7 @@ enum Refresh {
 }
 
 impl Refresh {
-    /// Asked to read again: whether a read is to start now.
+    /// Asks for another read; returns whether one starts now.
     fn wanted(&mut self) -> bool {
         let start = *self == Self::Idle;
         *self = if start {
@@ -800,7 +792,7 @@ impl Refresh {
         start
     }
 
-    /// A read came back: whether what it read changed meanwhile, to be asked for again.
+    /// Ends a read; returns whether the file changed meanwhile and must be read again.
     fn done(&mut self) -> bool {
         let stale = *self == Self::ReadingStale;
         *self = Self::Idle;
@@ -817,7 +809,7 @@ struct Redraw {
     prompt: bool,
     /// Both lists: this folder's sessions mark those running elsewhere.
     sessions: bool,
-    /// Start-page cards and waiting list.
+    /// The start page's cards and waiting list.
     overview: bool,
     side: bool,
     usage: bool,
@@ -828,7 +820,7 @@ struct Redraw {
 }
 
 impl Redraw {
-    /// After switching sessions: everything shown belonged to the one before.
+    /// Returns everything to draw, after switching sessions.
     fn everything() -> Self {
         Self {
             runs: true,
@@ -855,9 +847,8 @@ struct OwnMark {
 
 /// Lines of stderr kept, to say why the process ended.
 const LOG_LINES: usize = 20;
-/// What the window asks a process first. It stops tasks one by one, so stopping a turn leaves
-/// background agents, commands and monitors running, as the user asked; what runs on is then
-/// listed for them to stop or leave.
+/// What the window asks a process first. We stop tasks one by one, so stopping a turn leaves
+/// background agents, commands and monitors running, and lists them for you to stop or leave.
 const INITIALIZE: ControlRequest = ControlRequest::Initialize {
     per_task_stop_affordance: true,
 };
@@ -866,9 +857,9 @@ const INITIALIZE: ControlRequest = ControlRequest::Initialize {
 const TICK: Duration = Duration::from_secs(60);
 /// The least time between two notifications about the same session.
 const NOTIFY_AGAIN: Duration = Duration::from_secs(60);
-/// How often a turn waiting on the API is looked at (`Event::Listen`), and how long Claude Code
-/// may say nothing before the window says so.
+/// How often a turn waiting on the API is looked at (`Event::Listen`).
 const LISTEN: Duration = Duration::from_secs(10);
+/// How long Claude Code may say nothing before the window says so.
 const QUIET: Duration = Duration::from_secs(30);
 
 /// What a read is for, and so what becomes of the daemon's answer to it (`App::read`).
@@ -878,7 +869,7 @@ enum Reading {
     Projects,
     /// Known projects and their recent sessions, for the start page and switcher.
     Overview,
-    /// A folder typed or picked, made whole.
+    /// A folder typed or picked, to resolve.
     Folder { typed: bool },
     /// Whether the working folder is a linked git worktree.
     LinkedWorktree { cwd: PathBuf, replace: bool },
@@ -905,12 +896,12 @@ enum Reading {
         root: PathBuf,
         path: PathBuf,
     },
-    /// On-demand usage for a coding agent provider.
+    /// A program's usage, for the usage panel.
     ProviderUsage { backend: provider::Backend },
 }
 
 impl Reading {
-    /// The event the answer makes, if it is the answer to this: another kind is dropped.
+    /// Returns the event `answer` makes; an answer of another kind is dropped.
     fn answered(self, answer: ipc::Answer, lines: Vec<TranscriptLine>) -> Option<Event> {
         match self {
             Self::Projects => {
@@ -1037,9 +1028,9 @@ pub struct App<F: Frontend> {
     hosted: Vec<Hosted>,
     /// Images pasted into the composer, to go with the next message.
     attached: Vec<Picture>,
-    /// The rows Claude Code replayed for the `!` commands run since the last prompt (their
-    /// echoes and output): it runs them beside the conversation, so they go to Claude ahead of
-    /// the next prompt, as the terminal gives them.
+    /// The rows Claude Code replayed for the `!` commands run since the last prompt. It runs
+    /// them beside the conversation, so we send them ahead of the next prompt, as the terminal
+    /// does.
     shell_rows: Vec<String>,
     /// The conversation's images, decoded for showing.
     images: images::Images,
@@ -1054,7 +1045,7 @@ pub struct App<F: Frontend> {
     changes: Option<ChangesView>,
     /// Comments on lines of the session's changes, not sent yet.
     line_comments: Vec<LineComment>,
-    /// What is done with the daemon's answers to what was read, by request.
+    /// What each read's answer is for, by request.
     answers: HashMap<ActId, Reading>,
     /// The newest `Read::Sessions` request sent, so a slower earlier one doesn't overwrite it.
     sessions_request: Option<ActId>,
@@ -1068,16 +1059,15 @@ pub struct App<F: Frontend> {
     settings: Settings,
     /// The desktop's text size, in logical pixels, which the zoom scales.
     desktop_text_size: f32,
-    /// The backend passed on the command line (default `Backend::Claude`), restored when
-    /// returning to a project page or start page.
+    /// The program named on the command line, restored on the project and start pages.
     default_backend: provider::Backend,
-    /// Coding agent backends available on PATH when the window connected.
+    /// The programs on PATH when the window connected.
     available_backends: Vec<provider::Backend>,
     /// What the start-page project filter holds.
     start_filter: String,
     /// What the list of sessions is narrowed to.
     session_filter: String,
-    /// How the own session was last listed in the sidebar; none while no process runs it here.
+    /// How our session was last listed in the sidebar; `None` while no process runs it here.
     own_listed: Option<OwnMark>,
     /// The runs of tool calls opened, by their first call; the others are folded.
     open_runs: HashSet<usize>,
@@ -1085,19 +1075,18 @@ pub struct App<F: Frontend> {
     /// A start held back until the folder is trusted.
     trust_gate: TrustGate,
     claude_trust_ask: ClaudeTrustAsk,
-    /// Folders the daemon found trusted in the terminal: starting there again asks nothing.
+    /// Folders the daemon found trusted in the terminal; starting there again asks nothing.
     accepted_in_terminal: HashSet<PathBuf>,
-    /// The command line's prompt for a session continued: sent once its transcript is shown,
-    /// which replaces the conversation, the prompt's bubble with it.
+    /// The command line's prompt for a continued session. We send it once the transcript is
+    /// shown, because showing it replaces the conversation, the prompt's bubble with it.
     held_prompt: Option<String>,
     daemon: Daemon,
-    /// The process is to start again, as the user signed in elsewhere, while something was
-    /// under way that starting it again would interrupt (a question waiting for its answers,
-    /// say): it starts again once nothing is.
+    /// Set when you signed in elsewhere while a restart would interrupt something (a question
+    /// waiting for its answers, say); the process restarts once nothing is under way.
     restart_waits: bool,
     /// The last prompt sent, for `SignIn::Refused` to keep if its turn fails for that.
     last_prompt: Option<SentPrompt>,
-    /// Claude Code said why it refused the turn under way; its result ends it.
+    /// Why Claude Code refused the turn under way, said before its result ends it.
     turn_refusal: Option<Refusal>,
     /// Whether the keyring keeps an Anthropic API key, as the daemon last said.
     api_key: ApiKeyKept,
@@ -1108,9 +1097,8 @@ pub struct App<F: Frontend> {
     choosing_sign_in: Option<SessionId>,
     /// The command line's session to continue, held until the keyring was asked for a key.
     resume_after_key_check: Option<SessionId>,
-    /// The line to the daemon, which runs Claude Code and does what the desktop is asked.
     link: Link,
-    /// What the daemon was asked to do, by request, for what its answer means.
+    /// What each request to the daemon was for.
     acting: HashMap<ActId, Acting>,
     last_act: ActId,
     tick: Repeat,
@@ -1118,7 +1106,7 @@ pub struct App<F: Frontend> {
     listen: Repeat,
     /// Runs while a command's output is followed (see [`Event::PollOutput`]).
     polling: Repeat,
-    /// Set for the next time a usage limit starts over (see [`Event::LimitReset`]); stopped as it
+    /// Set for the next time a usage limit resets (see [`Event::LimitReset`]); stops as it
     /// fires.
     limit_reset: Repeat,
     /// When the process last said something.
@@ -1863,7 +1851,7 @@ impl<F: Frontend> App<F> {
         self.view.flush();
     }
 
-    /// How this window's own session is doing, while its process runs here.
+    /// Returns how our own session is doing, while its process runs here.
     fn own_mark(&self) -> Option<OwnMark> {
         if self.watch.is_some() || self.process.is_none() || self.status.session_id.is_none() {
             return None;
@@ -1884,7 +1872,7 @@ impl<F: Frontend> App<F> {
         Some(OwnMark { state, agents })
     }
 
-    /// This window's own session as the session list shows it.
+    /// Returns our own session as the session list shows it.
     fn own_session(&self, mark: OwnMark) -> Option<sidebar::Own<'_>> {
         let cwd = self.location.cwd()?;
         let id = self.status.session_id.as_ref()?;
@@ -1914,8 +1902,7 @@ impl<F: Frontend> App<F> {
         })
     }
 
-    /// Asks the daemon to read something; what `reading` makes of its answer comes back as an
-    /// event, if anything.
+    /// Asks the daemon to read something; `reading` says what its answer becomes.
     fn read(&mut self, read: Read, reading: Reading) {
         self.last_act = self.last_act.next();
         let request = self.last_act;
@@ -1926,7 +1913,7 @@ impl<F: Frontend> App<F> {
         }
     }
 
-    /// Makes whole the folder to open, or says why it isn't one.
+    /// Asks the daemon to resolve the folder to open.
     fn read_folder(&mut self, read: Read, typed: bool) {
         self.read(read, Reading::Folder { typed });
     }
@@ -1937,7 +1924,7 @@ impl<F: Frontend> App<F> {
         self.read(read, Reading::LinkedWorktree { cwd, replace });
     }
 
-    /// Has the daemon tell when what `target` names changes (`Event::Changed`).
+    /// Asks the daemon to tell when what `target` names changes (`Event::Changed`).
     fn watch(&self, target: Target) -> Option<Watched> {
         let watched = Watched::new();
         match link::send(&self.link, ToDaemon::Watch { watched, target }) {
@@ -1955,7 +1942,7 @@ impl<F: Frontend> App<F> {
         }
     }
 
-    /// Makes `change` to this window's settings and has the daemon keep it: the change alone,
+    /// Applies `change` to the settings and has the daemon keep it. We send the change alone,
     /// so what another window changed meanwhile is kept too.
     fn change_settings(&mut self, change: settings::Change) {
         self.settings.apply(change.clone());
@@ -2015,8 +2002,8 @@ impl<F: Frontend> App<F> {
         self.read_on();
     }
 
-    /// Looks every little while whether Claude Code has gone quiet (see [`Self::listen`]), from a
-    /// turn's start on; what it said last counts from now.
+    /// Starts checking whether Claude Code has gone quiet (see [`Self::listen`]), counting
+    /// from now.
     fn start_listening(&mut self) {
         self.heard = web_time::Instant::now();
         if self.listen.running() {
@@ -2026,9 +2013,8 @@ impl<F: Frontend> App<F> {
             .start(LISTEN, self.events.clone(), || Event::Listen);
     }
 
-    /// While a turn waits on the API (not on a tool, the user, compacting or a retry), says how
-    /// long Claude Code has been quiet once that is a while: a blocked network, say, would
-    /// otherwise look like "Starting" for ever. Stops once no turn is under way.
+    /// Says how long Claude Code has been quiet while a turn waits on the API, so that a
+    /// blocked network doesn't look like "Starting" for ever. Stops once no turn is under way.
     fn listen(&mut self) {
         if self.status.turns == 0 {
             self.listen.stop();
@@ -2086,7 +2072,7 @@ impl<F: Frontend> App<F> {
         }
     }
 
-    /// The running sessions anew, but our own process: says when one starts waiting for its
+    /// Takes the running sessions, ours left out, and notifies when one starts waiting for its
     /// user.
     fn live_listed(&mut self, mut live: Vec<LiveSession>) {
         if self.listing_live.done() {
@@ -2129,9 +2115,9 @@ impl<F: Frontend> App<F> {
     }
 }
 
-/// How long Claude Code has been `quiet`, in whole seconds, if that is worth saying: while it
-/// works on an answer (not on a tool, compacting or a retry, which say what they do), with
-/// nothing `asking` the user, for [`QUIET`] or longer.
+/// Returns how long Claude Code has been `quiet`, in whole seconds, once that is [`QUIET`] or
+/// longer while it works on an answer and nothing is `asking` you. A tool, compacting or a
+/// retry say what they do themselves.
 fn gone_quiet(doing: &Doing, asking: bool, quiet: Duration) -> Option<Duration> {
     let on_an_answer = matches!(
         doing,
@@ -2146,8 +2132,8 @@ fn gone_quiet(doing: &Doing, asking: bool, quiet: Duration) -> Option<Duration> 
     (on_an_answer && !asking && quiet >= QUIET).then(|| Duration::from_secs(quiet.as_secs()))
 }
 
-/// What the window was started for: the folder to work in (if any), the program to work with,
-/// and the model, or the program's default if none.
+/// What the window was started with: a folder, the program, and a model (else the program's
+/// default).
 #[derive(Debug)]
 pub struct Start {
     pub cwd: Option<PathBuf>,
@@ -2162,7 +2148,7 @@ pub struct Desktop {
     finds_windows: bool,
     /// In logical pixels.
     text_size: f32,
-    /// Coding agent backends available on PATH when the window connected.
+    /// The programs on PATH when the window connected.
     backends: Vec<provider::Backend>,
 }
 
@@ -2177,7 +2163,7 @@ impl Desktop {
         }
     }
 
-    /// The browser demo's: nothing to open a folder in, and text of the size most desktops have.
+    /// Returns the browser demo's, whose text has the size most desktops have.
     #[cfg(target_arch = "wasm32")]
     pub fn in_the_browser(text_size: f32) -> Self {
         Self {
