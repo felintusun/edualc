@@ -92,8 +92,8 @@ pub(super) enum Refusal {
     Failed,
 }
 
-/// The inbox `to` addresses, if it is an address, as Claude Code takes one: `uds:` and the
-/// socket's path, percent-encoded, or the path itself.
+/// Returns the inbox `to` addresses, if it is an address as Claude Code takes one: `uds:` and
+/// the socket's path, percent-encoded, or the path itself.
 fn addressed(to: &str) -> Option<PathBuf> {
     match to.strip_prefix("uds:") {
         Some(encoded) => Some(PathBuf::from(percent_decoded(encoded))),
@@ -101,8 +101,8 @@ fn addressed(to: &str) -> Option<PathBuf> {
     }
 }
 
-/// `text` with its `%XX` escapes decoded, or as it is where they don't decode to UTF-8 text
-/// (as JavaScript's `decodeURIComponent` falls back in Claude Code).
+/// Decodes `text`'s `%XX` escapes, or leaves it as it is where they don't decode to UTF-8, as
+/// Claude Code falls back when JavaScript's `decodeURIComponent` throws.
 fn percent_decoded(text: &str) -> String {
     let mut bytes = Vec::with_capacity(text.len());
     let mut rest = text.as_bytes();
@@ -124,9 +124,9 @@ fn percent_decoded(text: &str) -> String {
     String::from_utf8(bytes).unwrap_or_else(|_| text.to_owned())
 }
 
-/// The address of the inbox at `socket`, as Claude Code writes one (2.1.316): `uds:` and the
-/// path, any character but letters, digits and `:_/.\-` percent-encoded. None for a path that
-/// isn't text, or too long for Claude Code to take as an address.
+/// Returns the address of the inbox at `socket` as Claude Code 2.1.316 writes one: `uds:` and
+/// the path, with any character but letters, digits and `:_/.\-` percent-encoded. `None` for a
+/// path that isn't text, or too long for Claude Code to take as an address.
 fn address(socket: &Path) -> Option<String> {
     let encoded: String = socket
         .to_str()?
@@ -153,14 +153,15 @@ const NAME_CHARS: usize = 64;
 /// The tag of Claude Code's envelope for a message from another session.
 const ENVELOPE: &str = "cross-session-message";
 
-/// The message as Claude Code's own sessions post one (2.1.316), for the recipient to show who
-/// sent it and answer it: the envelope, with the sender's inbox (`from`), name and permission
-/// class (`from-mode`), then the text. Claude Code tells sessions apart by that class when one
-/// messages another: a receiver holds a message from another class, and, running with
-/// permissions bypassed, one that names none. An ACP session asks before its commands, so its
-/// class is `prompting`. Claude Code reads an envelope back only in exactly the form it writes
-/// one, attributes in this order and the text escaped as [`escaped`] does; anything else
-/// reaches the session as plain text.
+/// Wraps a message as Claude Code 2.1.316's own sessions post one, so that the recipient shows
+/// who sent it and can answer: the envelope with the sender's inbox (`from`), name and
+/// permission class (`from-mode`), then the text.
+///
+/// A receiver holds a message from another permission class and, when it bypasses permissions,
+/// one that names none. An ACP session asks before its commands, so its class is `prompting`.
+/// Claude Code reads an envelope back only in exactly the form it writes: attributes in this
+/// order, the text escaped as [`escaped`] does. Anything else reaches the session as plain
+/// text.
 fn envelope(from: Option<&str>, name: &MessagingName, text: &str) -> String {
     let from = from.map(|from| format!(" from=\"{from}\""));
     let name =
@@ -173,10 +174,10 @@ fn envelope(from: Option<&str>, name: &MessagingName, text: &str) -> String {
     )
 }
 
-/// The text as Claude Code puts it in an envelope: with a `\` after the `<` of anything that
-/// would close the envelope, so that it ends only where it ends. Claude Code also takes closing
-/// tags spelled with look-alike letters as such; a text with one of those doesn't read back as
-/// an envelope, and reaches the session as plain text.
+/// Escapes text as Claude Code does in an envelope: a `\` after the `<` of anything that would
+/// close it, so that the envelope ends only where it ends. Claude Code also takes closing tags
+/// spelled with look-alike letters as such; a text with one of those doesn't read back as an
+/// envelope, and reaches the session as plain text.
 fn escaped(text: &str) -> String {
     let mut escaped = String::with_capacity(text.len());
     for (index, character) in text.char_indices() {
@@ -188,8 +189,8 @@ fn escaped(text: &str) -> String {
     escaped
 }
 
-/// The sender's name and the text of a message in an envelope as [`envelope`] writes one; no
-/// name, and all of it, for a message without one.
+/// Returns the sender's name and the text of a message in an envelope as [`envelope`] writes
+/// one; no name and the whole message for one without.
 pub(super) fn unwrapped(content: &str) -> (Option<String>, String) {
     let Some(rest) = content.strip_prefix(&format!("<{ENVELOPE}")) else {
         return (None, content.to_owned());
@@ -207,9 +208,8 @@ pub(super) fn unwrapped(content: &str) -> (Option<String>, String) {
     (name, unescaped(body))
 }
 
-/// The text [`escaped`] wrote, without the `\` it put after a `<`. A text that already held
-/// `<\` before a closing tag reads back without it: Claude Code's escaping doesn't tell the two
-/// apart.
+/// Undoes [`escaped`], taking out the `\` it put after a `<`. A text that already held `<\`
+/// before a closing tag loses it too, as Claude Code's escaping doesn't tell the two apart.
 fn unescaped(text: &str) -> String {
     let mut unescaped = String::with_capacity(text.len());
     let mut characters = text.char_indices();
@@ -227,9 +227,9 @@ fn unescaped(text: &str) -> String {
     unescaped
 }
 
-/// Whether what follows a `<` closes an envelope, as Claude Code tells: no `\` right after it;
-/// then anything but word characters, brackets and slashes; a slash; anything but word
-/// characters and brackets; the tag, in any case; and no word character after it.
+/// Returns whether what follows a `<` closes an envelope, as Claude Code tells: no `\` right
+/// after it; then anything but word characters, brackets and slashes; a slash; anything but
+/// word characters and brackets; the tag, in any case; and no word character after it.
 fn closes_envelope(after: &str) -> bool {
     let word = |character: char| character.is_ascii_alphanumeric() || "_-".contains(character);
     let bracket = |character: char| "<>".contains(character);
@@ -264,8 +264,8 @@ pub(super) struct Places {
 }
 
 impl Places {
-    /// The user's: `~/.claude/sessions`, and `$XDG_RUNTIME_DIR/cc-socks` or the fallback in
-    /// /tmp that Claude Code takes when that path is too long for a socket.
+    /// Returns your places: `~/.claude/sessions`, and `$XDG_RUNTIME_DIR/cc-socks` or the folder
+    /// in /tmp Claude Code takes when that path is too long for a socket.
     pub(super) fn of_user() -> Self {
         let uid = rustix::process::getuid().as_raw();
         let mut inboxes = vec![PathBuf::from(format!("/tmp/cc-socks-{uid}"))];
@@ -351,8 +351,8 @@ fn send(
     Ok(name)
 }
 
-/// The inbox of session `sender`, as its record among the running ones gives it (see
-/// `inbox`), for the sessions it writes to to answer at; none where no single such record says.
+/// Returns the inbox of session `sender`, as its record among the running ones gives it, for
+/// the sessions it writes to to answer at; `None` unless exactly one record gives it.
 fn own_inbox(
     places: &Places,
     records: &[SessionRecord],
@@ -367,7 +367,7 @@ fn own_inbox(
     inbox_ok(places, record).then(|| record.messaging_socket_path.clone())
 }
 
-/// The records of sessions whose process runs, as the record says it started.
+/// Reads the records of sessions whose process runs and started when the record says.
 fn running(places: &Places) -> Vec<SessionRecord> {
     let Some(folder) = open_folder(&places.sessions) else {
         return Vec::new();
@@ -391,7 +391,7 @@ fn running(places: &Places) -> Vec<SessionRecord> {
         .collect()
 }
 
-/// Whether the record's inbox is a socket of this user's, named for its process, in a folder
+/// Returns whether the record's inbox is a socket of yours, named for its process, in a folder
 /// Claude Code keeps inboxes in.
 fn inbox_ok(places: &Places, record: &SessionRecord) -> bool {
     let socket = &record.messaging_socket_path;
@@ -405,7 +405,7 @@ fn inbox_ok(places: &Places, record: &SessionRecord) -> bool {
     named && placed && ours
 }
 
-/// The token the record's session takes in its inbox, from its key file
+/// Reads the token the record's session takes in its inbox, from its key file
 /// (`<pid>.<64 hex>.key`), whose start matches the record's.
 fn peer_token(places: &Places, record: &SessionRecord) -> Option<Zeroizing<String>> {
     let folder = open_folder(&places.sessions)?;
@@ -447,7 +447,7 @@ fn open_folder(path: &Path) -> Option<OwnedFd> {
     .ok()
 }
 
-/// The text of `name` in the opened `folder`, if it is a regular file (no link) of at most
+/// Reads `name` in the opened `folder`, if it is a regular file, not a link, of at most
 /// `limit` bytes.
 fn read_regular(folder: &OwnedFd, name: &OsStr, limit: u64) -> Option<String> {
     let file = rustix::fs::openat(
