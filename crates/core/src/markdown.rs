@@ -63,7 +63,8 @@ const BETWEEN: &str = "\n\n";
 /// stray line break.
 const BEFORE_PARAGRAPH_IN_SLINT: &str = "\n\n\\\n";
 
-/// Each run of paragraphs and lists is one block, so that a selection can span it.
+/// Splits Markdown into blocks. Each run of paragraphs and lists is one block, so that a
+/// selection can span it.
 pub fn blocks(src: &str) -> Vec<Block> {
     let mut out = Vec::new();
     let mut run: Option<String> = None;
@@ -87,8 +88,8 @@ pub fn blocks(src: &str) -> Vec<Block> {
     out
 }
 
-/// A text block's Markdown as Slint draws paragraphs: each after the first opening with a hard
-/// break, so that there is space between them. Everything else is as it was.
+/// Opens each paragraph after the first with a hard break, so that Slint draws space between
+/// them. Everything else stays as it was.
 pub fn spaced_for_slint(text: &str) -> String {
     let mut spaced = String::with_capacity(text.len());
     for (part, _) in split(text, false) {
@@ -106,7 +107,7 @@ pub fn spaced_for_slint(text: &str) -> String {
     spaced
 }
 
-/// What a block shown as it is says, as text.
+/// Returns the text of a block that is shown as it is.
 fn block_source(block: Block) -> String {
     match block {
         Block::Text(source) | Block::Quote(source) | Block::Heading(_, source) => source,
@@ -125,10 +126,10 @@ fn join(run: &mut Option<String>, separator: &str, source: String) {
     }
 }
 
-/// The parts of a plan someone can comment on: [`blocks`], with every item of a list on its
-/// own, and each with where its Markdown source is in `src` (to quote it back, or note
-/// something under it). Text Markdown shows nothing of (a link's definition, say) is a part
-/// too, shown as it is written: what is approved is all seen.
+/// Splits a plan into the parts you can comment on: [`blocks`], with each list item on its own,
+/// and each with where its source is in `src`, to quote it back or note something under it.
+/// Text Markdown shows nothing of, such as a link's definition, is a part too, shown as it is
+/// written, so that all that is approved is seen.
 pub fn sections(src: &str) -> Vec<(Block, Range<usize>)> {
     let parts = split(src, true);
     let mut out = Vec::with_capacity(parts.len());
@@ -144,7 +145,7 @@ pub fn sections(src: &str) -> Vec<(Block, Range<usize>)> {
     out
 }
 
-/// Source between two shown parts that isn't only blank: what Markdown hides.
+/// Returns the source between two shown parts that Markdown hides, unless it is blank.
 fn hidden_between(src: &str, between: Range<usize>) -> Option<(Block, Range<usize>)> {
     let text = src.get(between.clone())?.trim();
     (!text.is_empty()).then(|| {
@@ -156,7 +157,7 @@ fn hidden_between(src: &str, between: Range<usize>) -> Option<(Block, Range<usiz
     })
 }
 
-/// A source range without its trailing blanks.
+/// Returns `range` without its trailing blanks.
 fn trimmed(src: &str, range: &Range<usize>) -> Range<usize> {
     let text = src.get(range.clone()).unwrap_or("");
     range.start..range.start + text.trim_end().len()
@@ -327,9 +328,9 @@ fn split(src: &str, items: bool) -> Vec<(Part, Range<usize>)> {
     out
 }
 
-/// The source in `range` with each task marker in it (`[ ]`, `[x]`) as the box it stands for,
-/// since Slint's own Markdown knows no task lists and would show the brackets; none if `range`
-/// holds no marker.
+/// Returns the source in `range` with each task marker (`[ ]`, `[x]`) replaced by the box it
+/// stands for, as Slint's Markdown knows no task lists and would show the brackets. `None` if
+/// `range` holds no marker.
 fn with_task_boxes(
     src: &str,
     range: &Range<usize>,
@@ -353,8 +354,8 @@ fn with_task_boxes(
     Some(without_bullets(&boxed).unwrap_or(boxed))
 }
 
-/// A list of nothing but one-line tasks as lines of boxes, which need no bullet beside them
-/// (Slint draws one for any list item); none for a list holding anything else.
+/// Returns a list of nothing but one-line tasks as lines of boxes, without the bullet Slint
+/// draws for any list item; `None` for a list holding anything else.
 fn without_bullets(list: &str) -> Option<String> {
     let tasks: Option<Vec<&str>> = list
         .lines()
@@ -450,7 +451,7 @@ impl TableParse {
     }
 }
 
-/// An ATX heading's text without its `#`s; a setext heading's first line.
+/// Returns an ATX heading's text without its `#`s, or a setext heading's first line.
 fn heading_text(source: &str) -> String {
     let first = source.lines().next().unwrap_or("").trim();
     first
@@ -474,11 +475,10 @@ fn unquote(source: &str) -> String {
         .to_owned()
 }
 
-/// Whether the window's inline Markdown takes `source` (after [`sanitize`]): paragraphs and
-/// lists with emphasis, strikethrough, links, code spans, `<u>` and `<font>`, and nothing else
-/// (no headings, quotes, code blocks, tables, rules, images, other HTML). As Slint's own parser
-/// takes it, which is pulldown-cmark's with strikethrough on (checked against it in `ui`): text
-/// it refuses is shown plain.
+/// Returns whether the window's inline Markdown takes `source`, after [`sanitize`]: paragraphs
+/// and lists with emphasis, strikethrough, links, code spans, `<u>` and `<font>`, and nothing
+/// else. This follows Slint's own parser, pulldown-cmark with strikethrough on, which `ui`
+/// checks it against; text Slint refuses is shown plain.
 pub fn accepted(source: &str) -> bool {
     use pulldown_cmark::{Event, Options, Parser, Tag};
     let source = sanitize(source);

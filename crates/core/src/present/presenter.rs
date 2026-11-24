@@ -183,8 +183,8 @@ impl<F: Frontend> Presenter<F> {
         self.frontend.command(command);
     }
 
-    /// The language text with Han characters alone is set in, from the next row drawn on, and
-    /// the setting's choice on the settings page.
+    /// Sets the language of text with Han characters alone, from the next row drawn on, and
+    /// the settings page's choice.
     pub fn set_han_language(&mut self, han: CjkLanguage) {
         self.han = han;
         self.preferences.han_language = match han {
@@ -195,7 +195,7 @@ impl<F: Frontend> Presenter<F> {
         };
     }
 
-    /// Image `key`'s pixels, or why it can't be shown.
+    /// Shows image `key`'s pixels, or why it can't be shown.
     pub fn show_image(&mut self, key: ImageKey, shown: Result<&Pixels, String>) {
         let row = match &shown {
             Ok(pixels) if pixels.is_whole() => ShownImage {
@@ -212,7 +212,7 @@ impl<F: Frontend> Presenter<F> {
         self.frontend.show_image(key, shown);
     }
 
-    /// Keeps only the images `shown` holds: the conversation was replaced.
+    /// Keeps only the images in `shown`, after the conversation was replaced.
     pub fn keep_images(&mut self, shown: &HashSet<ImageKey>) {
         self.images.retain(|key, _| shown.contains(key));
         self.frontend.keep_images(shown);
@@ -224,7 +224,7 @@ impl<F: Frontend> Presenter<F> {
             .collect()
     }
 
-    /// The base text size, in logical pixels; everything else is sized from it.
+    /// Sets the base text size in logical pixels, which everything else is sized from.
     pub fn set_text_size(&mut self, pixels: f32) {
         self.command(Command::TextSize(pixels));
     }
@@ -243,7 +243,7 @@ impl<F: Frontend> Presenter<F> {
         };
     }
 
-    /// How many sessions a shutdown would end.
+    /// Sets how many sessions a shutdown would end.
     pub fn set_running_sessions(&mut self, count: usize) {
         self.preferences.running_sessions = i32::try_from(count).unwrap_or(i32::MAX);
     }
@@ -252,8 +252,8 @@ impl<F: Frontend> Presenter<F> {
         self.command(Command::Look(look));
     }
 
-    /// The images going with the next message, as chips in the composer: their thumbnails are
-    /// the helper's pixels, decoded nowhere here.
+    /// Shows the images going with the next message as chips in the composer. Their
+    /// thumbnails are the decoder's pixels, not decoded again here.
     pub fn render_attached(&mut self, attached: &[Picture]) {
         self.composer.images = attached
             .iter()
@@ -265,7 +265,7 @@ impl<F: Frontend> Presenter<F> {
             .collect();
     }
 
-    /// The composer's kept height, if it was dragged to one; fitted to its text if not.
+    /// Sets the composer's height as dragged; `None` fits it to its text.
     pub fn set_composer_height(&mut self, height_px: Option<u16>) {
         self.command(Command::ComposerHeight(height_px));
     }
@@ -274,7 +274,7 @@ impl<F: Frontend> Presenter<F> {
         self.command(Command::Copy(text.to_owned()));
     }
 
-    /// Has the frontend do something on its desktop, at once.
+    /// Has the frontend act on its desktop at once.
     pub fn seat(&mut self, seat: super::Seat) {
         self.frontend.seat(seat);
     }
@@ -287,23 +287,23 @@ impl<F: Frontend> Presenter<F> {
         self.frontend.draft()
     }
 
-    /// Whether Up can bring an older prompt back, and whether one is in the draft now.
+    /// Sets whether Up can bring an older prompt back, and whether one is in the draft now.
     pub fn set_recall(&mut self, can_recall_older: bool, recalling: bool) {
         self.composer.can_recall_older = can_recall_older;
         self.composer.recalling = recalling;
     }
 
-    /// Whether the composer shows the draft as a shell command.
+    /// Sets whether the composer shows the draft as a shell command.
     pub fn set_shell_mode(&mut self, shell: bool) {
         self.composer.shell = shell;
     }
 
-    /// What the command in the draft takes, hinted after it; empty for none.
+    /// Sets the hint after the command in the draft for what it takes; empty for none.
     pub fn set_argument_hint(&mut self, hint: &str) {
         hint.clone_into(&mut self.composer.argument_hint);
     }
 
-    /// Adds `text` to the end of the draft, after what is there.
+    /// Adds `text` to the end of the draft.
     pub fn append_draft(&mut self, text: &str) {
         self.command(Command::AppendDraft(text.to_owned()));
     }
@@ -359,8 +359,8 @@ impl<F: Frontend> Presenter<F> {
         self.command(Command::ScrollToEnd);
     }
 
-    /// Whether the keyring keeps an API key, what it last said, and the title of a session
-    /// waiting for the user to pick what it signs in with.
+    /// Shows whether the keyring keeps an API key, what it last said, and the title of a
+    /// session waiting for you to pick what it signs in with.
     pub fn render_api_key(&mut self, kept: ApiKeyKept, note: &str, choosing: Option<&str>) {
         let kept = kept == ApiKeyKept::Kept;
         self.preferences.api_key_kept = kept;
@@ -371,8 +371,7 @@ impl<F: Frontend> Presenter<F> {
             .clone_into(&mut self.sessions.choosing_sign_in);
     }
 
-    /// Pins the newest of the user's messages above the conversation, on one line; nothing
-    /// before the first.
+    /// Pins your newest message above the conversation, on one line.
     pub fn render_pinned(&mut self, chat: &Chat) {
         /// More than a wide window shows on the pinned line.
         const PINNED_CHARS: usize = 400;
@@ -401,15 +400,14 @@ impl<F: Frontend> Presenter<F> {
         transcript.pinned_text = line;
     }
 
-    /// A session's transcript was loaded: shown at its end once the list has measured its way
-    /// there, not on the way.
+    /// Shows a loaded transcript at its end, once the list has measured its way there.
     pub fn open_at_end(&mut self) {
         self.command(Command::OpenAtEnd);
     }
 
-    /// What the session is doing: whether something runs that Stop stops (Claude's turn, or a
-    /// `!` command, which an interrupt stops too), what the progress line shows of it, and the
-    /// status bar's word for it.
+    /// Shows what the session is doing: whether something runs that Stop stops (a turn, or a
+    /// `!` command, which an interrupt stops too), the progress line, and the status bar's
+    /// word for it.
     pub fn render_activity(&mut self, status: &Status, waiting: bool, shell_running: bool) {
         let session = &mut self.session;
         // Stop and Esc cancel a wait for the usage limit too.
@@ -447,8 +445,9 @@ impl<F: Frontend> Presenter<F> {
         session.status = doing;
     }
 
-    /// `asking`: the user is asked to trust the folder, which would run this.
-    /// `asks_claude_trust`: whether to trust the folder, trusted here, for Claude Code too.
+    /// Shows the session's status. `asking` holds what the folder would run while you are asked
+    /// to trust it; `asks_claude_trust` asks whether to trust a folder trusted here for Claude
+    /// Code too.
     pub fn render_status(
         &mut self,
         status: &Status,
@@ -547,7 +546,7 @@ impl<F: Frontend> Presenter<F> {
         }
     }
 
-    /// The session list (see [`crate::sidebar`]); `filtered` says why it may be empty.
+    /// Shows the session list (see [`crate::sidebar`]); `filtered` says why it may be empty.
     pub fn render_sidebar(&mut self, rows: &[sidebar::Row], filtered: bool) {
         let items: Vec<SessionRow> = rows.iter().map(session_row).collect();
         let empty = match (items.is_empty(), filtered) {
@@ -576,7 +575,7 @@ impl<F: Frontend> Presenter<F> {
     }
 }
 
-/// A text's CJK characters (see [`crate::cjk`]), for the window to set the text by them.
+/// Returns a text's CJK characters (see [`crate::cjk`]), for the window to set the text by.
 fn cjk(text: &str, han: CjkLanguage) -> CjkChars {
     CjkText::of(text, han).map_or_else(CjkChars::default, |cjk| CjkChars {
         language: match cjk.language {
@@ -610,7 +609,7 @@ fn live_state(state: Option<LiveStatus>) -> LiveState {
     }
 }
 
-/// A row of the session list as the sidebar shows it.
+/// Returns a row of the session list as the sidebar shows it.
 fn session_row(row: &sidebar::Row) -> SessionRow {
     match row {
         sidebar::Row::RunningHeading { running, waiting } => SessionRow {
@@ -656,8 +655,8 @@ fn session_row(row: &sidebar::Row) -> SessionRow {
     }
 }
 
-/// A running session's second line: what it does, the name to message it by unless its title
-/// is that name, its worktree.
+/// Returns a running session's second line: what it does, the name to message it by unless
+/// its title is that name, and its worktree.
 fn running_detail(running: &sidebar::Running) -> String {
     let doing = match running.state {
         LiveStatus::Waiting => "Needs you",
@@ -689,7 +688,7 @@ fn stat(label: &str, value: String, detail: String, fraction: f32) -> StatRow {
     }
 }
 
-/// A line of what a folder would run, as the trust question lists it.
+/// Returns a line of what a folder would run, as the trust question lists it.
 fn run_line(runs: &Runs) -> String {
     match runs {
         Runs::Hook {
