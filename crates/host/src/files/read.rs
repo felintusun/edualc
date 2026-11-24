@@ -2,11 +2,11 @@
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
-use std::time::{Duration, SystemTime};
+use std::time::SystemTime;
 
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::mpsc;
 
-use crate::acp::{self, Agent, ExternalSession, brain};
+use crate::acp::{ExternalSession, brain};
 use crate::external::agy::{self, AgyTask};
 use crate::external::wire::TranscriptLine;
 use crate::folder::Folder;
@@ -19,6 +19,7 @@ use crate::sessions::{
 use crate::{sessions, snapshots};
 
 use super::Outbox;
+use super::catalog::{Catalog, query_catalog};
 
 /// The most sessions listed at once.
 const MOST_SESSIONS: usize = 1000;
@@ -69,94 +70,6 @@ fn encode_lines(lines: &[TranscriptLine]) -> Vec<String> {
                 .ok()
         })
         .collect()
-}
-
-/// How long a `session/list` answer stays fresh before it is asked again.
-const CATALOG_TTL: Duration = Duration::from_secs(30);
-/// The way to [`keep_catalog`].
-pub type Catalog = mpsc::Sender<CatalogQuery>;
-
-/// Asks for the agy and opencode sessions started elsewhere.
-#[derive(Debug)]
-pub struct CatalogQuery {
-    pub cached_only: bool,
-    pub reply: oneshot::Sender<Vec<ExternalSession>>,
-}
-
-/// Keeps the list of agy and opencode sessions started elsewhere, as their one owner, so that
-/// reads at the same time ask the programs once.
-pub async fn keep_catalog(mut queries: mpsc::Receiver<CatalogQuery>) {
-    let mut cached: Vec<ExternalSession> = Vec::new();
-    let mut fetched_at: Option<tokio::time::Instant> = None;
-    let mut refreshing = false;
-    let mut waiters: Vec<oneshot::Sender<Vec<ExternalSession>>> = Vec::new();
-    let (refreshed_tx, mut refreshed_rx) = mpsc::channel::<Vec<ExternalSession>>(4);
-
-    let spawn_refresh = |refreshing: &mut bool, tx: &mpsc::Sender<Vec<ExternalSession>>| {
-        if *refreshing {
-            return;
-        }
-        *refreshing = true;
-        let tx = tx.clone();
-        tokio::spawn(async move {
-            let (agy, opencode) = tokio::join!(
-                acp::list_sessions(Agent::Agy),
-                acp::list_sessions(Agent::Opencode),
-            );
-            let mut combined = agy;
-            combined.extend(opencode);
-            if tx.send(combined).await.is_err() {
-                tracing::debug!("acp catalog actor stopped before refresh finished");
-            }
-        });
-    };
-
-    loop {
-        tokio::select! {
-            query = queries.recv() => {
-                let Some(CatalogQuery { cached_only, reply }) = query else {
-                    return;
-                };
-                let fresh = fetched_at.is_some_and(|at| at.elapsed() < CATALOG_TTL);
-                if cached_only || fetched_at.is_some() {
-                    if reply.send(cached.clone()).is_err() {
-                        tracing::debug!("catalog waiter dropped");
-                    }
-                    if !fresh {
-                        spawn_refresh(&mut refreshing, &refreshed_tx);
-                    }
-                } else {
-                    waiters.push(reply);
-                    spawn_refresh(&mut refreshing, &refreshed_tx);
-                }
-            }
-            refreshed = refreshed_rx.recv() => {
-                let Some(sessions) = refreshed else {
-                    continue;
-                };
-                refreshing = false;
-                fetched_at = Some(tokio::time::Instant::now());
-                cached = sessions;
-                for waiter in waiters.drain(..) {
-                    if waiter.send(cached.clone()).is_err() {
-                        tracing::debug!("catalog waiter dropped");
-                    }
-                }
-            }
-        }
-    }
-}
-
-async fn query_catalog(catalog: &Catalog, cached_only: bool) -> Vec<ExternalSession> {
-    let (reply, answer) = oneshot::channel();
-    if catalog
-        .send(CatalogQuery { cached_only, reply })
-        .await
-        .is_err()
-    {
-        return Vec::new();
-    }
-    answer.await.unwrap_or_default()
 }
 
 /// Returns where a transcript is. An agy session's subagents and board are in agy's records,
@@ -541,6 +454,8 @@ fn chunk_overview(
 
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
     use super::*;
 
     #[test]

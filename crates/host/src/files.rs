@@ -1,6 +1,7 @@
 //! What the daemon reads and watches for the windows: the programs' files and edualc's
 //! settings.
 
+mod catalog;
 mod claude_trust;
 mod read;
 mod watch;
@@ -10,8 +11,9 @@ use std::path::Path;
 
 use tokio::sync::mpsc;
 
+pub use catalog::{Catalog, keep_catalog};
 pub(crate) use claude_trust::{ClaudeTrustError, trust_for_claude_code, trusted_for_claude_code};
-pub use read::{Catalog, answer, keep_catalog};
+pub use read::answer;
 pub use watch::{Order, watch};
 
 use crate::ipc::FromDaemon;
