@@ -130,7 +130,7 @@ impl RpcError {
     /// ACP's error for a request the agent can't serve before the client authenticates.
     const AUTH_REQUIRED: i64 = -32000;
 
-    /// Whether the agent refused for want of a valid sign-in, as ACP's code says.
+    /// Returns whether the agent refused for want of a valid sign-in, as ACP's code says.
     pub fn sign_in_refused(&self) -> bool {
         self.code == Self::AUTH_REQUIRED
     }
@@ -189,7 +189,7 @@ pub enum Change {
     Other,
 }
 
-/// A slash command offered by an ACP agent.
+/// A slash command the agent offers.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AvailableCommand {
@@ -200,7 +200,7 @@ pub struct AvailableCommand {
     pub input: Option<AvailableCommandInput>,
 }
 
-/// Hint for a slash command's arguments.
+/// What a slash command takes as arguments, as a hint.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AvailableCommandInput {
@@ -490,8 +490,8 @@ pub enum OpencodeQuestionOption {
     Plain(String),
 }
 
-/// Fallback tool call arguments read across ACP naming conventions when an unknown tool is
-/// classified by `ToolKind` or normalized name.
+/// A tool call's arguments under the names agents commonly give them, read for a tool edualc
+/// knows only by its kind or name.
 #[derive(Debug, Default, Deserialize)]
 pub struct GenericArguments {
     #[serde(alias = "CommandLine", alias = "cmd")]
@@ -590,8 +590,8 @@ pub struct Opened {
     pub config_options: Vec<ConfigOption>,
 }
 
-/// An ACP session configuration option (model, mode, thought level) returned by `session/new`,
-/// `session/load`, `session/set_config_option`, or `config_option_update`.
+/// A session's setting, such as its model, mode or thought level, as `session/new`,
+/// `session/load`, `session/set_config_option` and `config_option_update` give it.
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ConfigOption {
@@ -607,7 +607,7 @@ pub struct ConfigOption {
 }
 
 impl ConfigOption {
-    /// All selectable choices in order, flattening option groups if present.
+    /// Returns every choice in order, those in groups among them.
     pub fn choices(&self) -> Vec<&ConfigSelectOption> {
         let mut flat = Vec::new();
         for choice in &self.options {
@@ -620,7 +620,7 @@ impl ConfigOption {
     }
 }
 
-/// Either a single selectable option or a named group of options.
+/// A choice of a setting, or a named group of them.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(untagged)]
 pub enum ConfigOptionChoice {
@@ -628,7 +628,7 @@ pub enum ConfigOptionChoice {
     Group(ConfigOptionGroup),
 }
 
-/// One choice inside an ACP `ConfigOption`.
+/// A choice of a [`ConfigOption`].
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ConfigSelectOption {
@@ -639,7 +639,7 @@ pub struct ConfigSelectOption {
     pub description: Option<String>,
 }
 
-/// A group of choices inside an ACP `ConfigOption`.
+/// A named group of a [`ConfigOption`]'s choices.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ConfigOptionGroup {
@@ -1001,8 +1001,11 @@ pub enum ToAgent {
 }
 
 impl ToAgent {
-    /// The message as one line of JSON, without its line break. Fails only when a path in it
-    /// isn't UTF-8.
+    /// Writes the message as one line of JSON, without its line break.
+    ///
+    /// # Errors
+    ///
+    /// Fails only when a path in it isn't UTF-8.
     pub fn to_line(&self) -> Result<String, serde_json::Error> {
         match self {
             Self::Request(request) => serde_json::to_string(request),
