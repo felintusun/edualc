@@ -255,7 +255,7 @@ impl<'a> UserText<'a> {
 }
 
 impl Chat {
-    /// The newest of the user's own messages: its place in the conversation, and its text.
+    /// Returns your newest message: its place in the conversation, and its text.
     pub fn last_prompt(&self) -> Option<(usize, &str)> {
         self.entries
             .iter()
@@ -296,8 +296,8 @@ impl Chat {
         self.push(Body::User(text.into()), false);
     }
 
-    /// A message another session sent: its `body`, or, for one that came without an envelope
-    /// to take the body from, the whole text Claude was given.
+    /// Adds a message another session sent: its `body`, or the whole text Claude was given for
+    /// one that came without an envelope.
     pub fn peer_message(&mut self, message: &UserMessage, from: Option<&str>, body: Option<&str>) {
         let text = body.map_or_else(|| tools::result_text(Some(&message.content)), str::to_owned);
         self.push(
@@ -331,10 +331,10 @@ impl Chat {
         index
     }
 
-    /// The tool call a permission request is about, showing the input asked about: made if the
-    /// stream hasn't shown it yet, and taking that input if it differs from what streamed (a
-    /// hook may have changed it), so the card shows what is approved. An ACP agent's call
-    /// shows as the agent gave it, which is what it asks about.
+    /// Shows the tool call a permission request is about, with the input asked about, so the
+    /// card shows what you approve. The call is added if the stream hasn't shown it, and takes
+    /// the asked input if it differs from what streamed, as a hook may have changed it. An ACP
+    /// agent's call shows as the agent gave it, which is what it asks about.
     pub fn show_asked(&mut self, id: &ToolUseId, name: &ToolName, input: &Value) {
         match self.tool_mut(id) {
             Some((index, tool)) => {
@@ -355,8 +355,8 @@ impl Chat {
         }
     }
 
-    /// An ACP agent's tool call, new or changed, its result in it once it has ended. A call
-    /// the user denied stays denied, however the agent ends it.
+    /// Adds or updates an ACP agent's tool call, with its result once it ended. A call you
+    /// denied stays denied, however the agent ends it.
     pub fn acp_call(&mut self, id: &ToolUseId, call: &AcpCall, parent: Option<&ToolUseId>) {
         let state_after = |state| match (call.status, state) {
             (_, ToolState::Denied) => ToolState::Denied,
@@ -406,7 +406,7 @@ impl Chat {
         }
     }
 
-    /// Images the user sent from the composer, each a row of its own.
+    /// Adds the images you sent from the composer, each a row of its own.
     pub fn user_images(&mut self, pictures: &[Picture]) {
         for picture in pictures {
             let key = ImageKey::of(&picture.bytes);
@@ -416,12 +416,12 @@ impl Chat {
         }
     }
 
-    /// The images come since the last call, to be decoded for showing.
+    /// Takes the images that came since the last call, to be decoded for showing.
     pub fn take_images(&mut self) -> Vec<(ImageKey, ImageBytes)> {
         std::mem::take(&mut self.new_images)
     }
 
-    /// Image `key`'s pixels came (or it can't be shown): the rows showing it show it anew.
+    /// Redraws the rows showing image `key`, once its pixels came or it can't be shown.
     pub fn image_shown(&mut self, key: ImageKey) {
         for (index, entry) in self.entries.iter().enumerate() {
             let shows = match &entry.body {
@@ -442,7 +442,7 @@ impl Chat {
         }
     }
 
-    /// The images the conversation shows.
+    /// Returns the images the conversation shows.
     pub fn image_keys(&self) -> HashSet<ImageKey> {
         self.entries
             .iter()
@@ -462,8 +462,8 @@ impl Chat {
             .collect()
     }
 
-    /// A `!` command, as Claude Code echoed it: it runs until its output comes. Its card is
-    /// open, as the command was run to see what it prints.
+    /// Adds a `!` command as Claude Code echoed it, running until its output comes. Its card
+    /// opens, as the command was run to see what it prints.
     fn shell(&mut self, input: &str) {
         let shell = Shell {
             command: unescaped(input),
@@ -479,9 +479,9 @@ impl Chat {
         );
     }
 
-    /// A `!` command's end, for the latest one running: one runs at a time, and one refused
-    /// meanwhile is told of at once, before the one running ends. `stdout` is none for one
-    /// that wasn't run, its `stderr` saying why.
+    /// Ends the latest `!` command running. One runs at a time, and one refused meanwhile is
+    /// told of at once, before the one running ends. `stdout` is `None` for a command that
+    /// wasn't run, and `stderr` says why.
     fn shell_ended(&mut self, stdout: Option<&str>, stderr: &str, exit_code: Option<&str>) {
         let state = match (stdout, exit_code.map(str::trim)) {
             (Some(_), None | Some("0")) => ShellState::Done,
@@ -529,14 +529,13 @@ impl Chat {
         }
     }
 
-    /// Whether a `!` command runs.
     pub fn shell_running(&self) -> bool {
         self.entries.iter().any(|entry| {
             matches!(&entry.body, Body::Shell { shell, .. } if shell.state == ShellState::Running)
         })
     }
 
-    /// The `!` commands still running run no more: their process ended, or their session was
+    /// Ends the `!` commands still running, after their process ended or their session was
     /// saved without their end.
     pub fn stop_shells(&mut self) {
         for (index, entry) in self.entries.iter_mut().enumerate() {
@@ -558,7 +557,7 @@ impl Chat {
         }
     }
 
-    /// At the end of a turn: what never finished was cut off.
+    /// Marks what never finished in the turn as cut off.
     pub fn end_turn(&mut self) {
         for (index, entry) in self.entries.iter_mut().enumerate() {
             if let Body::Tool { tool, .. } = &mut entry.body
@@ -573,8 +572,8 @@ impl Chat {
         }
     }
 
-    /// A line under a turn that ended, numbered by the messages that started turns: your
-    /// prompts and other sessions' messages, those of the saved transcript among them.
+    /// Adds a line under a turn that ended, numbered by the messages that started turns: your
+    /// prompts and other sessions' messages, the saved transcript's among them.
     pub fn turn_ended(&mut self, duration_ms: Option<u64>, tokens_in: u64, tokens_out: u64) {
         let number = self
             .entries
@@ -596,7 +595,8 @@ impl Chat {
         );
     }
 
-    /// What the last turn changed in the session's folder, as the daemon says after it ended.
+    /// Adds what the last turn changed in the session's folder, as the daemon says after it
+    /// ended.
     pub fn turn_changed(&mut self, summary: crate::changes::Summary) {
         let last = self
             .entries
@@ -654,7 +654,7 @@ impl Chat {
         }
     }
 
-    /// A raw API stream event, from `--include-partial-messages`.
+    /// Takes a raw API stream event, from `--include-partial-messages`.
     pub fn stream_event(&mut self, event: &StreamEvent, parent: Option<&ToolUseId>) {
         let key = parent.cloned();
         let nested = parent.is_some();
@@ -755,7 +755,7 @@ impl Chat {
         }
     }
 
-    /// A complete assistant message: one content block each, as the CLI sends them.
+    /// Takes a complete assistant message, of one content block as the CLI sends them.
     pub fn assistant_message(
         &mut self,
         message: &ApiMessage,
@@ -811,7 +811,8 @@ impl Chat {
         }
     }
 
-    /// Tool results, interruptions, what slash commands print; in a transcript, the prompts.
+    /// Takes a user-role message: a tool's result, an interruption, what a slash command
+    /// printed, or in a transcript a prompt.
     pub fn user_message(&mut self, message: &UserMessage, origin: Origin) {
         match &message.content {
             UserContent::Text(text) => self.user_text(text, origin),
@@ -841,7 +842,7 @@ impl Chat {
         }
     }
 
-    /// A tool's result; a card with images in it opens, to show them.
+    /// Adds a tool's result; a card with images in it opens to show them.
     fn tool_result(&mut self, id: &ToolUseId, content: Option<&UserContent>, failed: bool) {
         let images: Vec<(ImageKey, ImageBytes)> = match content {
             Some(UserContent::Blocks(blocks)) => blocks
@@ -906,7 +907,7 @@ impl Chat {
         }
     }
 
-    /// A saved session's messages, as a conversation to show in place of what is.
+    /// Makes a conversation of a saved session's messages, to show in place of the current one.
     pub fn from_transcript(lines: &[TranscriptLine]) -> Self {
         let mut chat = Self::default();
         chat.replay(lines);
@@ -916,7 +917,8 @@ impl Chat {
         chat
     }
 
-    /// More of a saved session's messages, after those shown (a session running elsewhere).
+    /// Adds more of a saved session's messages after those shown, as a session running
+    /// elsewhere writes them.
     pub fn replay(&mut self, lines: &[TranscriptLine]) {
         for line in lines {
             match line {
@@ -952,7 +954,7 @@ impl Chat {
     }
 }
 
-/// An image a message holds, if it holds its bytes (and not, say, a link).
+/// Returns an image a message holds, if it holds its bytes rather than, say, a link.
 fn received(source: Option<&ReceivedImage>) -> Option<(ImageKey, ImageBytes)> {
     match source? {
         ReceivedImage::Base64 { data } => Some((
@@ -973,8 +975,8 @@ fn between<'a>(text: &'a str, open: &str, close: &str) -> Option<&'a str> {
     )
 }
 
-/// Text of a `!` row as Claude Code writes it, with `&`, `<` and `>` escaped (so that what a
-/// command printed can't close the row's tags), as it was.
+/// Unescapes the text of a `!` row. Claude Code escapes `&`, `<` and `>` in it, so that what a
+/// command printed can't close the row's tags.
 fn unescaped(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
     let mut rest = text;
@@ -991,7 +993,7 @@ fn unescaped(text: &str) -> String {
     out
 }
 
-/// Slash command output, and a command's, is meant for a terminal.
+/// Strips a terminal's escape sequences from what a command printed.
 pub fn strip_ansi(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
     let mut chars = text.chars().peekable();
