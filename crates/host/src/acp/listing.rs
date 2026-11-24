@@ -1,7 +1,7 @@
 //! The sessions an agent keeps, listed and found again with `session/list`.
 
 use std::collections::HashSet;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use tokio::io::{AsyncBufReadExt as _, BufReader};
 use tokio::process::{Child, ChildStdin, ChildStdout};
@@ -21,7 +21,7 @@ use super::write_line;
 /// How long a `session/list` or `session/fork` asked of a program outside a session may take.
 const PROBE_WAIT: std::time::Duration = std::time::Duration::from_secs(5);
 /// The most pages of `session/list` read.
-const MAX_LIST_PAGES: usize = 10;
+const MOST_PAGES: u64 = 10;
 
 /// A session started outside edualc, as `session/list` gives it.
 #[derive(Debug, Clone)]
@@ -36,133 +36,81 @@ pub(crate) struct ExternalSession {
     pub modified: Option<std::time::SystemTime>,
 }
 
-fn parse_rfc3339(text: Option<&str>) -> Option<std::time::SystemTime> {
-    let text = text?;
-    match text.parse::<jiff::Timestamp>() {
-        Ok(timestamp) => Some(timestamp.into()),
-        Err(error) => {
-            tracing::debug!(%error, text, "a session's updatedAt that isn't a time");
-            None
-        }
-    }
+/// Why an agent's sessions couldn't be listed.
+#[derive(Debug, thiserror::Error)]
+pub(crate) enum ListingError {
+    #[error("no home folder ($HOME) to start it in")]
+    NoHome,
+    #[error("couldn't start it: {0}")]
+    Start(#[source] std::io::Error),
+    #[error("it was started without its pipes")]
+    Pipes,
+    #[error("it didn't answer in time")]
+    TimedOut,
+    #[error("couldn't write to it: {0}")]
+    Write(#[source] std::io::Error),
+    #[error("couldn't read from it: {0}")]
+    Read(#[source] std::io::Error),
+    #[error("it ended before it answered")]
+    Ended,
+    #[error("it refused ({}): {}", .0.code, .0.message)]
+    Refused(RpcError),
+    #[error("it answered with neither a result nor an error")]
+    NoResult,
+    #[error("couldn't write the request: {0}")]
+    Encode(#[source] serde_json::Error),
+    #[error("its list can't be read: {0}")]
+    Unreadable(#[source] serde_json::Error),
 }
 
-async fn send_and_wait_response(
-    stdin: &mut ChildStdin,
-    lines: &mut tokio::io::Lines<BufReader<ChildStdout>>,
-    request_line: &str,
-    expected_id: u64,
-) -> Option<Result<serde_json::Value, RpcError>> {
-    if write_line(stdin, &request_line).await.is_err() {
-        return None;
-    }
-    while let Ok(Some(line)) = lines.next_line().await {
-        let Ok(Incoming::Response { id, result, error }) = serde_json::from_str(&line) else {
-            continue;
-        };
-        if id.as_u64() != Some(expected_id) {
-            continue;
-        }
-        if let Some(error) = error {
-            return Some(Err(error));
-        }
-        return Some(Ok(result.unwrap_or(serde_json::Value::Null)));
-    }
-    None
-}
-
-async fn start_initialized_acp(
-    agent: Agent,
-    cwd: &Path,
-) -> Option<(Child, ChildStdin, tokio::io::Lines<BufReader<ChildStdout>>)> {
-    on_path(agent.program())?;
-    let mut process = agent.start(cwd).ok()?;
-    let mut stdin = process.stdin.take()?;
-    let stdout = process.stdout.take()?;
-    let mut lines = BufReader::new(stdout).lines();
-    let init = AcpRequest {
-        jsonrpc: JsonRpc::TwoPointZero,
-        id: 1,
-        call: ClientCall::Initialize(InitializeParams {
-            protocol_version: 1,
-            client_capabilities: ClientCapabilities {
-                fs: FileCapabilities {
-                    read_text_file: false,
-                    write_text_file: false,
-                },
-                terminal: false,
-                elicitation: ElicitationCapabilities {
-                    form: FormCapabilities {},
-                },
-            },
-            client_info: ClientInfo {
-                name: "edualc".to_owned(),
-                version: env!("CARGO_PKG_VERSION").to_owned(),
-            },
-        }),
-    };
-    let init_line = serde_json::to_string(&init).ok()?;
-    match send_and_wait_response(&mut stdin, &mut lines, &init_line, 1).await {
-        Some(Ok(_)) => Some((process, stdin, lines)),
-        Some(Err(error)) => {
-            tracing::debug!(%agent, %error.message, "acp initialize refused");
-            None
-        }
-        None => None,
-    }
-}
-
-/// Lists the sessions `agent` keeps, with `session/list`.
-pub(crate) async fn list_sessions(agent: Agent) -> Vec<ExternalSession> {
+/// Lists the sessions `agent` keeps, with `session/list`. An agent that isn't on PATH keeps
+/// none that edualc can open.
+///
+/// # Errors
+///
+/// When the agent couldn't be started, didn't answer within [`PROBE_WAIT`], refused, or
+/// answered with a list that can't be read.
+pub(crate) async fn list_sessions(agent: Agent) -> Result<Vec<ExternalSession>, ListingError> {
     // The agent is started in the home folder to list its sessions; without one we don't guess.
-    let Some(cwd) = dirs::home_dir() else {
-        tracing::warn!(%agent, "no home folder ($HOME) to list the sessions from");
-        return Vec::new();
+    let cwd = dirs::home_dir().ok_or(ListingError::NoHome)?;
+    let Some(program) = on_path(agent.program()) else {
+        return Ok(Vec::new());
     };
-    let result = tokio::time::timeout(PROBE_WAIT, list_sessions_inner(agent, &cwd)).await;
-    match result {
-        Ok(sessions) => sessions,
-        Err(_late) => {
-            tracing::debug!(%agent, "acp session/list timed out");
-            Vec::new()
-        }
+    let mut process = agent.start(&program, &cwd).map_err(ListingError::Start)?;
+    let listed = tokio::time::timeout(PROBE_WAIT, listed(agent, &mut process)).await;
+    if let Err(error) = process.start_kill() {
+        tracing::debug!(%error, %agent, "couldn't stop the agent asked for its sessions");
     }
+    if let Err(error) = process.wait().await {
+        tracing::debug!(%error, %agent, "the agent asked for its sessions didn't end well");
+    }
+    listed.map_err(|_late| ListingError::TimedOut)?
 }
 
-async fn list_sessions_inner(agent: Agent, cwd: &Path) -> Vec<ExternalSession> {
-    let Some((mut process, mut stdin, mut lines)) = start_initialized_acp(agent, cwd).await else {
-        return Vec::new();
-    };
-    let mut collected = Vec::new();
-    let mut seen_raw = HashSet::new();
-    let mut cursor: Option<String> = None;
+async fn listed(agent: Agent, process: &mut Child) -> Result<Vec<ExternalSession>, ListingError> {
+    let mut stdin = process.stdin.take().ok_or(ListingError::Pipes)?;
+    let stdout = process.stdout.take().ok_or(ListingError::Pipes)?;
+    let mut lines = BufReader::new(stdout).lines();
+    asked(&mut stdin, &mut lines, &initialize(1)).await?;
     let backend = agent.backend();
-    for page in 0..MAX_LIST_PAGES {
-        let req_id = 2 + page as u64;
+    let mut collected = Vec::new();
+    let mut seen = HashSet::new();
+    let mut cursor: Option<String> = None;
+    for id in 2..2 + MOST_PAGES {
         let request = AcpRequest {
             jsonrpc: JsonRpc::TwoPointZero,
-            id: req_id,
+            id,
             call: ClientCall::ListSessions(ListSessionsParams {
                 cwd: None,
                 cursor: cursor.clone(),
             }),
         };
-        let Ok(line) = serde_json::to_string(&request) else {
-            break;
-        };
-        let Some(Ok(value)) = send_and_wait_response(&mut stdin, &mut lines, &line, req_id).await
-        else {
-            break;
-        };
-        let Ok(list) = serde_json::from_value::<ListSessionsResult>(value) else {
-            break;
-        };
-        if list.sessions.is_empty() {
-            break;
-        }
+        let answer = asked(&mut stdin, &mut lines, &request).await?;
+        let list: ListSessionsResult =
+            serde_json::from_value(answer).map_err(ListingError::Unreadable)?;
         let mut added = 0_usize;
         for session in list.sessions {
-            if !seen_raw.insert(session.session_id.clone()) {
+            if !seen.insert(session.session_id.clone()) {
                 continue;
             }
             added += 1;
@@ -187,27 +135,96 @@ async fn list_sessions_inner(agent: Agent, cwd: &Path) -> Vec<ExternalSession> {
         }
         cursor = list.next_cursor;
     }
-    if let Err(error) = process.start_kill() {
-        tracing::debug!(%error, %agent, "couldn't stop acp session/list child");
-    }
-    if let Err(error) = process.wait().await {
-        tracing::debug!(%error, %agent, "acp session/list child wait failed");
-    }
-    collected
+    Ok(collected)
 }
 
-/// Returns the agent's id for session `id`'s conversation. agy's is the same id, which its
-/// records are kept under; opencode's is the one `session/list` gives for that window id.
-pub(super) async fn resolve_conversation(agent: Agent, id: &SessionId) -> Option<String> {
-    match agent {
-        Agent::Agy => agy::brain()?
-            .join(id.as_str())
-            .is_dir()
-            .then(|| id.as_str().to_owned()),
-        Agent::Opencode => list_sessions(agent)
+fn initialize(id: u64) -> AcpRequest {
+    AcpRequest {
+        jsonrpc: JsonRpc::TwoPointZero,
+        id,
+        call: ClientCall::Initialize(InitializeParams {
+            protocol_version: 1,
+            client_capabilities: ClientCapabilities {
+                fs: FileCapabilities {
+                    read_text_file: false,
+                    write_text_file: false,
+                },
+                terminal: false,
+                elicitation: ElicitationCapabilities {
+                    form: FormCapabilities {},
+                },
+            },
+            client_info: ClientInfo {
+                name: "edualc".to_owned(),
+                version: env!("CARGO_PKG_VERSION").to_owned(),
+            },
+        }),
+    }
+}
+
+/// Sends `request` and returns the result of the response with its id; other lines are passed
+/// over.
+async fn asked(
+    stdin: &mut ChildStdin,
+    lines: &mut tokio::io::Lines<BufReader<ChildStdout>>,
+    request: &AcpRequest,
+) -> Result<serde_json::Value, ListingError> {
+    let line = serde_json::to_string(request).map_err(ListingError::Encode)?;
+    write_line(stdin, &line)
+        .await
+        .map_err(ListingError::Write)?;
+    loop {
+        let line = lines
+            .next_line()
             .await
+            .map_err(ListingError::Read)?
+            .ok_or(ListingError::Ended)?;
+        let Ok(Incoming::Response { id, result, error }) = serde_json::from_str(&line) else {
+            continue;
+        };
+        if id.as_u64() != Some(request.id) {
+            continue;
+        }
+        if let Some(error) = error {
+            return Err(ListingError::Refused(error));
+        }
+        return result.ok_or(ListingError::NoResult);
+    }
+}
+
+fn parse_rfc3339(text: Option<&str>) -> Option<std::time::SystemTime> {
+    let text = text?;
+    match text.parse::<jiff::Timestamp>() {
+        Ok(timestamp) => Some(timestamp.into()),
+        Err(error) => {
+            tracing::debug!(%error, text, "a session's updatedAt that isn't a time");
+            None
+        }
+    }
+}
+
+/// Returns the agent's id for session `id`'s conversation, if it keeps one. agy's is the same
+/// id, which its records are kept under; opencode's is the one `session/list` gives for that
+/// window id.
+///
+/// # Errors
+///
+/// When opencode's sessions couldn't be listed (see [`list_sessions`]).
+pub(super) async fn resolve_conversation(
+    agent: Agent,
+    id: &SessionId,
+) -> Result<Option<String>, ListingError> {
+    match agent {
+        Agent::Agy => Ok(agy::brain().and_then(|brain| {
+            brain
+                .join(id.as_str())
+                .is_dir()
+                .then(|| id.as_str().to_owned())
+        })),
+        Agent::Opencode => Ok(list_sessions(agent)
+            .await?
             .into_iter()
             .find(|session| &session.id == id)
-            .map(|session| session.raw_id),
+            .map(|session| session.raw_id)),
     }
 }

@@ -9,15 +9,13 @@ use crate::external::acp::{AgyArguments, AgyQuestion, RpcError, SwarmAction, Too
 use crate::external::tool_input::{AgentInput, KnownCall, ListSessionsInput, SendMessageInput};
 use crate::external::wire::{Question, QuestionOption, Questions};
 
-use super::Error;
-
 /// The tool agy sees edualc's messaging tool as, by the MCP server's name and the tool's.
 const AGY_SEND: &str = "mcp_edualc_send_message";
 /// edualc's tool listing the sessions, as agy names it.
 const AGY_LIST: &str = "mcp_edualc_list_sessions";
 
 /// The agents edualc runs through the Agent Client Protocol, and what each does its own way.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum, strum::Display)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, clap::ValueEnum, strum::Display)]
 #[strum(serialize_all = "snake_case")]
 pub(crate) enum Agent {
     Agy,
@@ -102,10 +100,9 @@ impl Agent {
         }
     }
 
-    /// Starts the agent in `cwd`, with ACP on its stdio.
-    pub(super) fn start(self, cwd: &Path) -> Result<Child, Error> {
-        let program = on_path(self.program()).ok_or(Error::NotOnPath(self))?;
-        Command::new(&program)
+    /// Starts the agent's `program` in `cwd`, with ACP on its stdio.
+    pub(super) fn start(self, program: &Path, cwd: &Path) -> std::io::Result<Child> {
+        Command::new(program)
             .args(self.arguments())
             .current_dir(cwd)
             .stdin(Stdio::piped())
@@ -113,7 +110,6 @@ impl Agent {
             .stderr(Stdio::piped())
             .kill_on_drop(true)
             .spawn()
-            .map_err(|source| Error::Start(self, source))
     }
 
     /// Returns a tool call named `name` that edualc acts on, as the window knows it: a message,

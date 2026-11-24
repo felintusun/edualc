@@ -11,7 +11,7 @@ mod tool;
 pub(crate) mod translate;
 
 pub(crate) use agents::Agent;
-pub(crate) use listing::{ExternalSession, list_sessions};
+pub(crate) use listing::{ExternalSession, ListingError, list_sessions};
 pub(crate) use quotas::{QuotaError, agy_quotas};
 
 use std::collections::HashMap;
@@ -32,6 +32,7 @@ use crate::external::wire::{BackgroundTask, System};
 use crate::ids::{RequestId, SessionId};
 use crate::sessions::{ClaudeHome, MessagingName};
 use crate::settings::{self, PeerMessages};
+use agents::on_path;
 use listing::resolve_conversation;
 use outbox::{Job, Outcome, Places, SendArguments};
 use quotas::quotas;
@@ -79,6 +80,8 @@ enum Error {
     NoSession,
     #[error("{0} has no session {1}")]
     NoConversation(Agent, SessionId),
+    #[error("couldn't list {0}'s sessions: {1}")]
+    Listing(Agent, #[source] ListingError),
     #[error("continuing {0} sessions isn't supported yet")]
     ResumeNotSupported(Agent),
     #[error("forking {0} sessions isn't supported yet")]
@@ -201,7 +204,10 @@ async fn adapt(args: Args) -> Result<(), Error> {
     let claude = ClaudeHome::of_user().ok_or(Error::NoClaudeHome)?;
     let inbox = inbox::Inbox::open(&claude, &id, &cwd, &name)?;
     tracing::info!(inbox = %inbox.socket().display(), %name, "the session's inbox is open");
-    let mut process = agent.start(&cwd)?;
+    let program = on_path(agent.program()).ok_or(Error::NotOnPath(agent))?;
+    let mut process = agent
+        .start(&program, &cwd)
+        .map_err(|source| Error::Start(agent, source))?;
     let program = std::env::current_exe().map_err(Error::Program)?;
     let mut translator = Translator::new(
         agent,
@@ -293,6 +299,7 @@ async fn starting(
             }
             let conversation = resolve_conversation(agent, &of)
                 .await
+                .map_err(|source| Error::Listing(agent, source))?
                 .ok_or(Error::NoConversation(agent, of))?;
             Ok((id, Start::Fork(conversation)))
         }
@@ -302,6 +309,7 @@ async fn starting(
             }
             let conversation = resolve_conversation(agent, &id)
                 .await
+                .map_err(|source| Error::Listing(agent, source))?
                 .ok_or_else(|| Error::NoConversation(agent, id.clone()))?;
             let start = match agent {
                 Agent::Agy => Start::Resume(conversation),
