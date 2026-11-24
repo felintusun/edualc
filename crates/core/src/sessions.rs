@@ -1392,6 +1392,9 @@ mod tests {
         let ses_c = SessionId::for_external(crate::provider::Backend::Opencode, "ses_xyz789");
         assert_eq!(ses_a, ses_b);
         assert_ne!(ses_a, ses_c);
+        // The UUIDv5 of "opencode:ses_abc123" in edualc's namespace, as Python's uuid5 makes it:
+        // a session's id must not change between releases, or its Changes snapshots are lost.
+        assert_eq!(ses_a.as_str(), "5752e0e1-4cd0-5d87-930c-4104ab8263aa");
         if let Some(brain) = crate::external::agy::brain() {
             assert_eq!(
                 backend_of(

@@ -21,16 +21,8 @@ impl TryFrom<String> for SessionId {
     type Error = NotASessionId;
 
     fn try_from(id: String) -> Result<Self, Self::Error> {
-        let dashes_at = [8, 13, 18, 23];
-        let uuid = id.len() == 36
-            && id.char_indices().all(|(at, character)| {
-                if dashes_at.contains(&at) {
-                    character == '-'
-                } else {
-                    character.is_ascii_hexdigit()
-                }
-            });
-        if uuid {
+        // Of the forms uuid parses, only the hyphenated one is 36 characters long.
+        if id.len() == 36 && uuid::Uuid::try_parse(&id).is_ok() {
             Ok(Self(id))
         } else {
             Err(NotASessionId(id))
@@ -44,6 +36,10 @@ impl From<uuid::Uuid> for SessionId {
     }
 }
 
+/// The namespace of the name-based ids edualc gives sessions whose program's own id isn't a
+/// UUID. Changing it changes those sessions' ids, and their Changes snapshots are lost.
+const EXTERNAL_SESSIONS: uuid::Uuid = uuid::uuid!("cc254ad2-efe7-47f0-a854-d03ab1b39064");
+
 impl SessionId {
     pub fn as_str(&self) -> &str {
         &self.0
@@ -55,24 +51,14 @@ impl SessionId {
         Self::from(uuid::Uuid::new_v4())
     }
 
-    /// The stable window id for an external session whose own backend id is `raw_id`: kept as
-    /// itself when already a UUID (Claude, agy), or mapped deterministically to a UUID (opencode).
+    /// Returns the id edualc keeps for a session `backend` names `raw_id`: the id itself where
+    /// it is a UUID (Claude Code's, agy's), else a name-based UUID made from it (opencode's).
     pub fn for_external(backend: crate::provider::Backend, raw_id: &str) -> Self {
-        use sha2::Digest as _;
         if let Ok(uuid) = Self::try_from(raw_id.to_owned()) {
             return uuid;
         }
-        let mut hasher = sha2::Sha256::new();
-        hasher.update(<&'static str>::from(backend).as_bytes());
-        hasher.update(b":");
-        hasher.update(raw_id.as_bytes());
-        let digest = hasher.finalize();
-        let mut bytes = [0_u8; 16];
-        bytes.copy_from_slice(digest.get(..16).unwrap_or(&[]));
-        // Set RFC 4122 version (5) and variant bits so the identifier parses as a standard UUID.
-        bytes[6] = (bytes[6] & 0x0f) | 0x50;
-        bytes[8] = (bytes[8] & 0x3f) | 0x80;
-        Self::from(uuid::Uuid::from_bytes(bytes))
+        let name = format!("{}:{raw_id}", <&'static str>::from(backend));
+        Self::from(uuid::Uuid::new_v5(&EXTERNAL_SESSIONS, name.as_bytes()))
     }
 }
 

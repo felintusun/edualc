@@ -76,9 +76,7 @@ impl Inbox {
     pub fn open(id: &SessionId, cwd: &Path, name: &MessagingName) -> Result<Self, Error> {
         let pid = std::process::id();
         let started = process::stat(pid).ok_or(Error::NoStart)?.started;
-        let runtime = std::env::var_os("XDG_RUNTIME_DIR")
-            .map(PathBuf::from)
-            .ok_or(Error::NoRuntime)?;
+        let runtime = dirs::runtime_dir().ok_or(Error::NoRuntime)?;
         let folder = runtime.join("cc-socks");
         std::fs::DirBuilder::new()
             .recursive(true)

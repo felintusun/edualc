@@ -36,7 +36,7 @@ landlock = "0.4"
 tokio = { version = "1", features = ["rt", "net", "process", "io-util", "io-std", "signal", "sync", "time", "macros"] }
 postcard = { version = "1", default-features = false, features = ["use-std"] }
 dirs = "7"
-uuid = { version = "1.29", default-features = false, features = ["std", "v4", "serde"] }
+uuid = { version = "1.29", default-features = false, features = ["std", "v4", "v5", "serde"] }
 # Code in colour: bat's grammars (two-face), parsed by syntect with its regex engine in Rust (no
 # Oniguruma to build). The colours are the theme's, not syntect's themes.
 syntect = { version = "5.3", default-features = false, features = ["parsing", "regex-fancy"] }

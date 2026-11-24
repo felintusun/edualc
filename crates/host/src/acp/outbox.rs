@@ -269,8 +269,8 @@ impl Places {
     pub(super) fn of_user() -> Self {
         let uid = rustix::process::getuid().as_raw();
         let mut inboxes = vec![PathBuf::from(format!("/tmp/cc-socks-{uid}"))];
-        if let Some(runtime) = std::env::var_os("XDG_RUNTIME_DIR") {
-            inboxes.push(PathBuf::from(runtime).join("cc-socks"));
+        if let Some(runtime) = dirs::runtime_dir() {
+            inboxes.push(runtime.join("cc-socks"));
         }
         Self {
             sessions: sessions::config_dir().join("sessions"),

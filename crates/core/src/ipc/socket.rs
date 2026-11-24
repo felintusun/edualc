@@ -33,8 +33,7 @@ impl Folder {
     /// the user's alone. Each protocol has a folder of its own, so a daemon of an earlier build
     /// runs on beside this build's until its sessions end, instead of keeping its windows out.
     pub fn open() -> Result<Self, Error> {
-        let runtime =
-            PathBuf::from(std::env::var_os("XDG_RUNTIME_DIR").ok_or(Error::NoRuntimeDir)?);
+        let runtime = dirs::runtime_dir().ok_or(Error::NoRuntimeDir)?;
         let runtime_fd = open_folder(rustix::fs::CWD, &runtime, &runtime)?;
         let edualc = runtime.join(FOLDER);
         let edualc_fd = made_folder(&runtime_fd, FOLDER, &edualc)?;

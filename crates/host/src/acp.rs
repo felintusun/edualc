@@ -292,9 +292,7 @@ struct Own {
 
 impl Own {
     fn make(agent: Agent) -> Result<Self, Error> {
-        let runtime = std::env::var_os("XDG_RUNTIME_DIR")
-            .map(PathBuf::from)
-            .ok_or(Error::NoRuntime)?;
+        let runtime = dirs::runtime_dir().ok_or(Error::NoRuntime)?;
         let folder = runtime.join(format!("edualc-{agent}-{}", std::process::id()));
         std::fs::DirBuilder::new()
             .mode(0o700)
