@@ -43,44 +43,44 @@ pub enum Start {
     New,
     /// The agent's id for the conversation; the window reads its history itself (agy's records).
     Resume(String),
-    /// The agent's id for a conversation whose history the window can't read itself
-    /// (opencode's): `session/load`'s replay of it is shown.
+    /// The agent's id for a conversation whose history the window can't read itself, such as
+    /// opencode's. The window shows `session/load`'s replay instead.
     ResumeReplay(String),
-    /// Forks an existing conversation of the agent's via ACP `session/fork`.
+    /// The agent's id for a conversation to fork with `session/fork`.
     Fork(String),
 }
 
-/// What the agent is given to start edualc's messaging tool: this program, and the socket the
-/// tool reaches the adapter at.
+/// How the agent starts edualc's messaging tool: this program, and the socket at which the
+/// tool reaches the adapter.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ToolServer {
     pub program: PathBuf,
     pub socket: PathBuf,
 }
 
-/// What is to be done.
+/// What the translator asks its caller to do.
 #[derive(Debug)]
 pub enum Effect {
     /// A command to the agent.
     ToAgent(acp::ToAgent),
     /// An event to the window, through the daemon.
     ToWindow(Event),
-    /// The session is known by this id from now on, the agent's own conversation's: the
-    /// session's record names it, for other sessions and the running list.
+    /// The session goes by the agent's id for the conversation from now on. Its record names
+    /// it, for other sessions and the running list.
     Named(SessionId),
-    /// A message: carry it out (see [`super::outbox`]) and answer the call.
+    /// A message to deliver (see [`super::outbox`]), then answer the call.
     Send {
         call: CallId,
         to: String,
         message: String,
     },
-    /// The running sessions, for the call.
+    /// The running sessions, to answer the call with.
     List(CallId),
-    /// The subagents and swarm agy keeps for conversation `conversation` may have changed: the
-    /// window is told their tasks if they did (see [`super::brain`]).
+    /// The subagents agy keeps for `conversation` may have changed; if they did, the window is
+    /// told their tasks (see [`super::brain`]).
     Subagents { conversation: String },
-    /// Ask the agent's plan how much of its quotas is used (see [`Translator::quotas_told`]):
-    /// for the window's `get_usage` request, or, with none, for the sidebar's bars.
+    /// Ask how much of the plan's quotas is used (see [`Translator::quotas_told`]), for the
+    /// window's `get_usage` request or, without one, for the sidebar's bars.
     Quotas { request: Option<RequestId> },
 }
 
@@ -89,8 +89,8 @@ pub enum Effect {
 enum Phase {
     /// `initialize` is asked.
     Connecting,
-    /// The session is asked for; a session loaded first replays its history, which the window
-    /// reads from the agent's records unless it is shown from the replay.
+    /// The session is asked for. A loaded session first replays its history, which the window
+    /// reads from the agent's records unless it shows the replay.
     Opening { loading: bool },
     /// The agent's id for the session.
     Ready(String),
@@ -101,9 +101,9 @@ enum Phase {
 /// Why a prompt's turn failed, as the window is told.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Failure<'a> {
-    /// The agent said why: the window shows its words.
+    /// The agent said why, and the window shows its words.
     Said(&'a str),
-    /// The agent's sign-in was refused: the window offers to sign in and try again.
+    /// The agent's sign-in was refused, and the window offers to sign in and try again.
     SignIn(&'a str),
 }
 
@@ -112,7 +112,7 @@ enum Failure<'a> {
 enum Asked {
     Initialize,
     Open,
-    /// The model; for the window's request, if it asked.
+    /// The model, for the window's request if it asked.
     Model {
         request: Option<RequestId>,
         model: String,
@@ -147,12 +147,11 @@ enum Block {
     Thinking(String),
 }
 
-/// A tool call the agent told: kept until it has its arguments, then shown to the window.
+/// A tool call the agent announced, kept until it has its arguments and then shown.
 #[derive(Debug, Clone)]
 enum Entry {
-    /// Not shown yet: the agent hasn't sent the call's arguments.
+    /// Waits for the call's arguments.
     Kept(ToolCall),
-    /// Shown to the window.
     Shown(Shown),
 }
 
@@ -163,7 +162,7 @@ struct Shown {
     drawn: Call,
     done: bool,
     denied: bool,
-    /// What edualc's tool answered, for a call of it: the agent tells nothing of an MCP tool's
+    /// What edualc's tool answered a call of it. The agent tells nothing of an MCP tool's
     /// result.
     told: Option<String>,
 }
@@ -179,8 +178,8 @@ struct Permission {
 #[derive(Debug)]
 pub struct Translator {
     agent: Agent,
-    /// The session's id: as the window started it, then the agent's own conversation's once it
-    /// is open, as the agent keeps it to list and load it again.
+    /// The session's id: the window's at first, then the agent's once the session is open, as
+    /// the agent lists and loads it by that.
     id: SessionId,
     cwd: PathBuf,
     start: Start,
@@ -189,18 +188,18 @@ pub struct Translator {
     /// The model asked for, then the one in use.
     model: Option<String>,
     models: Vec<acp::Model>,
-    /// When the agent configures models via ACP `configOptions` (e.g. opencode 2.3.0), its id.
+    /// The id of the model's option, for an agent that sets models in `configOptions`
+    /// (opencode 2.3.0).
     model_config_id: Option<String>,
     /// The agent's modes, as it opened the session with them.
     modes: Vec<acp::SessionMode>,
     /// The mode the agent is in, by its id.
     mode: Option<String>,
-    /// When the agent configures modes via ACP `configOptions`, its id.
+    /// The id of the mode's option, for an agent that sets modes in `configOptions`.
     mode_config_id: Option<String>,
-    /// Slash commands announced via `available_commands_update`.
+    /// The slash commands `available_commands_update` announced.
     commands: Vec<CommandInfo>,
-    /// User prompt text accumulated from `user_message_chunk` updates while replaying an external
-    /// session via `session/load`.
+    /// The prompt's text so far in `session/load`'s replay, from `user_message_chunk`s.
     replay_user: String,
     next_rpc: u64,
     asked: HashMap<u64, Asked>,
@@ -217,7 +216,7 @@ pub struct Translator {
     next_local: u64,
     entries: HashMap<String, Entry>,
     permissions: HashMap<RequestId, Permission>,
-    /// The tool call each of edualc's tool's calls is, by the agent's id.
+    /// The agent's id for the tool call behind each call of edualc's tool.
     calls: HashMap<CallId, String>,
     /// How full the model's context is, once the agent said.
     context: Option<ContextUsed>,
@@ -227,10 +226,9 @@ pub struct Translator {
     senders_let_in: BTreeSet<String>,
     /// The agent's forms the window was asked as questions, by the request asking.
     forms: HashMap<RequestId, Form>,
-    /// Most recent plan quotas reported by the agent, reused when switching models so the header
-    /// chip updates immediately without waiting for the next turn.
+    /// The plan's quotas as last told, so that switching models updates the bars at once.
     last_quotas: Option<agy::Quotas>,
-    /// Tool calls finished during the current turn, to trigger periodic mid-turn quota refreshes.
+    /// The tool calls finished this turn, for asking for the quotas every few calls.
     turn_tools: usize,
 }
 
@@ -313,7 +311,7 @@ impl Translator {
         }
     }
 
-    /// What starts it: the agent is asked to initialize.
+    /// Asks the agent to initialize.
     pub fn start(&mut self) -> Vec<Effect> {
         let initialize = self.request(
             acp::ClientCall::Initialize(acp::InitializeParams {
@@ -348,7 +346,7 @@ impl Translator {
         }))
     }
 
-    /// The MCP servers the agent starts for the session: edualc's messaging tool.
+    /// Returns the MCP servers the agent starts for the session: edualc's messaging tool.
     fn mcp_servers(&self) -> Vec<acp::McpServer> {
         vec![acp::McpServer {
             name: "edualc".to_owned(),
@@ -358,7 +356,7 @@ impl Translator {
         }]
     }
 
-    /// An answer to a request of the agent's, under the id it came with.
+    /// Answers a request of the agent's under the id it came with.
     fn answer(id: Value, reply: acp::Reply<acp::PermissionAnswer>) -> Effect {
         Effect::ToAgent(acp::ToAgent::Answer(acp::Answer {
             jsonrpc: acp::JsonRpc::TwoPointZero,
@@ -367,7 +365,7 @@ impl Translator {
         }))
     }
 
-    /// The answer to a form of the agent's, under the id it came with.
+    /// Answers a form of the agent's under the id it came with.
     fn form_answer(id: Value, answer: acp::ElicitationAnswer) -> Effect {
         Effect::ToAgent(acp::ToAgent::Elicited(acp::Answer {
             jsonrpc: acp::JsonRpc::TwoPointZero,
@@ -376,8 +374,8 @@ impl Translator {
         }))
     }
 
-    /// The agent asks the user to fill in a form: the window asks its questions as Claude
-    /// Code's AskUserQuestion does, on the tool call the form is for.
+    /// Asks a form's questions in the window, as Claude Code's AskUserQuestion does, on the
+    /// tool call the form is for.
     fn asked_form(&mut self, id: Value, form: acp::Elicitation) -> Vec<Effect> {
         let questions = form_questions(&form.requested_schema);
         if form.mode != acp::ElicitationMode::Form || questions.is_empty() {
@@ -430,7 +428,7 @@ impl Translator {
         })]
     }
 
-    /// The window's answer to a form's questions: the form filled in, or turned down.
+    /// Turns the window's answers to a form's questions into the form filled in, or declined.
     fn form_answered(form: Form, reply: wire::Reply) -> Effect {
         let answer = match reply {
             wire::Reply::Success {
@@ -490,8 +488,8 @@ impl Translator {
         }
     }
 
-    /// For an agent that keeps records of the subagents it starts, a look at them: they change
-    /// as its tool calls end, and as its turns do.
+    /// Looks at the subagents' records, for an agent that keeps them. They change as its tool
+    /// calls and turns end.
     fn subagents(&self) -> Option<Effect> {
         self.agent
             .keeps_subagents()
@@ -502,7 +500,7 @@ impl Translator {
             })
     }
 
-    /// A line from the agent.
+    /// Takes a line from the agent.
     pub fn agent_said(&mut self, line: &str) -> Vec<Effect> {
         let incoming = match serde_json::from_str::<Incoming>(line) {
             Ok(incoming) => incoming,
@@ -575,7 +573,7 @@ impl Translator {
         }
     }
 
-    /// The agent's answer to a request.
+    /// Takes the agent's answer to a request.
     fn answered(&mut self, asked: Asked, result: Value) -> Vec<Effect> {
         match asked {
             Asked::Initialize => {
@@ -699,7 +697,7 @@ impl Translator {
         }
     }
 
-    /// The agent refused a request.
+    /// Takes the agent's refusal of a request.
     fn refused(&mut self, asked: &Asked, error: &RpcError) -> Vec<Effect> {
         let message = error.message.as_str();
         match asked {
@@ -745,8 +743,8 @@ impl Translator {
         effects
     }
 
-    /// The answer to the window's `initialize`: the agent's models, and its own modes with the
-    /// one it is in.
+    /// Answers the window's `initialize` with the agent's models and modes, and the mode it is
+    /// in.
     fn initialized(&self, request: RequestId) -> Effect {
         let agent = self.agent;
         let initialized = Initialized {
@@ -793,7 +791,7 @@ impl Translator {
         }
     }
 
-    /// A serialized [`Command`] from the window.
+    /// Takes a line from the window, a serialized [`Command`].
     pub fn window_said(&mut self, line: &str) -> Vec<Effect> {
         let command = match serde_json::from_str::<Command>(line) {
             Ok(command) => command,
@@ -828,7 +826,7 @@ impl Translator {
         }
     }
 
-    /// A parsed command from the window: a prompt, a `!` command, a request or an answer.
+    /// Takes a command from the window: a prompt, a `!` command, a request or an answer.
     fn window_command(&mut self, command: Command) -> Vec<Effect> {
         match command {
             Command::ControlRequest {
@@ -849,8 +847,8 @@ impl Translator {
         }
     }
 
-    /// The user's choice among the agent's, for its call: an id the agent didn't offer
-    /// cancels the request rather than pick another.
+    /// Answers the agent with the option you chose. An id the agent didn't offer cancels the
+    /// request rather than pick another.
     fn window_chose(&mut self, request: &RequestId, option: &OptionId) -> Vec<Effect> {
         let Some(permission) = self.permissions.remove(request) else {
             return Vec::new();
@@ -887,8 +885,8 @@ impl Translator {
         )]
     }
 
-    /// A `!` command: the agent has no shell beside the conversation, so it is told as not run,
-    /// in the rows shown for one (its echo, then what it printed).
+    /// Shows a `!` command as not run, in the rows shown for one: the agent has no shell
+    /// beside the conversation.
     fn shell_refused(&self, command: &str) -> Vec<Effect> {
         let agent = self.agent;
         let row = |text: String| {
@@ -961,7 +959,7 @@ impl Translator {
         }
     }
 
-    /// The window's answer to a permission request: the agent's, or the messaging tool's.
+    /// Takes the window's answer to a permission request, the agent's or the messaging tool's.
     fn window_answered(&mut self, reply: wire::Reply) -> Vec<Effect> {
         let request = match &reply {
             wire::Reply::Success { request_id, .. } | wire::Reply::Error { request_id, .. } => {
@@ -1046,8 +1044,8 @@ impl Translator {
         effects
     }
 
-    /// The agent's messaging tool was called: the message goes without asking, as a Claude Code
-    /// session's own do.
+    /// Sends a message from the agent's messaging tool without asking, as a Claude Code
+    /// session's own messages go.
     pub fn tool_called(&mut self, call: CallId, to: String, message: String) -> Vec<Effect> {
         if let Some(id) = self.open_call(&ToolName::EdualcSendMessage) {
             self.calls.insert(call, id);
@@ -1055,7 +1053,7 @@ impl Translator {
         vec![Effect::Send { call, to, message }]
     }
 
-    /// The agent's messaging tool asked for the running sessions: no question for that.
+    /// Lists the running sessions for the agent's messaging tool, without asking.
     pub fn listing_asked(&mut self, call: CallId) -> Vec<Effect> {
         if let Some(id) = self.open_call(&ToolName::EdualcListSessions) {
             self.calls.insert(call, id);
@@ -1063,7 +1061,7 @@ impl Translator {
         vec![Effect::List(call)]
     }
 
-    /// The call of `tool` under way, by the agent's id, that no answer was told for yet.
+    /// Returns the agent's id for the call of `tool` under way that has no answer yet.
     fn open_call(&self, tool: &ToolName) -> Option<String> {
         let told: Vec<&String> = self.calls.values().collect();
         self.entries.iter().find_map(|(id, entry)| match entry {
@@ -1076,7 +1074,8 @@ impl Translator {
         })
     }
 
-    /// What edualc's tool answered `call`: the call's result, when the agent says it ended.
+    /// Keeps what edualc's tool answered `call`, shown as its result once the agent says it
+    /// ended.
     pub fn tool_told(&mut self, call: CallId, answer: &super::tool::Answer) {
         if let Some(Entry::Shown(shown)) = self
             .calls
@@ -1087,8 +1086,8 @@ impl Translator {
         }
     }
 
-    /// Another session's message came into the inbox. One from a sender the user let in, or
-    /// any with `peer_messages` letting all in, comes in; another waits while the window asks.
+    /// Takes another session's message from the inbox. It comes in if you let its sender in,
+    /// or `peer_messages` lets all in; otherwise it waits while the window asks.
     pub fn peer(&mut self, content: String, peer_messages: PeerMessages) -> Vec<Effect> {
         let (name, body) = unwrapped(&content);
         let let_in = match peer_messages {
@@ -1116,7 +1115,7 @@ impl Translator {
         })]
     }
 
-    /// A message the window was asked about: the user let it in, and maybe its sender.
+    /// Lets in a message you allowed, and its sender if you took that offer.
     fn let_in(&mut self, content: String, offered: &[wire::PermissionUpdate]) -> Vec<Effect> {
         if let Some(sender) = wire::sender_let_in(offered) {
             self.senders_let_in.insert(sender);
@@ -1124,8 +1123,7 @@ impl Translator {
         self.came_in(content)
     }
 
-    /// Another session's message, let in: shown as such, and given to the agent as a prompt
-    /// once it is free.
+    /// Shows another session's message and queues it for the agent as a prompt.
     fn came_in(&mut self, content: String) -> Vec<Effect> {
         let (name, body) = unwrapped(&content);
         let mut effects = vec![Effect::ToWindow(Event::User(UserLine::from_peer(
@@ -1179,8 +1177,8 @@ impl Translator {
         })
     }
 
-    /// Requests a model switch using `session/set_config_option` when the agent uses ACP
-    /// `configOptions`, or `session/set_model` otherwise.
+    /// Asks for another model, with `session/set_config_option` for an agent that uses
+    /// `configOptions`, else with `session/set_model`.
     fn set_model_request(
         &mut self,
         session: String,
@@ -1201,8 +1199,8 @@ impl Translator {
         self.request(call, Asked::Model { request, model })
     }
 
-    /// Requests a mode switch using `session/set_config_option` when the agent configures modes
-    /// via `configOptions`, or `session/set_mode` otherwise.
+    /// Asks for another mode, with `session/set_config_option` for an agent that sets modes in
+    /// `configOptions`, else with `session/set_mode`.
     fn set_mode_request(&mut self, session: String, mode: String, request: RequestId) -> Effect {
         let call = match &self.mode_config_id {
             Some(config_id) => acp::ClientCall::SetConfigOption(acp::SetConfigOptionParams {
@@ -1218,8 +1216,8 @@ impl Translator {
         self.request(call, Asked::Mode { request, mode })
     }
 
-    /// Reads models and modes out of ACP `configOptions` when the agent sends them there instead
-    /// of `Opened.models` / `Opened.modes`. Returns the new mode if the current mode changed.
+    /// Reads models and modes from `configOptions`, for an agent that sends them there rather
+    /// than in `Opened`. Returns the new mode if the mode changed.
     fn apply_config_options(&mut self, options: &[ConfigOption]) -> Option<String> {
         let mut mode_changed = None;
         for option in options {
@@ -1283,7 +1281,7 @@ impl Translator {
         )))]
     }
 
-    /// What changed in the session.
+    /// Takes a change in the session.
     fn updated(&mut self, update: Change) -> Vec<Effect> {
         match update {
             // Context usage, commands, modes, config options, and session title still apply
@@ -1411,7 +1409,7 @@ impl Translator {
         effects
     }
 
-    /// A piece of text or thinking, streamed into the message under way.
+    /// Streams a piece of text or thinking into the message under way.
     fn streamed(&mut self, piece: &Block) -> Vec<Effect> {
         let mut effects = Vec::new();
         if self.streaming.is_none() {
@@ -1479,8 +1477,8 @@ impl Translator {
         effects
     }
 
-    /// Ends the message being streamed: its blocks, then `tool_use` if a tool call ends it, as
-    /// one assistant message.
+    /// Ends the message being streamed, as one assistant message of its blocks and then
+    /// `tool_use` if a tool call ends it.
     fn message_done(&mut self, tool_use: Option<ContentBlock>) -> Vec<Effect> {
         let streaming = self.streaming.take();
         let mut effects = Vec::new();
@@ -1529,7 +1527,7 @@ impl Translator {
         self.call_updated(call.clone())
     }
 
-    /// A tool call's fields have come: kept until it has its arguments or is done, then shown.
+    /// Takes a tool call's fields, kept until it has its arguments or is done, then shown.
     fn call_updated(&mut self, call: ToolCall) -> Vec<Effect> {
         if has_arguments(self.agent, &call) || is_done(&call) {
             self.show_call(&call)
@@ -1662,7 +1660,7 @@ impl Translator {
         effects
     }
 
-    /// The agent asks whether a tool call may go ahead: the window asks the user.
+    /// Asks you in the window whether the agent's tool call may go ahead.
     fn asked_permission(&mut self, id: Value, asked: PermissionAsked) -> Vec<Effect> {
         let tool = asked.tool_call.tool_call_id.clone();
         let mut effects = Vec::new();
@@ -1754,9 +1752,9 @@ impl Translator {
         effects
     }
 
-    /// The prompt's answer: the turn ends, and what waits goes next. A refused sign-in is told
-    /// as an HTTP 401 in the turn's result, which is what it was, and the window offers to sign
-    /// in and try again instead of showing the agent's words.
+    /// Ends the turn on the prompt's answer and sends what waits next. A refused sign-in goes
+    /// to the window as an HTTP 401 in the turn's result, so that it offers to sign in again
+    /// rather than show the agent's words.
     fn turn_ended(&mut self, prompted: Option<&Prompted>, failure: Option<Failure>) -> Vec<Effect> {
         let mut effects = self.message_done(None);
         // A turn the agent cut short ends as failed, saying why, so it doesn't read as done.
@@ -1866,8 +1864,8 @@ impl Translator {
         })
     }
 
-    /// What the agent's plan said of its quotas: the answer to the window's `get_usage`, or the
-    /// session's bars from the quotas the active model draws on.
+    /// Takes the plan's quotas, to answer the window's `get_usage` or to update the session's
+    /// bars from the quotas the model draws on.
     pub fn quotas_told(
         &mut self,
         request: Option<RequestId>,
@@ -1910,9 +1908,9 @@ fn is_quota_exhausted(error: &str) -> bool {
     lower.contains("quota reached") || lower.contains("quota exceeded")
 }
 
-/// The questions a form asks: one for each field with options, or for text alone. agy 1.5.9
-/// puts the field for an answer in words beside each question's as `<field>_other`, which goes
-/// with that question rather than being one of its own.
+/// Returns the questions a form asks: one for each field with options, or for text alone.
+/// agy 1.5.9 puts a field for an answer in words beside each question, `<field>_other`, which
+/// belongs to that question rather than being one of its own.
 fn form_questions(schema: &acp::FormSchema) -> Vec<FormQuestion> {
     let fields = &schema.properties;
     let other_of = |name: &str| {
@@ -1946,7 +1944,7 @@ fn form_questions(schema: &acp::FormSchema) -> Vec<FormQuestion> {
         .collect()
 }
 
-/// What a form's field takes, and its options.
+/// Returns what a form's field takes, and its options.
 fn options_of(field: &acp::FormField) -> (Takes, Vec<acp::FormOption>) {
     if !field.one_of.is_empty() {
         return (Takes::OneOption, field.one_of.clone());
@@ -1957,9 +1955,9 @@ fn options_of(field: &acp::FormField) -> (Takes, Vec<acp::FormOption>) {
     }
 }
 
-/// The form filled in from the window's answers, by question. An answer that is an option's
-/// label (or labels, for a question that takes several) is the option's value; anything else
-/// was typed, and goes in the question's field for words, or its own.
+/// Fills in the form from the window's answers, by question. An answer that is an option's
+/// label (or labels, where several are taken) becomes the option's value; anything else was
+/// typed, and goes in the question's field for words, or its own.
 fn filled_in(
     questions: &[FormQuestion],
     answers: &std::collections::BTreeMap<String, String>,
@@ -2003,8 +2001,8 @@ fn filled_in(
     content
 }
 
-/// Why the agent ended a turn before it was done, in words; none for a turn it finished or the
-/// user interrupted.
+/// Returns why the agent ended a turn early, in words; `None` for a turn it finished or you
+/// interrupted.
 fn cut_short(reason: StopReason) -> Option<&'static str> {
     match reason {
         StopReason::EndTurn | StopReason::Cancelled => None,
@@ -2017,20 +2015,20 @@ fn cut_short(reason: StopReason) -> Option<&'static str> {
     }
 }
 
-/// Text as Claude Code puts it in its `<bash-…>` rows: `&`, `<` and `>` as entities.
+/// Escapes `&`, `<` and `>` as Claude Code does in its `<bash-…>` rows.
 fn escaped(text: &str) -> String {
     text.replace('&', "&amp;")
         .replace('<', "&lt;")
         .replace('>', "&gt;")
 }
 
-/// The index of the last of `blocks`, the open one, as the stream counts them.
+/// Returns the stream's index of the last of `blocks`, the open one.
 fn open_index(blocks: &[Block]) -> Option<u64> {
     (0_u64..).zip(blocks).last().map(|(index, _)| index)
 }
 
-/// A line from the window that isn't one of its lines as edualc reads them. A control request
-/// is answered with the reason, so the window doesn't wait on it; anything else is dropped.
+/// A line from the window that edualc doesn't read. A control request is refused with the
+/// reason, so the window doesn't wait on it; anything else is dropped.
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct CommandControlPeek {
@@ -2057,7 +2055,7 @@ fn unreadable_from_window(line: &str, error: &serde_json::Error) -> Vec<Effect> 
     Vec::new()
 }
 
-/// What the window answered a permission request with, as edualc acts on it.
+/// The window's answer to a permission request, as edualc acts on it.
 enum Verdict {
     Allow {
         always: bool,
@@ -2065,7 +2063,7 @@ enum Verdict {
     Deny {
         interrupt: bool,
     },
-    /// The window couldn't answer: the request is cancelled.
+    /// The window couldn't answer, so the request is cancelled.
     Unanswered,
 }
 
@@ -2103,7 +2101,8 @@ fn tool_result_effects(tool_use_id: String, text: String, is_error: bool) -> Vec
     vec![Effect::ToWindow(Event::User(UserLine::of_session(content)))]
 }
 
-/// The context's use as `get_context_usage` answers it: the conversation, and what is free.
+/// Returns the context's use as `get_context_usage` answers it: the conversation, and what is
+/// free.
 fn context_report(context: ContextUsed) -> wire::ContextReport {
     let free = context.size.saturating_sub(context.used);
     wire::ContextReport {
@@ -2124,13 +2123,13 @@ fn context_report(context: ContextUsed) -> wire::ContextReport {
     }
 }
 
-/// How much of a quota is used, from 0 to 1.
+/// Returns the share of a quota used, from 0 to 1.
 fn quota_used(quota: &agy::Quota) -> f32 {
     (1.0 - quota.remaining_fraction).clamp(0.0, 1.0)
 }
 
-/// agy's quotas as the plan's limits, each named by its group: those of the group that model
-/// `model` draws on as the session's five hours and week, which the sidebar shows.
+/// Returns agy's quotas as the plan's limits, each named by its group. The group `model` draws
+/// on gives the session's five hours and week, which the sidebar shows.
 pub(crate) fn plan_limits(quotas: &agy::Quotas, model: Option<&str>) -> Vec<wire::PlanLimit> {
     quotas
         .groups
@@ -2157,7 +2156,7 @@ pub(crate) fn plan_limits(quotas: &agy::Quotas, model: Option<&str>) -> Vec<wire
         .collect()
 }
 
-/// The sidebar's bars from the plan's limits: the session's five hours and its week.
+/// Returns the sidebar's bars, the session's five hours and its week, from the plan's limits.
 fn limit_windows(limits: &[wire::PlanLimit]) -> wire::LimitWindows {
     let window = |kind| {
         limits
@@ -2174,7 +2173,7 @@ fn limit_windows(limits: &[wire::PlanLimit]) -> wire::LimitWindows {
     }
 }
 
-/// A success answer carrying `response`; a failure if it can't be written.
+/// Answers `request` with `response`, or with a failure if it can't be written.
 fn success_as(request: RequestId, response: &impl serde::Serialize) -> Effect {
     match serde_json::to_value(response) {
         Ok(response) => success(request, response),
@@ -2196,7 +2195,7 @@ fn failure(request: RequestId, error: &str) -> Effect {
     }))
 }
 
-/// Prompt parts from [`Command::Prompt`], formatted for ACP `session/prompt`.
+/// Turns a [`Command::Prompt`]'s parts into `session/prompt`'s blocks.
 fn command_prompt_blocks(images: &[wire::ImageBlock], text: &str) -> Vec<acp::PromptBlock> {
     let mut blocks: Vec<acp::PromptBlock> = images
         .iter()
@@ -2213,12 +2212,12 @@ fn command_prompt_blocks(images: &[wire::ImageBlock], text: &str) -> Vec<acp::Pr
     blocks
 }
 
-/// The outcome of a permission request: the first option of `wanted`'s kind, or none.
+/// Returns the first option of `wanted`'s kind, if the agent offered one.
 fn outcome_of(options: &[acp::PermissionOption], wanted: OptionKind) -> acp::Outcome {
     outcome_of_any(options, &[wanted])
 }
 
-/// The first option matching any of `wanted` in preference order, or `Cancelled`.
+/// Returns the first option of any kind in `wanted`, in that order, else `Cancelled`.
 fn outcome_of_any(options: &[acp::PermissionOption], wanted: &[OptionKind]) -> acp::Outcome {
     wanted
         .iter()
@@ -2228,7 +2227,7 @@ fn outcome_of_any(options: &[acp::PermissionOption], wanted: &[OptionKind]) -> a
         })
 }
 
-/// The tool call `kept`, with each field `update` has replacing it.
+/// Returns `kept` with each field that `update` has replaced.
 fn merged(kept: &ToolCall, update: &ToolCall) -> ToolCall {
     let mut call = kept.clone();
     let update = update.clone();
@@ -2259,8 +2258,8 @@ fn merged(kept: &ToolCall, update: &ToolCall) -> ToolCall {
     call
 }
 
-/// Whether a tool call's arguments have come: an argument the agent sends before them (see
-/// [`Agent::early_arguments`]) doesn't count, and patch tools wait until a diff arrives.
+/// Returns whether a tool call's arguments have come. An argument the agent sends early (see
+/// [`Agent::early_arguments`]) doesn't count, and a patch waits for its diff.
 fn has_arguments(agent: Agent, call: &ToolCall) -> bool {
     if call
         .name
@@ -2290,8 +2289,8 @@ fn is_done(call: &ToolCall) -> bool {
     )
 }
 
-/// A tool call as the window shows it: one edualc acts on by the name the window knows it by
-/// (see [`named`]), any other as the agent gives it.
+/// Returns a tool call as the window shows it: by the window's name for a call edualc acts on
+/// (see [`named`]), else as the agent gives it.
 pub(super) fn drawn(agent: Agent, call: &ToolCall) -> Call {
     match named(agent, call) {
         Some((name, input)) => Call::Named { name, input },
@@ -2299,8 +2298,8 @@ pub(super) fn drawn(agent: Agent, call: &ToolCall) -> Call {
     }
 }
 
-/// The calls edualc acts on, by the names the window knows them by: a question it asks the
-/// user, a to-do list, a subagent whose steps nest under it, edualc's messaging tools.
+/// Returns the window's name and input for a call edualc acts on: a question for you, a to-do
+/// list, a subagent whose steps nest under it, or edualc's messaging tools.
 pub(super) fn named(agent: Agent, call: &ToolCall) -> Option<(ToolName, Value)> {
     let input = call.raw_input.clone().unwrap_or(Value::Null);
     if let Some(name) = normalized_tool_name(call)
@@ -2315,8 +2314,8 @@ pub(super) fn named(agent: Agent, call: &ToolCall) -> Option<(ToolName, Value)> 
     Some(as_known(&known, input))
 }
 
-/// The call as the agent gives it, titled by the agent's words for it, else its name for the
-/// tool.
+/// Returns the call as the agent gives it, titled with the agent's words for it, else the
+/// tool's name.
 fn acp_call(call: &ToolCall) -> AcpCall {
     AcpCall {
         title: call
@@ -2463,8 +2462,8 @@ fn opencode_extra_tool(name: &str, call: &ToolCall, raw: &Value) -> Option<(Tool
     }
 }
 
-/// A known call by the window's name and input; one whose input can't be written (a path
-/// that isn't UTF-8) shows the agent's own input instead.
+/// Returns a known call's name and input for the window. Where the input can't be written (a
+/// path that isn't UTF-8), the agent's own input is shown instead.
 fn as_known(known: &KnownCall, raw: Value) -> (ToolName, Value) {
     let input = known.input().unwrap_or_else(|error| {
         tracing::warn!(%error, tool = %known.name(), "a tool's input that can't be written");
@@ -2473,13 +2472,12 @@ fn as_known(known: &KnownCall, raw: Value) -> (ToolName, Value) {
     (known.name(), input)
 }
 
-/// What a finished tool call gave, as text.
-/// The result of a call the window knows by its name, as Claude Code's tools give one.
+/// Returns what a finished tool call gave, as text, or a word for how it ended.
 fn result_text(call: &ToolCall, failed: bool) -> String {
     output_of(call).unwrap_or_else(|| if failed { "Failed." } else { "Done." }.to_owned())
 }
 
-/// What a call printed or said: its text, else the output its raw result gives.
+/// Returns what a call printed or said: its text, else the output in its raw result.
 fn output_of(call: &ToolCall) -> Option<String> {
     let mut parts: Vec<String> = Vec::new();
     for content in call.content.iter().flatten() {
@@ -2518,12 +2516,10 @@ mod tests {
 
     const ID: &str = "11111111-2222-4333-8444-555555555555";
 
-    /// Serializes a window-bound command cleanly.
     fn said(command: &Command) -> String {
         command.encode().expect("a command the window writes")
     }
 
-    /// A prompt of the window's, of text alone.
     fn prompt(text: &str) -> String {
         said(&Command::Prompt {
             shell: Vec::new(),
@@ -2532,7 +2528,6 @@ mod tests {
         })
     }
 
-    /// A control request of the window's.
     fn asks(request_id: &str, request: ControlRequest) -> String {
         said(&Command::ControlRequest {
             request_id: RequestId::from(request_id.to_owned()),
@@ -2645,7 +2640,6 @@ mod tests {
         )
     }
 
-    /// The lines the window is sent, as the JSON it reads.
     fn window_lines(effects: &[Effect]) -> Vec<Value> {
         effects
             .iter()
@@ -2661,7 +2655,6 @@ mod tests {
             .collect()
     }
 
-    /// The lines the agent is sent, as the JSON it reads.
     fn agent_lines(effects: &[Effect]) -> Vec<Value> {
         effects
             .iter()
@@ -2691,7 +2684,6 @@ mod tests {
             .collect()
     }
 
-    /// The id of the last `session/prompt` among `effects`.
     fn prompt_id(effects: &[Effect]) -> u64 {
         agent_lines(effects)
             .into_iter()
@@ -2915,8 +2907,6 @@ mod tests {
         assert_eq!(init.get("session_id"), Some(&json!(agys.as_str())));
     }
 
-    /// The permission request among the window's lines: its id, the call it is about, the
-    /// agent's choices.
     fn permission_of(window: &[Value]) -> (RequestId, Value, Vec<AcpOption>) {
         let asked = window
             .iter()
@@ -2935,7 +2925,6 @@ mod tests {
         )
     }
 
-    /// The window's choice, as it sends it.
     fn chose(request: RequestId, option: &str) -> String {
         said(&Command::Choose {
             request_id: request,
@@ -2943,7 +2932,6 @@ mod tests {
         })
     }
 
-    /// The call among the window's lines, as the agent last gave it.
     fn call_of(window: &[Value]) -> AcpCall {
         let call = window
             .iter()
