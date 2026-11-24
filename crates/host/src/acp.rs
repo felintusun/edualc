@@ -15,6 +15,7 @@ pub(crate) use listing::{ExternalSession, list_sessions};
 pub(crate) use quotas::{QuotaError, agy_quotas};
 
 use std::collections::HashMap;
+use std::ops::ControlFlow;
 use std::os::unix::fs::DirBuilderExt as _;
 use std::path::PathBuf;
 
@@ -192,32 +193,7 @@ async fn adapt(args: Args) -> Result<(), Error> {
         fork,
         model,
     } = args;
-    let (id, start) = match (session_id, resume, fork) {
-        (Some(id), None, None) => (id, Start::New),
-        (Some(id), None, Some(of)) => {
-            if !agent.can_fork() {
-                return Err(Error::ForkNotSupported(agent));
-            }
-            let conversation = resolve_conversation(agent, &of)
-                .await
-                .ok_or(Error::NoConversation(agent, of))?;
-            (id, Start::Fork(conversation))
-        }
-        (None, Some(id), None) => {
-            if !agent.loads_sessions() {
-                return Err(Error::ResumeNotSupported(agent));
-            }
-            let conversation = resolve_conversation(agent, &id)
-                .await
-                .ok_or_else(|| Error::NoConversation(agent, id.clone()))?;
-            let start = match agent {
-                Agent::Agy => Start::Resume(conversation),
-                Agent::Opencode => Start::ResumeReplay(conversation),
-            };
-            (id, start)
-        }
-        _ => return Err(Error::NoSession),
-    };
+    let (id, start) = starting(agent, session_id, resume, fork).await?;
     // The name the daemon knows the session by, as it names Claude Code's (see `spawn`).
     let name = MessagingName::of(&id, &cwd);
     let own = Own::make(agent)?;
@@ -241,86 +217,22 @@ async fn adapt(args: Args) -> Result<(), Error> {
 
     let (heard, mut hearing) = mpsc::channel::<Heard>(QUEUE);
     let mut agent_in = process.stdin.take();
-    if let Some(out) = process.stdout.take() {
-        let heard = heard.clone();
-        tokio::spawn(async move {
-            let mut lines = BufReader::new(out).lines();
-            while let Ok(Some(line)) = lines.next_line().await {
-                if heard.send(Heard::Agent(Some(line))).await.is_err() {
-                    return;
-                }
-            }
-            if heard.send(Heard::Agent(None)).await.is_err() {
-                tracing::debug!("the adapter's loop ended before the agent did");
-            }
-        });
+    if let Some(said) = process.stdout.take() {
+        tokio::spawn(hear_lines(said, heard.clone(), |line| {
+            Some(Heard::Agent(line))
+        }));
     }
-    if let Some(err) = process.stderr.take() {
-        let heard = heard.clone();
-        tokio::spawn(async move {
-            let mut lines = BufReader::new(err).lines();
-            while let Ok(Some(line)) = lines.next_line().await {
-                if heard.send(Heard::AgentLog(line)).await.is_err() {
-                    return;
-                }
-            }
-        });
+    if let Some(logged) = process.stderr.take() {
+        tokio::spawn(hear_lines(logged, heard.clone(), |line| {
+            line.map(Heard::AgentLog)
+        }));
     }
-    {
-        let heard = heard.clone();
-        tokio::spawn(async move {
-            let mut lines = BufReader::new(tokio::io::stdin()).lines();
-            while let Ok(Some(line)) = lines.next_line().await {
-                if heard.send(Heard::Window(Some(line))).await.is_err() {
-                    return;
-                }
-            }
-            if heard.send(Heard::Window(None)).await.is_err() {
-                tracing::debug!("the adapter's loop ended before the window's side closed");
-            }
-        });
-    }
-    let (posted, mut posts) = mpsc::channel::<String>(QUEUE);
-    {
-        let heard = heard.clone();
-        tokio::spawn(async move {
-            while let Some(post) = posts.recv().await {
-                let peer_messages = tokio::task::spawn_blocking(peer_messages)
-                    .await
-                    .unwrap_or(PeerMessages::AskEachSender);
-                if heard.send(Heard::Peer(post, peer_messages)).await.is_err() {
-                    return;
-                }
-            }
-        });
-    }
-    {
-        let heard = heard.clone();
-        tokio::spawn(async move {
-            let mut next = 0;
-            loop {
-                let Ok((stream, _)) = tools.accept().await else {
-                    continue;
-                };
-                next += 1;
-                let call = CallId(next);
-                let heard = heard.clone();
-                tokio::spawn(async move {
-                    let (read, write) = stream.into_split();
-                    let mut line = String::new();
-                    let read = BufReader::new(read).read_line(&mut line).await;
-                    match read.ok().and_then(|_| serde_json::from_str(&line).ok()) {
-                        Some(request) => {
-                            if heard.send(Heard::Tool(call, request, write)).await.is_err() {
-                                tracing::debug!("a tool call after the adapter's loop ended");
-                            }
-                        }
-                        None => tracing::debug!("a tool call that isn't one"),
-                    }
-                });
-            }
-        });
-    }
+    tokio::spawn(hear_lines(tokio::io::stdin(), heard.clone(), |line| {
+        Some(Heard::Window(line))
+    }));
+    let (posted, posts) = mpsc::channel::<String>(QUEUE);
+    tokio::spawn(hear_posts(posts, heard.clone()));
+    tokio::spawn(hear_tool_calls(tools, heard.clone()));
     let mut out = Out {
         window: tokio::io::stdout(),
         agent: agent_in.take(),
@@ -338,34 +250,14 @@ async fn adapt(args: Args) -> Result<(), Error> {
     // Told to end, it ends as when its input closes, and takes its files away.
     let mut ending = Ending::listen().map_err(Error::Runtime)?;
     loop {
-        let effects = tokio::select! {
+        let said = tokio::select! {
             () = ending.told() => break,
             () = out.inbox.take(&posted) => continue,
-            said = hearing.recv() => match said {
-                Some(Heard::Window(Some(line))) => translator.window_said(&line),
-                Some(Heard::Window(None)) => {
-                    // The daemon closed the session's input: the agent's goes too, and it ends.
-                    out.agent = None;
-                    continue;
-                }
-                Some(Heard::Agent(Some(line))) => translator.agent_said(&line),
-                Some(Heard::Agent(None)) | None => break,
-                Some(Heard::AgentLog(line)) => {
-                    eprintln!("{agent}: {line}");
-                    continue;
-                }
-                Some(Heard::Peer(post, peer_messages)) => translator.peer(post, peer_messages),
-                Some(Heard::Tool(call, request, write)) => {
-                    out.calls.insert(call, write);
-                    match request {
-                        tool::Request::Send { to, message } => {
-                            translator.tool_called(call, to, message)
-                        }
-                        tool::Request::List => translator.listing_asked(call),
-                    }
-                }
-                Some(Heard::Quotas(request, told)) => translator.quotas_told(request, told),
-            },
+            said = hearing.recv() => said,
+        };
+        let Some(said) = said else { break };
+        let ControlFlow::Continue(effects) = out.heard(&mut translator, said) else {
+            break;
         };
         out.carry_out(&mut translator, effects).await;
     }
@@ -383,6 +275,108 @@ async fn adapt(args: Args) -> Result<(), Error> {
     tracing::info!(?ended, %agent, "the agent ended");
     drop(own);
     Ok(())
+}
+
+/// Returns the session's id and how it starts: new with `session_id`, a fork of `fork`, or
+/// `resume` continued.
+async fn starting(
+    agent: Agent,
+    session_id: Option<SessionId>,
+    resume: Option<SessionId>,
+    fork: Option<SessionId>,
+) -> Result<(SessionId, Start), Error> {
+    match (session_id, resume, fork) {
+        (Some(id), None, None) => Ok((id, Start::New)),
+        (Some(id), None, Some(of)) => {
+            if !agent.can_fork() {
+                return Err(Error::ForkNotSupported(agent));
+            }
+            let conversation = resolve_conversation(agent, &of)
+                .await
+                .ok_or(Error::NoConversation(agent, of))?;
+            Ok((id, Start::Fork(conversation)))
+        }
+        (None, Some(id), None) => {
+            if !agent.loads_sessions() {
+                return Err(Error::ResumeNotSupported(agent));
+            }
+            let conversation = resolve_conversation(agent, &id)
+                .await
+                .ok_or_else(|| Error::NoConversation(agent, id.clone()))?;
+            let start = match agent {
+                Agent::Agy => Start::Resume(conversation),
+                Agent::Opencode => Start::ResumeReplay(conversation),
+            };
+            Ok((id, start))
+        }
+        _ => Err(Error::NoSession),
+    }
+}
+
+/// Tells the loop each line `read` gives, and its end, as `heard_as` makes them; `None` from
+/// it tells nothing.
+async fn hear_lines<Read>(
+    read: Read,
+    heard: mpsc::Sender<Heard>,
+    heard_as: impl Fn(Option<String>) -> Option<Heard>,
+) where
+    Read: tokio::io::AsyncRead + Unpin,
+{
+    let mut lines = BufReader::new(read).lines();
+    loop {
+        // An input that fails to read has ended.
+        let line = lines.next_line().await.ok().flatten();
+        let ended = line.is_none();
+        if let Some(said) = heard_as(line)
+            && heard.send(said).await.is_err()
+        {
+            tracing::debug!("the adapter's loop ended before its input did");
+            return;
+        }
+        if ended {
+            return;
+        }
+    }
+}
+
+/// Tells the loop each post to the session's inbox, with how you want new senders let in as
+/// the settings say when it comes.
+async fn hear_posts(mut posts: mpsc::Receiver<String>, heard: mpsc::Sender<Heard>) {
+    while let Some(post) = posts.recv().await {
+        let peer_messages = tokio::task::spawn_blocking(peer_messages)
+            .await
+            .unwrap_or(PeerMessages::AskEachSender);
+        if heard.send(Heard::Peer(post, peer_messages)).await.is_err() {
+            return;
+        }
+    }
+}
+
+/// Tells the loop each call of edualc's tool, numbered as they come, with where its answer
+/// goes.
+async fn hear_tool_calls(tools: UnixListener, heard: mpsc::Sender<Heard>) {
+    let mut next = 0;
+    loop {
+        let Ok((stream, _)) = tools.accept().await else {
+            continue;
+        };
+        next += 1;
+        let call = CallId(next);
+        let heard = heard.clone();
+        tokio::spawn(async move {
+            let (read, write) = stream.into_split();
+            let mut line = String::new();
+            let read = BufReader::new(read).read_line(&mut line).await;
+            match read.ok().and_then(|_| serde_json::from_str(&line).ok()) {
+                Some(request) => {
+                    if heard.send(Heard::Tool(call, request, write)).await.is_err() {
+                        tracing::debug!("a tool call after the adapter's loop ended");
+                    }
+                }
+                None => tracing::debug!("a tool call that isn't one"),
+            }
+        });
+    }
 }
 
 /// The signals that end the adapter: the daemon's end, a terminal's.
@@ -435,6 +429,37 @@ struct Out {
 }
 
 impl Out {
+    /// Gives the translator what the loop heard, and returns what it says to do; `Break` once
+    /// the agent has ended.
+    fn heard(&mut self, translator: &mut Translator, said: Heard) -> ControlFlow<(), Vec<Effect>> {
+        let effects = match said {
+            Heard::Window(Some(line)) => translator.window_said(&line),
+            Heard::Window(None) => {
+                // The daemon closed the session's input: the agent's goes too, and it ends.
+                self.agent = None;
+                Vec::new()
+            }
+            Heard::Agent(Some(line)) => translator.agent_said(&line),
+            Heard::Agent(None) => return ControlFlow::Break(()),
+            Heard::AgentLog(line) => {
+                eprintln!("{}: {line}", self.program);
+                Vec::new()
+            }
+            Heard::Peer(post, peer_messages) => translator.peer(post, peer_messages),
+            Heard::Tool(call, request, write) => {
+                self.calls.insert(call, write);
+                match request {
+                    tool::Request::Send { to, message } => {
+                        translator.tool_called(call, to, message)
+                    }
+                    tool::Request::List => translator.listing_asked(call),
+                }
+            }
+            Heard::Quotas(request, told) => translator.quotas_told(request, told),
+        };
+        ControlFlow::Continue(effects)
+    }
+
     /// Does what the translator said. What the tool is answered goes back to the translator,
     /// as the agent tells nothing of an MCP tool's result.
     async fn carry_out(&mut self, translator: &mut Translator, effects: Vec<Effect>) {
