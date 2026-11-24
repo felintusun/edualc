@@ -44,9 +44,9 @@ const QUEUE: usize = 256;
 const GRACE: std::time::Duration = std::time::Duration::from_secs(3);
 /// How long the agent gets to say its plan's quotas.
 const QUOTAS_WAIT: std::time::Duration = std::time::Duration::from_secs(15);
-/// How long an ACP `session/list` or `session/fork` helper probe may take.
+/// How long a `session/list` or `session/fork` asked of a program outside a session may take.
 const PROBE_WAIT: std::time::Duration = std::time::Duration::from_secs(5);
-/// Maximum pages read from ACP `session/list`.
+/// The most pages of `session/list` read.
 const MAX_LIST_PAGES: usize = 10;
 
 /// The tool agy sees edualc's messaging tool as, by the MCP server's name and the tool's.
@@ -87,15 +87,15 @@ impl Agent {
         }
     }
 
-    /// Whether the agent loads a session of its own again (ACP `session/load`), so edualc can
-    /// continue it.
+    /// Returns whether the agent loads a session of its own again (`session/load`), so that
+    /// edualc can continue it.
     fn loads_sessions(self) -> bool {
         match self {
             Self::Agy | Self::Opencode => true,
         }
     }
 
-    /// Whether the agent supports ACP `session/fork`.
+    /// Returns whether the agent takes `session/fork`.
     fn can_fork(self) -> bool {
         self.backend().can_fork()
     }
@@ -107,8 +107,8 @@ impl Agent {
         }
     }
 
-    /// Whether it keeps records of the subagents and swarms it starts, which edualc shows as
-    /// the session's background tasks (see [`brain`]).
+    /// Returns whether it keeps records of the subagents and swarms it starts, which edualc
+    /// shows as the session's background tasks (see [`brain`]).
     fn keeps_subagents(self) -> bool {
         match self {
             Self::Agy => true,
@@ -116,8 +116,8 @@ impl Agent {
         }
     }
 
-    /// The arguments that make it print its plan's quotas (see [`quotas`]); none for an agent
-    /// without quotas to say.
+    /// Returns the arguments that make it print its plan's quotas (see [`quotas`]); `None` for
+    /// an agent with no quotas to say.
     fn quotas_arguments(self) -> Option<&'static [&'static str]> {
         match self {
             Self::Agy => Some(&["-p", "/usage", "--output-format", "json"]),
@@ -125,13 +125,14 @@ impl Agent {
         }
     }
 
-    /// Whether its plan has quotas it says, which the window shows as the plan's limits.
+    /// Returns whether it reports its plan's quotas, which the window shows as the plan's
+    /// limits.
     fn reports_quotas(self) -> bool {
         self.quotas_arguments().is_some()
     }
 
-    /// The arguments it sends with a tool call before the call's own: opencode sends the working
-    /// directory first.
+    /// Returns the arguments it sends with a tool call before the call's own, as opencode
+    /// sends the working folder first.
     fn early_arguments(self) -> &'static [&'static str] {
         match self {
             Self::Agy => &[],
@@ -139,7 +140,7 @@ impl Agent {
         }
     }
 
-    /// The agent, started in `cwd` with ACP on its stdio.
+    /// Starts the agent in `cwd`, with ACP on its stdio.
     fn start(self, cwd: &Path) -> Result<Child, Error> {
         let program = on_path(self.program()).ok_or(Error::NotOnPath(self))?;
         Command::new(&program)
@@ -153,9 +154,9 @@ impl Agent {
             .map_err(|source| Error::Start(self, source))
     }
 
-    /// A tool call this agent named `name` that edualc acts on, as the window knows it: a
-    /// message, a list of the sessions, a swarm's new member, a question. None for any other,
-    /// which the window shows as the agent gives it.
+    /// Returns a tool call named `name` that edualc acts on, as the window knows it: a message,
+    /// a list of the sessions, a swarm's new member, a question. `None` for any other, which
+    /// the window shows as the agent gives it.
     fn tool(self, name: &str, call: &ToolCall) -> Option<KnownCall> {
         match self {
             Self::Agy => {
@@ -187,9 +188,9 @@ impl Agent {
         }
     }
 
-    /// Whether the agent refused a prompt for want of a valid sign-in: ACP's code, or its own
-    /// words for a token Google's API refused (`UNAUTHENTICATED`, HTTP 401) or for no sign-in at
-    /// all.
+    /// Returns whether the agent refused a prompt for want of a valid sign-in: by ACP's code,
+    /// or in its own words for a token Google's API refused (`UNAUTHENTICATED`, HTTP 401) or
+    /// for no sign-in at all.
     fn sign_in_refused(self, error: &RpcError) -> bool {
         error.sign_in_refused()
             || match self {
@@ -283,8 +284,8 @@ fn adapter() -> Result<(), Error> {
     runtime.block_on(adapt(args))
 }
 
-/// The session's own folder in the runtime folder, for the messaging tool's socket; removed as
-/// it ends.
+/// The session's folder in the runtime folder, for the messaging tool's socket, removed when
+/// dropped.
 #[derive(Debug)]
 struct Own {
     folder: PathBuf,
@@ -314,7 +315,7 @@ impl Drop for Own {
     }
 }
 
-/// An external session discovered via ACP `session/list`.
+/// A session started outside edualc, as `session/list` gives it.
 #[derive(Debug, Clone)]
 pub(crate) struct ExternalSession {
     pub backend: crate::provider::Backend,
@@ -398,7 +399,7 @@ async fn start_initialized_acp(
     }
 }
 
-/// Lists external sessions known to `agent` via ACP `session/list`.
+/// Lists the sessions `agent` keeps, with `session/list`.
 pub(crate) async fn list_sessions(agent: Agent) -> Vec<ExternalSession> {
     // The agent is started in the home folder to list its sessions; without one we don't guess.
     let Some(cwd) = dirs::home_dir() else {
@@ -482,8 +483,8 @@ async fn list_sessions_inner(agent: Agent, cwd: &Path) -> Vec<ExternalSession> {
     collected
 }
 
-/// The agent's own id for the conversation session `id` is: agy's is the same id, which its
-/// records are kept under; opencode's is the one `session/list` gives whose window id it is.
+/// Returns the agent's id for session `id`'s conversation. agy's is the same id, which its
+/// records are kept under; opencode's is the one `session/list` gives for that window id.
 async fn resolve_conversation(agent: Agent, id: &SessionId) -> Option<String> {
     match agent {
         Agent::Agy => agy::brain()?
@@ -498,7 +499,7 @@ async fn resolve_conversation(agent: Agent, id: &SessionId) -> Option<String> {
     }
 }
 
-/// `program` as found on PATH.
+/// Finds `program` on PATH.
 fn on_path(program: &str) -> Option<PathBuf> {
     std::env::var_os("PATH").and_then(|path| {
         std::env::split_paths(&path)
@@ -507,8 +508,8 @@ fn on_path(program: &str) -> Option<PathBuf> {
     })
 }
 
-/// The arguments of tool call `name`, as far as the agent has given them: none yet, or ones
-/// edualc can't read (logged), show as none.
+/// Reads the arguments of tool call `name`, as far as the agent has given them. None yet, or
+/// ones edualc can't read (which are logged), read as none.
 fn arguments<Arguments>(name: &str, call: &ToolCall) -> Arguments
 where
     Arguments: serde::de::DeserializeOwned + Default,
@@ -525,7 +526,7 @@ where
     }
 }
 
-/// agy's questions as Claude Code's AskUserQuestion asks them.
+/// Returns agy's questions as Claude Code's AskUserQuestion asks them.
 fn questions(asked: Vec<AgyQuestion>) -> Questions {
     Questions {
         questions: asked
@@ -570,12 +571,12 @@ pub(crate) enum QuotaError {
     Read(#[source] serde_json::Error),
 }
 
-/// Asks `agy` for its plan's quotas outside of an active session.
+/// Asks agy for its plan's quotas outside a session.
 pub(crate) async fn agy_quotas(cwd: PathBuf) -> Result<agy::Quotas, QuotaError> {
     quotas(Agent::Agy, cwd).await
 }
 
-/// What `agent` says of its plan's quotas, asked in `cwd` (agy reads its settings there).
+/// Asks `agent` for its plan's quotas in `cwd`, where agy reads its settings.
 async fn quotas(agent: Agent, cwd: PathBuf) -> Result<agy::Quotas, QuotaError> {
     let arguments = agent
         .quotas_arguments()
@@ -601,8 +602,8 @@ async fn quotas(agent: Agent, cwd: PathBuf) -> Result<agy::Quotas, QuotaError> {
         .map_err(QuotaError::Read)
 }
 
-/// How the user wants other sessions' messages let in, as the settings say now. Settings that
-/// can't be read ask about each new sender: what can't be read lets nobody in unasked.
+/// Returns how you want other sessions' messages let in, as the settings say now. Settings
+/// that can't be read ask about each new sender, so that nobody comes in unasked.
 fn peer_messages() -> PeerMessages {
     match settings::load() {
         Ok(settings) => settings.peer_messages,
@@ -619,7 +620,7 @@ enum Heard {
     Window(Option<String>),
     Agent(Option<String>),
     AgentLog(String),
-    /// Another session's message, and whether the user wants each new sender asked about.
+    /// Another session's message, and whether you want each new sender asked about.
     Peer(String, PeerMessages),
     Tool(CallId, tool::Request, OwnedWriteHalf),
     Quotas(Option<RequestId>, Result<agy::Quotas, QuotaError>),
@@ -873,8 +874,8 @@ struct Out {
 }
 
 impl Out {
-    /// Does what the translator said; what the tool is answered goes back to it, as the agent
-    /// tells nothing of an MCP tool's result.
+    /// Does what the translator said. What the tool is answered goes back to the translator,
+    /// as the agent tells nothing of an MCP tool's result.
     async fn carry_out(&mut self, translator: &mut Translator, effects: Vec<Effect>) {
         for effect in effects {
             match effect {
@@ -922,7 +923,7 @@ impl Out {
         });
     }
 
-    /// An event to the window (via `edualcd`'s ACP driver).
+    /// Sends an event to the window, through the daemon.
     async fn tell(&mut self, event: &agent::Event) {
         match serde_json::to_string(event) {
             Ok(line) => {
@@ -936,7 +937,7 @@ impl Out {
         }
     }
 
-    /// The window told the subagents the agent keeps for `conversation`, if they changed.
+    /// Tells the window the subagents the agent keeps for `conversation`, if they changed.
     async fn subagents(&mut self, conversation: String) {
         let Ok(conversation) = SessionId::try_from(conversation) else {
             tracing::debug!("a conversation id that isn't agy's: no subagents read");
@@ -952,7 +953,7 @@ impl Out {
         }
     }
 
-    /// A call of edualc's tool, carried out (see [`outbox::carry_out`]).
+    /// Carries out a call of edualc's tool (see [`outbox::carry_out`]).
     async fn carried(&self, job: Job) -> tool::Answer {
         let sender = self.name.clone();
         let carried = tokio::task::spawn_blocking(move || {
@@ -975,8 +976,8 @@ impl Out {
         }
     }
 
-    /// The session goes by the agent's id from now on: its record says so, with the name that
-    /// id gives it, for other sessions and the running list.
+    /// Renames the session to the agent's id: its record says so, with the name that id gives
+    /// it, for other sessions and the running list.
     fn named(&mut self, id: &SessionId) {
         self.name = MessagingName::of(id, &self.cwd);
         if let Err(error) = self.inbox.rename(id, &self.name) {
