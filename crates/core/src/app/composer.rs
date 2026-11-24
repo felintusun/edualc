@@ -29,8 +29,8 @@ pub(super) enum Recalled {
 }
 
 impl Recall {
-    /// Up, among `count` prompts, with `draft` in the composer: the prompt to show, if there
-    /// is an older one.
+    /// Steps back among `count` prompts, with `draft` in the composer, and returns the prompt to
+    /// show if there is an older one.
     pub(super) fn older(&mut self, count: usize, draft: &str) -> Option<usize> {
         let (index, kept) = match self {
             Self::Writing => (count.checked_sub(1)?, draft.to_owned()),
@@ -40,8 +40,8 @@ impl Recall {
         Some(index)
     }
 
-    /// Down, among `count` prompts: the next prompt, or past the newest the draft from before,
-    /// the user writing again; nothing unless a prompt is recalled.
+    /// Steps forward among `count` prompts and returns the next one, or past the newest the
+    /// draft from before; `None` unless a prompt is recalled.
     pub(super) fn newer(&mut self, count: usize) -> Option<Recalled> {
         let Self::Recalled { index, draft } = std::mem::take(self) else {
             return None;
@@ -55,7 +55,7 @@ impl Recall {
         }
     }
 
-    /// Whether Up has an older prompt to bring, among `count`.
+    /// Returns whether Up has an older prompt to bring, among `count`.
     pub(super) fn has_older(&self, count: usize) -> bool {
         match self {
             Self::Writing => count > 0,
@@ -166,8 +166,8 @@ impl<F: Frontend> App<F> {
         self.view.scroll_to_end();
     }
 
-    /// The terminal's `!`: Claude Code runs the command beside the conversation, and replays
-    /// its echo and then its output, which the conversation shows when they come. Images
+    /// Runs a `!` command, as in the terminal. Claude Code runs it beside the conversation and
+    /// replays its echo and then its output, which the conversation shows as they come. Images
     /// attached stay for the next prompt.
     pub(super) fn run_shell(&mut self, written: &str, command: &str) {
         if command.is_empty() {
@@ -221,15 +221,14 @@ impl<F: Frontend> App<F> {
         self.command_matches = matches;
     }
 
-    /// The command at `index` in the list matching the draft.
+    /// Returns the command at `index` in the list matching the draft.
     pub(super) fn matching_command(&self, index: usize) -> Option<&wire::CommandInfo> {
         self.command_matches
             .get(index)
             .and_then(|at| self.status.commands.get(*at))
     }
 
-    /// Puts the command in the draft: with a space after it, for what follows, if it takes
-    /// an argument.
+    /// Puts the command in the draft, with a space after it if it takes an argument.
     pub(super) fn pick_command(&mut self, index: usize) {
         let Some(command) = self.matching_command(index) else {
             return;
@@ -251,15 +250,15 @@ impl<F: Frontend> App<F> {
         self.send(&sent);
     }
 
-    /// Puts `text` in the composer, and reads it as an edit is read (the command list, the
-    /// shell mode).
+    /// Puts `text` in the composer and reads it as an edit, for the command list and the shell
+    /// mode.
     pub(super) fn put_draft(&mut self, text: &str) {
         self.view.set_draft(text);
         self.draft_edited(text);
     }
 
-    /// The session's prompts as the conversation shows them, oldest first: those of a
-    /// resumed session's transcript too, whichever window or terminal sent them.
+    /// Returns the session's prompts as the conversation shows them, oldest first, including
+    /// those of a resumed session's transcript, whichever window or terminal sent them.
     pub(super) fn prompts(&self) -> Vec<String> {
         self.chat
             .entries
@@ -287,7 +286,7 @@ impl<F: Frontend> App<F> {
             .set_recall(self.recall.has_older(count), recalling);
     }
 
-    /// Up: the prompt before the one shown, or the newest, the draft kept for coming back.
+    /// Shows the prompt before the one shown, or the newest, keeping the draft to come back to.
     pub(super) fn recall_older(&mut self) {
         let prompts = self.prompts();
         let mut recall = self.recall.clone();
@@ -304,7 +303,7 @@ impl<F: Frontend> App<F> {
         self.view.focus_composer();
     }
 
-    /// Down: the prompt after the one shown, or, past the newest, the draft as it was.
+    /// Shows the prompt after the one shown, or past the newest the draft as it was.
     pub(super) fn recall_newer(&mut self) {
         let prompts = self.prompts();
         let mut recall = self.recall.clone();
@@ -319,7 +318,7 @@ impl<F: Frontend> App<F> {
         self.view.focus_composer();
     }
 
-    /// The `>_` button: `!` put in front of the draft, or taken away.
+    /// Puts `!` in front of the draft or takes it away, for the `>_` button.
     pub(super) fn toggle_shell(&mut self) {
         let draft = self.view.draft();
         let toggled = match shell_command(&normalized(&draft)) {
@@ -331,8 +330,8 @@ impl<F: Frontend> App<F> {
     }
 }
 
-/// A draft as its start is read: the full-width `！` and `／` that input methods type in
-/// Japanese or Chinese mode count as `!` and `/`.
+/// Reads the full-width `！` and `／` that input methods type in Japanese or Chinese mode as
+/// `!` and `/` at a draft's start.
 pub(super) fn normalized(draft: &str) -> std::borrow::Cow<'_, str> {
     if let Some(rest) = draft.strip_prefix('！') {
         format!("!{rest}").into()
@@ -343,16 +342,16 @@ pub(super) fn normalized(draft: &str) -> std::borrow::Cow<'_, str> {
     }
 }
 
-/// The command a (normalized) draft runs with `!`, if it is one: not a Markdown image
-/// (`![…](…)`), as a pasted text may start with.
+/// Returns the command a normalized draft runs with `!`, if it is one and not a Markdown image
+/// (`![…](…)`), which a pasted text may start with.
 pub(super) fn shell_command(draft: &str) -> Option<&str> {
     draft
         .strip_prefix('!')
         .filter(|command| !command.starts_with('['))
 }
 
-/// What the command in a (normalized) draft takes, to hint after it: only while the draft is
-/// the command and a space, before anything follows; empty otherwise.
+/// Returns what the command in a normalized draft takes, to hint after it, while the draft is
+/// the command and a space alone; empty otherwise.
 pub(super) fn argument_hint<'a>(draft: &str, commands: &'a [wire::CommandInfo]) -> &'a str {
     draft
         .strip_prefix('/')
@@ -362,8 +361,8 @@ pub(super) fn argument_hint<'a>(draft: &str, commands: &'a [wire::CommandInfo]) 
         .map_or("", |command| command.argument_hint.as_str())
 }
 
-/// What names a session until Claude Code does: the prompt's first line with text. A slash
-/// command names nothing.
+/// Returns the name a session goes by until Claude Code names it: the prompt's first line
+/// with text. A slash command names nothing.
 pub(super) fn provisional_title(prompt: &str) -> Option<&str> {
     prompt
         .lines()

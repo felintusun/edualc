@@ -57,7 +57,8 @@ pub enum AskKind {
 }
 
 impl AskKind {
-    /// The input Claude Code asked about, given back as it was; an ACP agent's call has none.
+    /// Returns the input Claude Code asked about, to give back as it was; `None` for an ACP
+    /// agent's call.
     pub(super) fn as_asked(&self) -> Option<ToolInput> {
         match self {
             Self::Tool { input, .. } | Self::Questions { input, .. } => {
@@ -70,8 +71,8 @@ impl AskKind {
 }
 
 impl<F: Frontend> App<F> {
-    /// The waiting request the user answered, if it is still the one shown: an answer meant for
-    /// a request that was cancelled or replaced meanwhile is not given to the next.
+    /// Takes the waiting request you answered, if it is still the one shown, so that an answer
+    /// meant for a request cancelled or replaced meanwhile isn't given to the next.
     pub(super) fn take_ask(&mut self, request: &RequestId) -> Option<Ask> {
         if self.asks.front().is_some_and(|ask| &ask.request == request) {
             return self.asks.pop_front();
@@ -247,8 +248,8 @@ impl<F: Frontend> App<F> {
         }
     }
 
-    /// Sends the answers to Claude's questions: the labels picked, or what was typed; with the
-    /// notes written, and the preview of the option picked.
+    /// Sends the answers to Claude's questions: the labels picked or what was typed, with the
+    /// notes written and the preview of the option picked.
     pub(super) fn answer_questions(&mut self, request: &RequestId) {
         let Some(ask) = self.take_ask(request) else {
             return;
@@ -309,7 +310,7 @@ impl<F: Frontend> App<F> {
         self.answered(ask, state);
     }
 
-    /// Answers an ACP agent's request with one of its choices; with none of the kind wanted
+    /// Answers an ACP agent's request with one of its choices. With none of the kind wanted
     /// among them, the request is turned down, which the agent takes as cancelled.
     pub(super) fn choose(&mut self, ask: &Ask, chosen: Option<call::OptionId>, state: ToolState) {
         match chosen {
@@ -335,7 +336,7 @@ impl<F: Frontend> App<F> {
         }
     }
 
-    /// A permission request from the CLI, waiting for the user.
+    /// Shows a permission request from Claude Code, to wait for your answer.
     pub(super) fn ask(
         &mut self,
         request: RequestId,
@@ -395,7 +396,7 @@ impl<F: Frontend> App<F> {
         self.redraw.prompt = true;
     }
 
-    /// An ACP agent asks whether its call may go ahead, offering its choices.
+    /// Shows an ACP agent's question whether its call may go ahead, with its choices.
     pub(super) fn ask_acp(
         &mut self,
         request: RequestId,
@@ -414,7 +415,7 @@ impl<F: Frontend> App<F> {
         self.redraw.prompt = true;
     }
 
-    /// The process no longer waits for this request (the turn was interrupted).
+    /// Takes back a request the process no longer waits for, as when the turn was interrupted.
     pub(super) fn cancel(&mut self, request: &RequestId) {
         if let Some(at) = self.asks.iter().position(|ask| &ask.request == request)
             && let Some(ask) = self.asks.remove(at)
@@ -425,7 +426,7 @@ impl<F: Frontend> App<F> {
         self.redraw.prompt = true;
     }
 
-    /// The process ended without being asked to: says why, as far as it said.
+    /// Says why the process ended without being asked to, as far as it said.
     pub(super) fn ended(&mut self, code: Option<i32>) {
         self.process = None;
         let turns = self.status.turns;
@@ -444,8 +445,8 @@ impl<F: Frontend> App<F> {
     }
 }
 
-/// Claude's questions with the user's answers (the labels picked, or what was typed), the notes
-/// written, and the preview of the option picked, by question.
+/// Returns Claude's questions with your answers (the labels picked or what was typed), the
+/// notes written, and the preview of the option picked, by question.
 pub(super) fn answered(
     asked: &wire::Questions,
     picked: &[Vec<bool>],
@@ -538,7 +539,7 @@ pub enum AnswerError {
     Unreadable(#[source] serde_json::Error),
 }
 
-/// The answer to a control request of ours, as `T`.
+/// Reads the answer to a control request of ours as `T`.
 pub fn answer_as<T: serde::de::DeserializeOwned>(
     outcome: Result<Value, String>,
 ) -> Result<T, AnswerError> {

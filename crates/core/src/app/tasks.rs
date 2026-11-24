@@ -11,8 +11,8 @@ use super::{App, Request};
 use crate::present::Frontend;
 
 impl<F: Frontend> App<F> {
-    /// The user stopped the turn, which ends only the turn: if tasks run on, their list opens
-    /// and says so, for the user to stop them or leave them running.
+    /// Opens the task list after you stopped a turn, if tasks run on, for you to stop them or
+    /// leave them running. Stopping ends only the turn.
     pub(super) fn tasks_after_stop(&mut self) {
         if self.status.tasks.running().next().is_some() {
             self.status.tasks_left_running = true;
@@ -82,8 +82,8 @@ pub struct Tasks {
 }
 
 impl Tasks {
-    /// Every task running, the background ones first; one listed in both counts once, as the
-    /// list's.
+    /// Returns every task running, the background ones first; one in both lists counts once,
+    /// as the background list's.
     pub fn running(&self) -> impl Iterator<Item = Running<'_>> {
         let background = self.background.iter().map(|task| (task, Place::Background));
         let foreground = self
@@ -117,7 +117,8 @@ impl Tasks {
         self.progress.retain(|id, _| running.contains(id));
     }
 
-    /// Claude Code's list of background tasks, all of them. Whether that changed what runs.
+    /// Takes Claude Code's whole list of background tasks; returns whether it changed what
+    /// runs.
     pub fn list(&mut self, mut tasks: Vec<BackgroundTask>) -> bool {
         tasks.retain(|task| !task.ambient);
         if tasks == self.background {
@@ -128,8 +129,8 @@ impl Tasks {
         true
     }
 
-    /// How far task `id` got. Kept even before the task shows, as its start or listing may come
-    /// after; whether a running task shows something new.
+    /// Keeps how far task `id` got, even before the task shows, as its start or listing may
+    /// come after. Returns whether a running task shows something new.
     pub fn progress(&mut self, id: TaskId, progress: TaskProgress) -> bool {
         let shown = self.runs(&id);
         let changed = self.progress.get(&id) != Some(&progress);
@@ -137,8 +138,8 @@ impl Tasks {
         shown && changed
     }
 
-    /// A task began. Only a subagent in the foreground is kept: one in the background is in the
-    /// next list, and a foreground shell command shows as its own tool call.
+    /// Takes a task that began. Only a subagent in the foreground is kept: one in the
+    /// background is in the next list, and a foreground shell command shows as its own call.
     pub fn start(&mut self, task: BackgroundTask, backgrounded: Option<bool>) -> bool {
         let waited_for =
             backgrounded == Some(false) && task.task_type == TaskKind::LocalAgent && !task.ambient;
@@ -154,7 +155,7 @@ impl Tasks {
         true
     }
 
-    /// A task changed: it ended, or moved to the background, where the list names it.
+    /// Takes a task's change: it ended, or moved to the background, where the list names it.
     pub fn update(&mut self, id: &TaskId, patch: &TaskPatch) -> bool {
         if patch.status.is_some_and(TaskStatus::ended) {
             self.end(id)
@@ -171,14 +172,13 @@ impl Tasks {
         self.foreground.len() != before
     }
 
-    /// A task ended.
     pub fn end(&mut self, id: &TaskId) -> bool {
         let left = self.leave_foreground(id);
         let had_progress = self.progress.remove(id).is_some();
         left || had_progress
     }
 
-    /// The turn ended: no foreground task outlives it, even one whose end went unsaid.
+    /// Ends the foreground tasks with the turn, even one whose end went unsaid.
     pub fn end_turn(&mut self) -> bool {
         let had = !self.foreground.is_empty();
         self.foreground.clear();
@@ -186,7 +186,7 @@ impl Tasks {
         had
     }
 
-    /// The process is gone, and all it ran with it.
+    /// Forgets every task, as the process that ran them is gone.
     pub fn clear(&mut self) {
         self.background.clear();
         self.foreground.clear();
