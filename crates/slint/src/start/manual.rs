@@ -8,7 +8,7 @@ use super::Args;
 
 const PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../assets/edualc.1");
 
-/// An indented paragraph: `term` in bold, then `text`.
+/// Writes an indented paragraph: `term` in bold, then `text`.
 fn entry(roff: &mut Roff, term: &str, text: &str) {
     roff.control("TP", []);
     roff.text([bold(term)]);

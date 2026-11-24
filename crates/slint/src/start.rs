@@ -39,8 +39,8 @@ struct Args {
     prompt: Option<String>,
 }
 
-/// The permission modes by the names Claude Code gives them, each with what it lets through, so
-/// help lists them and a wrong one is told the right ones.
+/// Parses the permission modes by Claude Code's names for them, each with what it lets
+/// through, so that help lists them and a wrong one is told the right ones.
 fn permission_modes() -> impl clap::builder::TypedValueParser<Value = app::PermissionMode> {
     use clap::builder::{PossibleValue, PossibleValuesParser, TypedValueParser as _};
     PossibleValuesParser::new(
@@ -50,7 +50,8 @@ fn permission_modes() -> impl clap::builder::TypedValueParser<Value = app::Permi
     .try_map(|name| name.parse::<app::PermissionMode>())
 }
 
-/// The backends by their names, so help lists them and a wrong one is told the right ones.
+/// Parses the programs by their names, so that help lists them and a wrong one is told the
+/// right ones.
 fn backends() -> impl clap::builder::TypedValueParser<Value = Backend> {
     use clap::builder::{PossibleValuesParser, TypedValueParser as _};
     PossibleValuesParser::new(
@@ -73,7 +74,7 @@ enum DirError {
     },
 }
 
-/// The folder a command line names, relative to where edualc was started.
+/// Reads the folder a command line names, relative to where edualc was started.
 fn folder(text: &str) -> Result<Folder, DirError> {
     Folder::at(PathBuf::from(text)).map_err(|error| match error {
         FolderError::Missing(_) if !text.contains('/') => DirError::Prompt {
@@ -86,7 +87,7 @@ fn folder(text: &str) -> Result<Folder, DirError> {
     })
 }
 
-/// Where edualc was started, or the home folder where that is gone.
+/// Returns where edualc was started, or the home folder if that is gone.
 fn here() -> Result<Folder, FolderError> {
     Folder::at(
         std::env::current_dir()
@@ -105,11 +106,16 @@ enum WhereError {
     NoSession(SessionId),
 }
 
-/// The folder to work in: as named; else, continuing a session, the one it was started in
-/// (`claude --resume` goes on in whatever folder it is started from, its tools working there),
-/// or where edualc was started when its transcript holds none; else, with a first prompt, where
-/// edualc was started; else none, opening the start page. A session to continue that no
-/// transcript has is refused.
+/// Returns the folder to work in:
+///
+/// - the one named;
+/// - else, continuing a session, the one it was started in, or where edualc was started if
+///   its transcript names none; `claude --resume` goes on in whatever folder it is started
+///   from, and its tools work there;
+/// - else, with a first prompt, where edualc was started;
+/// - else none, which opens the start page.
+///
+/// A session to continue that no transcript has is refused.
 fn working_folder(
     dir: Option<Folder>,
     resume: Option<&SessionId>,
@@ -127,7 +133,7 @@ fn working_folder(
     })
 }
 
-/// A session's id, as Claude Code writes one; anything else is refused before it reaches
+/// Reads a session's id as Claude Code writes one, refusing anything else before it reaches
 /// claude's command line.
 fn session_id(id: &str) -> Result<SessionId, String> {
     SessionId::try_from(id.to_owned()).map_err(|error| error.to_string())

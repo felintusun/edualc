@@ -57,14 +57,14 @@ impl Highlighter {
         }
     }
 
-    /// The theme's colours changed; text already coloured has the old ones, and each
-    /// [`Progress`] made with them is to be dropped.
+    /// Sets the theme's colours. Text already coloured keeps the old ones, and each
+    /// [`Progress`] made with them must be dropped.
     pub(crate) fn set_colours(&mut self, colours: &SyntaxColours) {
         self.theme = theme(colours);
     }
 
-    /// `code` in `lang`'s colours, carrying on from `progress` when `code` goes on from what it
-    /// coloured; plain if the language isn't known, or the code is too long to colour.
+    /// Colours `code` in `lang`'s colours, carrying on from `progress` when `code` goes on from
+    /// what it coloured; plain if the language isn't known or the code is too long to colour.
     pub(crate) fn code(
         &self,
         lang: &str,
@@ -76,8 +76,8 @@ impl Highlighter {
             .unwrap_or_else(|| crate::ui::plain(code))
     }
 
-    /// `code` in `lang`'s colours as the Markdown Slint makes it from, carrying on from
-    /// `progress`; `None` where it is shown plain.
+    /// Colours `code` in `lang`'s colours as the Markdown Slint makes styled text from,
+    /// carrying on from `progress`; `None` where it is shown plain.
     pub(crate) fn markdown(
         &self,
         lang: &str,
@@ -129,8 +129,8 @@ impl Highlighter {
         Some(source)
     }
 
-    /// The grammar for a fence's tag: its name or a file extension (`rust`, `rs`), before any
-    /// attributes (`rust,ignore`).
+    /// Returns the grammar for a fence's tag: its name or a file extension (`rust`, `rs`),
+    /// before any attributes (`rust,ignore`).
     fn syntax(&self, lang: &str) -> Option<&SyntaxReference> {
         let token = lang.split(',').next().unwrap_or(lang).trim();
         if token.is_empty() {
@@ -139,8 +139,8 @@ impl Highlighter {
         self.syntaxes.find_syntax_by_token(token)
     }
 
-    /// One line, its `\n` left off, as Markdown in its colours; `None` if it is too long or
-    /// the grammar fails on it.
+    /// Colours one line, its `\n` left off, as Markdown; `None` if it is too long or the
+    /// grammar fails on it.
     fn line(
         &self,
         painter: &Painter<'_>,
@@ -187,7 +187,7 @@ pub(crate) fn parsed(source: &str) -> Option<slint::StyledText> {
         .ok()
 }
 
-/// `text` as Markdown that shows it as it is.
+/// Writes `text` as Markdown that shows it as it is.
 fn push_escaped(out: &mut String, text: &str) {
     for c in text.chars() {
         match c {
@@ -216,8 +216,8 @@ fn push_hex(out: &mut String, byte: u8) {
     }
 }
 
-/// The theme's colours by TextMate scope. The most specific selector that matches a word wins,
-/// so operators are left uncoloured inside the keywords, and escapes coloured inside strings.
+/// Makes the theme's colours by TextMate scope. The most specific selector that matches a word
+/// wins, so operators are left uncoloured inside keywords, and escapes coloured inside strings.
 fn theme(colours: &SyntaxColours) -> Theme {
     let rules = [
         (

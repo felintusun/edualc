@@ -87,7 +87,7 @@ fn gnome_points() -> Option<f32> {
     })
 }
 
-/// The size at the end of a font name, as GNOME writes it: "Adwaita Sans 11".
+/// Reads the size at the end of a font name, as GNOME writes it: "Adwaita Sans 11".
 #[cfg(not(target_arch = "wasm32"))]
 fn font_points(font: &str) -> Option<f32> {
     font.rsplit(' ')

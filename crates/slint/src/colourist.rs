@@ -91,13 +91,13 @@ pub(crate) struct Colourist {
 }
 
 impl Colourist {
-    /// What is coloured since the frontend last took it, in the order it was coloured.
+    /// Takes what was coloured since the frontend last took it, in the order it was coloured.
     #[cfg(not(target_arch = "wasm32"))]
     pub(crate) fn take(&self) -> Vec<Coloured> {
         self.coloured.try_iter().collect()
     }
 
-    /// What is ordered, coloured now, on the page's one thread.
+    /// Colours what was sent now, on the page's one thread, and takes it.
     #[cfg(target_arch = "wasm32")]
     pub(crate) fn take(&mut self) -> Vec<Coloured> {
         self.inline.colour();
@@ -129,7 +129,8 @@ pub(crate) fn spawn(
     (Orders { orders }, Colourist { coloured })
 }
 
-/// The browser demo's: what is ordered is coloured as the frontend takes what is coloured.
+/// Starts the browser demo's colourist, which colours what was sent when the frontend takes
+/// it.
 #[cfg(target_arch = "wasm32")]
 pub(crate) fn spawn(
     colours: &SyntaxColours,
@@ -230,9 +231,9 @@ fn run(
     }
 }
 
-/// How long the window is let be after it is woken with code of `lines` lines at most: it lays
-/// them out for about a third of that time, so that it is busy with code at most a third of the
-/// time while a long block streams in. A frame's time, for short code.
+/// Returns how long to leave the window be after waking it with code of `lines` lines at most.
+/// It lays them out for about a third of that time, so that it is busy with code at most a
+/// third of the time while a long block streams in. Short code waits a frame.
 #[cfg(not(target_arch = "wasm32"))]
 fn pause_after(lines: usize) -> Duration {
     let lines = u32::try_from(lines).unwrap_or(u32::MAX);
@@ -293,7 +294,7 @@ impl Queue {
         }
     }
 
-    /// The jobs of `generation` from now: those waiting are of another.
+    /// Takes only jobs of `generation` from now, dropping those waiting.
     fn renew(&mut self, generation: u64) {
         self.generation = generation;
         self.jobs.clear();

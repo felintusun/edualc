@@ -134,7 +134,7 @@ fn wait_for_daemon(folder: &Folder) -> Result<Channel, Error> {
     }
 }
 
-/// What the daemon says, as the app's events, until the line is lost.
+/// Passes what the daemon says on as the app's events, until the line is lost.
 fn read(mut channel: Channel, mut deframer: Deframer<FromDaemon>, events: &Sender<Event>) {
     let mut inbox = Inbox::default();
     loop {

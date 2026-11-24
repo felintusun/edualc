@@ -34,7 +34,7 @@ fn main() -> Result<std::process::ExitCode, slint::PlatformError> {
     start::main()
 }
 
-/// The demo, as the page loads it.
+/// Starts the demo as the page loads it.
 #[cfg(target_arch = "wasm32")]
 fn main() {
     web::main();

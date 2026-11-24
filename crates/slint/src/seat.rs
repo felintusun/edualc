@@ -152,7 +152,7 @@ async fn pick_folder() -> Option<PathBuf> {
         .map(|picked| picked.path().to_path_buf())
 }
 
-/// The clipboard's image, read with `wl-paste` and decoded in the confined helper (see
+/// Reads the clipboard's image with `wl-paste` and has the confined helper decode it (see
 /// `decode`).
 async fn paste_image() -> Pasted {
     let listed = clipboard(&["--list-types"], MAX_CLIPBOARD_TYPES_BYTES).await?;
@@ -179,7 +179,7 @@ async fn paste_image() -> Pasted {
     })
 }
 
-/// What `wl-paste` gives with `args`, up to `limit` bytes (reading stops there).
+/// Runs `wl-paste` with `args` and reads what it gives, up to `limit` bytes.
 async fn clipboard(args: &[&str], limit: usize) -> Result<Vec<u8>, PasteFailure> {
     let failed = |error: std::io::Error| PasteFailure::Clipboard(error.to_string());
     let mut child = tokio::process::Command::new("wl-paste")

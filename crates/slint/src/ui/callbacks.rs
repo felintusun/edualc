@@ -29,13 +29,13 @@ impl Actions {
         }
     }
 
-    /// A callback that sends `action`.
+    /// Makes a callback that sends `action`.
     fn on(&self, action: fn() -> Action) -> impl Fn() + 'static {
         let actions = self.clone();
         move || actions.send(action())
     }
 
-    /// A callback taking a row's index from Slint, which counts in `i32`.
+    /// Makes a callback taking a row's index from Slint, which counts in `i32`.
     fn on_index(&self, action: fn(usize) -> Action) -> impl Fn(i32) + 'static {
         let actions = self.clone();
         move |index| match usize::try_from(index) {
@@ -44,7 +44,7 @@ impl Actions {
         }
     }
 
-    /// A callback taking a row's index and a text: what was typed for it.
+    /// Makes a callback taking a row's index and what was typed for it.
     fn on_index_text(
         &self,
         action: fn(usize, String) -> Action,
@@ -56,7 +56,7 @@ impl Actions {
         }
     }
 
-    /// A callback taking two indexes from Slint: a row's, and one within it.
+    /// Makes a callback taking two indexes from Slint: a row's, and one within it.
     fn on_indexes(&self, action: fn(usize, usize) -> Action) -> impl Fn(i32, i32) + 'static {
         let actions = self.clone();
         move |outer, inner| match (usize::try_from(outer), usize::try_from(inner)) {
@@ -72,7 +72,7 @@ impl Actions {
         move |text| actions.send(action(text.into()))
     }
 
-    /// A callback taking the id of the request it answers.
+    /// Makes a callback taking the id of the request it answers.
     fn on_request(
         &self,
         action: fn(RequestId) -> Action,
@@ -81,7 +81,7 @@ impl Actions {
         move |request| actions.send(action(RequestId::from(String::from(request))))
     }
 
-    /// A callback taking a session's id, as the lists hold it.
+    /// Makes a callback taking a session's id, as the lists hold it.
     fn on_session(
         &self,
         action: fn(SessionId) -> Action,
@@ -448,9 +448,9 @@ pub(crate) fn wire(window: &AppWindow, events: &Sender<Event>) {
     });
 }
 
-/// `text` with a line break in place of what lies between the byte offsets `from` and `to`, as
-/// the text box gives them (one outside the text, or inside a character, is moved to the
-/// boundary before it); and the caret's offset after the break.
+/// Puts a line break in `text` in place of what lies between the byte offsets `from` and `to`,
+/// as the text box gives them, and returns it with the caret's offset after the break. An
+/// offset outside the text or inside a character moves to the boundary before it.
 fn break_line(text: &str, from: i32, to: i32) -> LineBreak {
     let at = |offset: i32| text.floor_char_boundary(usize::try_from(offset).unwrap_or(0));
     let (start, end) = (at(from.min(to)), at(from.max(to)));

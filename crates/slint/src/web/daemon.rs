@@ -48,7 +48,7 @@ pub(crate) async fn run(requests: Receiver<ToDaemon>, events: Sender<Event>) {
     }
 }
 
-/// What a window reads, from the demo project.
+/// Answers what a window reads from the demo project.
 fn read_for(events: &Sender<Event>, request: ActId, read: Read) {
     let mut lines = Vec::new();
     let answer = match read {
@@ -110,7 +110,7 @@ fn read_for(events: &Sender<Event>, request: ActId, read: Read) {
     }
 }
 
-/// One of the demo's folders, or why a path isn't one.
+/// Returns one of the demo's folders, or why a path isn't one.
 fn demo_folder(path: &Path) -> Result<std::path::PathBuf, String> {
     demo::projects()
         .into_iter()
@@ -119,7 +119,7 @@ fn demo_folder(path: &Path) -> Result<std::path::PathBuf, String> {
         .ok_or_else(|| format!("{} isn't one of the demo's folders", path.display()))
 }
 
-/// What the desktop is asked, answered as a browser can.
+/// Answers what the daemon is asked to do, as far as a browser can.
 fn acted(events: &Sender<Event>, request: ActId, act: Act) {
     let event = match act {
         Act::CheckTrust { folder } => Event::Trusted {
