@@ -20,9 +20,9 @@ const DEFAULT_LISTEN: &str = "127.0.0.1:7878";
 )]
 struct Args {
     /// Also serve windows that aren't on this machine (a page, an app) and the page itself at
-    /// this address, over TLS, once they show the token. Without it, only windows on this machine, by the Unix
-    /// socket, are served, and edualcd ends a few seconds after the last of them and its
-    /// sessions.
+    /// this address, over TLS, once they show the token. Without it, only windows on this
+    /// machine are served, by the Unix socket, and edualcd ends a few seconds after the last of
+    /// them and its sessions.
     #[arg(long, value_name = "ADDRESS")]
     listen: Option<SocketAddr>,
     /// The name windows reach edualcd by, in the address it prints: the listening address, or

@@ -205,9 +205,10 @@ impl Session {
         (self.phase == Phase::Running).then(|| alone.max(self.active) + QUIET)
     }
 
-    /// A line to the process's input, never waited on here: one that isn't reading holds up
-    /// none of the rest. One that has left [`QUEUE`] lines, or [`QUEUED_BYTES`](super::pipes::QUEUED_BYTES), unread has
-    /// hung, and is ended as a closed input ends it.
+    /// Queues a line for the process's input without waiting, so that a process that isn't
+    /// reading holds up nothing else. One that has left [`QUEUE`] lines or
+    /// [`QUEUED_BYTES`](super::pipes::QUEUED_BYTES) unread has hung, and is ended as a closed
+    /// input ends it.
     pub(super) fn write(&mut self, stdin: &mut Option<Input>, line: String) {
         let Some(input) = stdin.as_mut() else {
             return;
