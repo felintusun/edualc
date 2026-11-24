@@ -109,7 +109,7 @@ pub struct Pixels {
 }
 
 impl Pixels {
-    /// Whether there are as many bytes as pixels, four each.
+    /// Returns whether there are four bytes for each pixel.
     pub fn is_whole(&self) -> bool {
         let pixels = u64::from(self.width_px) * u64::from(self.height_px);
         u64::try_from(self.rgba.len()).ok() == Some(pixels * 4)
@@ -133,7 +133,7 @@ pub enum Refusal {
     TooHeavy,
 }
 
-/// What the helper makes of an image's bytes (sans-io: it runs in the helper, and in tests).
+/// Decodes an image's bytes as the helper does; it runs in the helper and in tests.
 fn decoded(bytes: &[u8], max_side_px: u32) -> Result<Picture, Refusal> {
     let (image, came_as) = read(bytes, max_side_px)?;
     let (width_px, height_px) = sent_size(image.width(), image.height());
@@ -159,11 +159,12 @@ fn decoded(bytes: &[u8], max_side_px: u32) -> Result<Picture, Refusal> {
     })
 }
 
-/// What an image's bytes make to send, made in the page, which is the sandbox the helper is on
-/// Linux (sans-io, as [`decoded`]).
+/// Makes an image to send of its bytes, in the page, which is to it what the helper is on
+/// Linux.
 ///
 /// # Errors
-/// If the image is refused (too large, not a PNG, JPEG, GIF or WebP, or it doesn't decode).
+///
+/// Refuses an image too large, not a PNG, JPEG, GIF or WebP, or that doesn't decode.
 pub fn to_send(bytes: &[u8]) -> Result<Picture, Refusal> {
     if bytes.len() > MAX_INPUT_BYTES {
         return Err(Refusal::TooManyBytes);
@@ -171,8 +172,8 @@ pub fn to_send(bytes: &[u8]) -> Result<Picture, Refusal> {
     decoded(bytes, MAX_SIDE_PX)
 }
 
-/// What the helper makes of an image's bytes to show: its pixels, scaled down to fit
-/// [`SHOWN_SIDE_PX`] (sans-io, as [`decoded`]). The browser demo calls it in the page.
+/// Decodes an image's bytes to show, scaled down to fit [`SHOWN_SIDE_PX`], as the helper does.
+/// The browser demo calls it in the page.
 pub fn shown(bytes: &[u8]) -> Result<Pixels, Refusal> {
     let (image, _came_as) = read(bytes, MAX_SIDE_PX)?;
     let image = if image.width().max(image.height()) > SHOWN_SIDE_PX {
@@ -188,9 +189,9 @@ pub fn shown(bytes: &[u8]) -> Result<Pixels, Refusal> {
     })
 }
 
-/// An image read from its bytes, within the limits on its size and on what decoding it takes;
-/// and how it is to be sent. A GIF or WebP goes as a PNG, which keeps its pixels (an
-/// animation's first frame, as decoding gives it).
+/// Reads an image from its bytes, within the limits on its size and on what decoding takes,
+/// and returns it with how it is to be sent. A GIF or WebP goes as a PNG, which keeps its
+/// pixels; of an animation, decoding gives the first frame.
 fn read(bytes: &[u8], max_side_px: u32) -> Result<(DynamicImage, MediaType), Refusal> {
     let mut reader = ImageReader::new(Cursor::new(bytes))
         .with_guessed_format()
@@ -216,7 +217,8 @@ fn read(bytes: &[u8], max_side_px: u32) -> Result<(DynamicImage, MediaType), Ref
     Ok((image, came_as))
 }
 
-/// The image encoded as it came (a PNG stays exact); one too heavy that way goes as a JPEG.
+/// Encodes the image as it came, so that a PNG stays exact; one too heavy that way goes as a
+/// JPEG.
 fn encoded(image: &DynamicImage, came_as: MediaType) -> Result<(MediaType, Vec<u8>), Refusal> {
     let mut tries = vec![came_as];
     if came_as == MediaType::Png {
@@ -240,7 +242,7 @@ fn encoded(image: &DynamicImage, came_as: MediaType) -> Result<(MediaType, Vec<u
     Err(Refusal::TooHeavy)
 }
 
-/// The largest size, the aspect kept, within both of the current models' limits.
+/// Returns the largest size within the current models' limits, keeping the aspect.
 fn sent_size(width_px: u32, height_px: u32) -> (u32, u32) {
     let tokens = |width: u32, height: u32| {
         width.div_ceil(VISUAL_TOKEN_PX) * height.div_ceil(VISUAL_TOKEN_PX)

@@ -61,15 +61,15 @@ pub(super) enum TrustAnswer {
 }
 
 impl TrustGate {
-    /// A prompt sent before the start: held to go once the folder is found trusted, if its
-    /// trust is still being read; the user, once asked, sends it themselves.
+    /// Holds a prompt sent before the start, to go once the folder is found trusted, while its
+    /// trust is still being read. Once you are asked, you send it yourself.
     pub(super) fn hold(&mut self, prompt: &str) {
         if let Self::Checking { held, .. } = self {
             *held = Some(prompt.to_owned());
         }
     }
 
-    /// The daemon's answer to `request`: the gate opens, asks the user, or stays as it is.
+    /// Takes the daemon's answer to `request`: the gate opens, asks you, or stays as it is.
     pub(super) fn answered(
         &mut self,
         request: ActId,
@@ -96,9 +96,9 @@ impl TrustGate {
 }
 
 impl<F: Frontend> App<F> {
-    /// The daemon's answer on the folder's trust: the start held back goes ahead, with a prompt
-    /// sent meanwhile, or the user is asked, shown what the folder would run. An answer for a
-    /// start since dropped or replaced is no longer waited for.
+    /// Takes the daemon's answer on the folder's trust. The start held back goes ahead with any
+    /// prompt sent meanwhile, or you are asked, shown what the folder would run. An answer for
+    /// a start since dropped or replaced is ignored.
     pub(super) fn trust_read(&mut self, request: ActId, trust: crate::ipc::FolderTrust) {
         match self.trust_gate.answered(request, trust) {
             TrustAnswer::Trusted { resume, held } => {
@@ -155,8 +155,8 @@ impl<F: Frontend> App<F> {
         };
     }
 
-    /// The daemon's answer: a folder Claude Code doesn't trust is asked about, if it is still
-    /// the one shown. One whose trust couldn't be read isn't: the bar would ask on every start.
+    /// Asks about a folder Claude Code doesn't trust, if it is still the one shown. One whose
+    /// trust couldn't be read isn't asked about, or the bar would ask on every start.
     pub(super) fn claude_trust_read(&mut self, request: ActId, trusted: Result<bool, ActFailure>) {
         let ClaudeTrustAsk::Checking {
             request: asked,
@@ -211,7 +211,7 @@ impl<F: Frontend> App<F> {
         self.view.focus_composer();
     }
 
-    /// A prompt sent before the process could start: shown in the composer, and sent once the
+    /// Keeps a prompt sent before the process could start in the composer, to send once the
     /// folder is found trusted in the terminal (see [`TrustGate::hold`]).
     pub(super) fn wait_for_trust(&mut self, text: &str) {
         self.put_draft(text);

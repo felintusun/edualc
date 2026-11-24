@@ -40,8 +40,8 @@ impl PermissionMode {
         }
     }
 
-    /// The mode as Claude Code's permission dialog names it in "Yes, and switch to …"
-    /// (Claude Code 2.1.329).
+    /// Returns the mode's name as Claude Code 2.1.329's permission dialog gives it in "Yes, and
+    /// switch to …".
     pub fn claude_code_words(self) -> &'static str {
         match self {
             Self::Default => "default (ask each time)",
@@ -52,7 +52,7 @@ impl PermissionMode {
         }
     }
 
-    /// What the mode lets through, for its menu.
+    /// Returns what the mode lets through, for its menu.
     pub fn description(self) -> &'static str {
         match self {
             Self::Default => "Claude asks before it edits files or runs commands",
@@ -91,7 +91,7 @@ impl Default for Modes {
 }
 
 impl Modes {
-    /// What a session of `backend` offers before its process says more.
+    /// Returns the modes a session of `backend` offers before its process says more.
     pub fn of(backend: provider::Backend) -> Self {
         if backend
             .capabilities(provider::SignInWith::Account)
@@ -106,14 +106,15 @@ impl Modes {
         }
     }
 
-    /// Claude Code's process is in `mode`; a program's session has none of Claude Code's.
+    /// Records that Claude Code's process is in `mode`; another program's session has none of
+    /// Claude Code's modes.
     pub(super) fn claude_in(&mut self, mode: Mode) {
         if let Self::Claude(current) = self {
             *current = Some(mode);
         }
     }
 
-    /// The session is in `chosen`, if `chosen` is one of its kind.
+    /// Records that the session is in `chosen`, if `chosen` is one of its kind.
     pub(super) fn chose(&mut self, chosen: &ChosenMode) {
         match (self, chosen) {
             (Self::Claude(current), ChosenMode::Claude(mode)) => {
@@ -127,7 +128,7 @@ impl Modes {
         }
     }
 
-    /// `chosen`'s name in the menu.
+    /// Returns `chosen`'s name in the menu.
     pub(super) fn label(&self, chosen: &ChosenMode) -> String {
         match (self, chosen) {
             (_, ChosenMode::Claude(mode)) => mode.label().to_owned(),

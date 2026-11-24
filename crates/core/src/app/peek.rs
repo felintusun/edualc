@@ -67,7 +67,8 @@ impl<F: Frontend> App<F> {
         }
     }
 
-    /// Where subagent `task` of the session shown keeps its transcript: beside the session's.
+    /// Returns where subagent `task` of the session shown keeps its transcript, beside the
+    /// session's.
     fn subagent_transcript(&self, task: &TaskId) -> Option<Place> {
         let id = self.status.session_id.clone()?;
         let cwd = self.location.cwd()?.to_path_buf();
@@ -78,7 +79,7 @@ impl<F: Frontend> App<F> {
         })
     }
 
-    /// The subagent's conversation peeked into, if one is.
+    /// Returns the subagent's conversation peeked into, if one is.
     fn conversation(&mut self) -> Option<&mut Conversation> {
         match self.peek.as_mut().map(|peek| &mut peek.view) {
             Some(PeekView::Conversation(conversation)) => Some(conversation),
@@ -86,7 +87,7 @@ impl<F: Frontend> App<F> {
         }
     }
 
-    /// The command's output peeked into, if one is.
+    /// Returns the command's output peeked into, if one is.
     fn output(&mut self) -> Option<&mut CommandOutput> {
         match self.peek.as_mut().map(|peek| &mut peek.view) {
             Some(PeekView::Output(output)) => Some(output),
@@ -132,7 +133,7 @@ impl<F: Frontend> App<F> {
         }
     }
 
-    /// What Claude Code says the command printed, or why it doesn't.
+    /// Takes what Claude Code says the command printed, or why it doesn't.
     pub(super) fn output_told(&mut self, task: &TaskId, answer: Result<Value, String>) {
         if self.peek.as_ref().is_none_or(|peek| &peek.task != task) {
             return;
@@ -155,7 +156,6 @@ impl<F: Frontend> App<F> {
         self.redraw.peek |= changed;
     }
 
-    /// Whether `watched` is the peek's watch.
     pub(super) fn peeks_at(&self, watched: Watched) -> bool {
         match self.peek.as_ref().map(|peek| &peek.view) {
             Some(PeekView::Conversation(conversation)) => conversation.following == Some(watched),
@@ -209,7 +209,6 @@ impl<F: Frontend> App<F> {
         }
     }
 
-    /// Stops peeking.
     pub(super) fn close_peek(&mut self) {
         self.polling.stop();
         if let Some(peek) = self.peek.take() {
@@ -312,7 +311,8 @@ enum Asking {
 }
 
 impl CommandOutput {
-    /// At a poll, the command `running` or ended: whether to ask for its output now.
+    /// Returns whether to ask for the output now, at a poll, with the command `running` or
+    /// ended.
     fn ask(&mut self, running: bool) -> bool {
         match self.asking {
             Asking::Due => {
@@ -327,7 +327,7 @@ impl CommandOutput {
         }
     }
 
-    /// Takes Claude Code's answer: whether what is shown changed.
+    /// Takes Claude Code's answer; returns whether what is shown changed.
     fn told(&mut self, told: &TaskOutput) -> bool {
         self.asking = match std::mem::take(&mut self.asking) {
             Asking::Asked => Asking::Due,
@@ -347,7 +347,7 @@ impl CommandOutput {
         self.asking = Asking::Refused(refusal);
     }
 
-    /// No process to ask any more: what was told last stays.
+    /// Stops asking, as there is no process to ask; what was told last stays.
     fn give_up(&mut self) {
         if !self.finished() {
             self.asking = Asking::Done;
@@ -358,7 +358,7 @@ impl CommandOutput {
         matches!(self.asking, Asking::Done | Asking::Refused(_))
     }
 
-    /// Why Claude Code doesn't tell it, if it refused.
+    /// Returns why Claude Code doesn't tell the output, if it refused.
     pub fn refusal(&self) -> Option<&str> {
         match &self.asking {
             Asking::Refused(refusal) => Some(refusal),
@@ -405,7 +405,7 @@ impl Conversation {
     }
 }
 
-/// The steps a line of a subagent's transcript tells.
+/// Returns the steps a line of a subagent's transcript tells.
 fn steps(line: &TranscriptLine, cwd: &Path) -> Vec<Step> {
     match line {
         TranscriptLine::User {

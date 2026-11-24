@@ -58,7 +58,7 @@ impl LineComment {
     }
 }
 
-/// The view's rows of a diff: its lines, with a gap between hunks.
+/// Returns the view's rows of a diff: its lines, with a gap between hunks.
 pub fn rows(diff: &Diff) -> Vec<Option<&DiffLine>> {
     let mut rows = Vec::new();
     for (index, hunk) in diff.hunks.iter().enumerate() {
@@ -70,8 +70,8 @@ pub fn rows(diff: &Diff) -> Vec<Option<&DiffLine>> {
     rows
 }
 
-/// What the comments come to as a message to Claude: each with its file (relative to `cwd`,
-/// the session's folder, if it is in it), its line's number and text, then what you said.
+/// Writes the comments as a message to the agent: each with its file (relative to `cwd`, the
+/// session's folder, if it is in it), its line's number and text, then what you said.
 pub fn message(comments: &[LineComment], cwd: Option<&std::path::Path>) -> String {
     let each: String = comments
         .iter()
@@ -115,7 +115,7 @@ impl<F: Frontend> App<F> {
         self.read_changes();
     }
 
-    /// Closes the view: "since you last looked" starts from here.
+    /// Closes the view, so "since you last looked" starts from here.
     pub(super) fn close_changes(&mut self) {
         if let Some(view) = self.changes.take() {
             self.ask_daemon(
@@ -152,7 +152,8 @@ impl<F: Frontend> App<F> {
         self.redraw.changes = true;
     }
 
-    /// The changes the daemon read; the file shown stays if it is among them, else the first.
+    /// Shows the changes the daemon read; the file shown stays if it is among them, else the
+    /// first is shown.
     pub(super) fn changes_read(
         &mut self,
         session: &SessionId,
@@ -248,7 +249,7 @@ impl<F: Frontend> App<F> {
         self.redraw.changes = true;
     }
 
-    /// Marks the file shown reviewed, as it is now; or, marked so, takes the mark off.
+    /// Marks the file shown reviewed as it is now, or takes the mark off if it has one.
     pub(super) fn toggle_reviewed(&mut self) {
         let Some(view) = self.changes.as_mut() else {
             return;
@@ -280,7 +281,7 @@ impl<F: Frontend> App<F> {
         self.redraw.changes = true;
     }
 
-    /// The line at diff row `row` of the file shown, with its file.
+    /// Returns the line at diff row `row` of the file shown, with its file.
     fn line_at(&self, row: usize) -> Option<(PathBuf, PathBuf, DiffLine)> {
         let picked = self.changes.as_ref()?.picked.as_ref()?;
         let Listed::Read(diff) = &picked.diff else {
@@ -327,8 +328,8 @@ impl<F: Frontend> App<F> {
         self.redraw.changes = true;
     }
 
-    /// Sends the comments to the agent as one message, and goes back to the conversation.
-    /// In a watched session (running in another window), comments are preserved instead of dropped.
+    /// Sends the comments to the agent as one message, and goes back to the conversation. A
+    /// session running in another window can't be sent to, so the comments are kept.
     pub(super) fn send_line_comments(&mut self) {
         if self.line_comments.is_empty() {
             return;
@@ -351,7 +352,7 @@ impl<F: Frontend> App<F> {
         self.send(&text);
     }
 
-    /// A turn of the session shown changed its folder: the view, if open, reads again.
+    /// Reads the open view again after a turn of the session shown changed its folder.
     pub(super) fn turn_changed(&mut self) {
         self.redraw.changes = true;
         if self.changes.is_some() {
@@ -360,7 +361,6 @@ impl<F: Frontend> App<F> {
     }
 }
 
-/// How many comments there are on `file`.
 pub fn comments_on(comments: &[LineComment], file: &FileChange) -> usize {
     comments
         .iter()
