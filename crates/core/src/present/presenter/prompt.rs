@@ -14,7 +14,7 @@ use crate::tools;
 use super::transcript::{answered, md_block};
 use super::{Presenter, index_for_slint};
 
-/// Claude's questions, with the options picked and what was written for each.
+/// Returns Claude's questions, with the options picked and what was written for each.
 pub(super) fn questions(
     questions: &[wire::Question],
     picked: &[Vec<bool>],
@@ -56,8 +56,8 @@ pub(super) struct ToolPrompt {
     pub(super) summary_reads_as: tools::Writing,
 }
 
-/// What the bar asks about an ACP agent's call: by its kind, showing what the agent says it
-/// does.
+/// Returns what the bar asks about an ACP agent's call, by its kind, showing what the agent
+/// says it does.
 pub(super) fn acp_prompt(
     call: &AcpCall,
     cwd: &Path,
@@ -160,8 +160,8 @@ pub(super) fn tool_prompt(
     }
 }
 
-/// The button for remembering a rule Claude Code suggests, in the words of Claude Code's own
-/// permission dialog (2.1.329): "Yes, and don't ask again for npm test commands in ~/code/app".
+/// Labels the button that remembers a rule Claude Code suggests, in the words of Claude Code
+/// 2.1.329's permission dialog: "Yes, and don't ask again for npm test commands in ~/code/app".
 pub(super) fn always_label(rule: &wire::Suggestion, cwd: &Path) -> String {
     let incoming = ToolName::EdualcIncomingMessage.to_string();
     let bash = ToolName::Bash.to_string();
@@ -243,7 +243,7 @@ pub(super) fn always_label(rule: &wire::Suggestion, cwd: &Path) -> String {
     }
 }
 
-/// Rules as Claude Code writes them, `Tool(content)`, listed.
+/// Lists rules as Claude Code writes them, `Tool(content)`.
 pub(super) fn rules_named(rules: &[wire::Rule]) -> String {
     let named: Vec<String> = rules
         .iter()
@@ -256,7 +256,7 @@ pub(super) fn rules_named(rules: &[wire::Rule]) -> String {
     listed(&named)
 }
 
-/// Items in a sentence as Claude Code lists them: "a", "a and b", "a, b, and c".
+/// Lists items in a sentence as Claude Code does: "a", "a and b", "a, b, and c".
 pub(super) fn listed(items: &[&str]) -> String {
     match items {
         [] => String::new(),
@@ -267,7 +267,7 @@ pub(super) fn listed(items: &[&str]) -> String {
 }
 
 impl<F: Frontend> Presenter<F> {
-    /// The bar above the composer, for the first request waiting.
+    /// Shows the bar above the composer for the first request waiting.
     pub fn render_prompt(
         &mut self,
         asks: &VecDeque<Ask>,

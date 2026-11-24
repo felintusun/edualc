@@ -9,8 +9,8 @@ use super::Presenter;
 use super::usage::duration_text;
 
 impl<F: Frontend> Presenter<F> {
-    /// What runs in the background: each task, and how much of each kind.
-    /// What runs besides the turn, and whether a stopped turn left it running.
+    /// Shows what runs besides the turn, how much of each kind, and whether a stopped turn
+    /// left it running.
     pub fn render_tasks(&mut self, tasks: &Tasks, left_running: bool) {
         let session = &mut self.session;
         let kinds: Vec<wire::TaskKind> = tasks
@@ -28,7 +28,7 @@ impl<F: Frontend> Presenter<F> {
         self.command(Command::ShowTasks);
     }
 
-    /// The subagent followed in the side panel, if one is, and whether it still runs.
+    /// Shows the subagent followed in the side panel, if one is, and whether it still runs.
     pub fn render_peek(&mut self, peek: Option<&Peek>, tasks: &Tasks) {
         let global = &mut self.peek;
         let Some(peek) = peek else {
@@ -63,7 +63,7 @@ impl<F: Frontend> Presenter<F> {
     }
 }
 
-/// The kind of a task as the window tells them apart.
+/// Returns a task's kind as the window tells them apart.
 pub(super) fn task_kind(kind: wire::TaskKind) -> TaskKind {
     match kind {
         wire::TaskKind::LocalAgent
@@ -119,7 +119,7 @@ pub(super) fn task_item(running: Running<'_>) -> TaskItem {
     }
 }
 
-/// "Agent · Explore", as the chip's list names a subagent; "Shell command".
+/// Names a peeked task as the chip's list does: "Agent · Explore", "Shell command".
 pub(super) fn peek_detail(peek: &Peek) -> String {
     match &peek.view {
         PeekView::Conversation(Conversation {
@@ -130,8 +130,8 @@ pub(super) fn peek_detail(peek: &Peek) -> String {
     }
 }
 
-/// What the side panel says of a command's output beside it: why there is none, or that it is
-/// only the end.
+/// Returns what the side panel says beside a command's output: why there is none, or that it
+/// is only the end.
 pub(super) fn output_note(output: &CommandOutput) -> String {
     match output.refusal() {
         Some(refusal) => format!("Claude Code doesn't show what it printed: {refusal}"),
@@ -143,7 +143,7 @@ pub(super) fn output_note(output: &CommandOutput) -> String {
     }
 }
 
-/// "9 KB", "1.2 MB": the size of a command's output, which is shown whole below 8 KB.
+/// Writes the size of a command's output, "9 KB" or "1.2 MB"; it is shown whole below 8 KB.
 pub(super) fn bytes_text(bytes: u64) -> String {
     const KB: u64 = 1024;
     const MB: u64 = KB * KB;
@@ -165,7 +165,8 @@ pub(super) fn peek_step(step: &crate::app::Step) -> PeekStep {
     }
 }
 
-/// "14 tool uses · 31k tokens · 2m 40s"; what is still none is left out.
+/// Writes what a task used, "14 tool uses · 31k tokens · 2m 40s", leaving out what isn't
+/// known yet.
 pub(super) fn task_used(usage: wire::TaskUsage) -> String {
     let tools = match usage.tool_uses {
         0 => None,
@@ -182,7 +183,7 @@ pub(super) fn task_used(usage: wire::TaskUsage) -> String {
         .join(" · ")
 }
 
-/// How much runs of each kind, the most common kinds of work first: "2 agents, 1 command".
+/// Says how much runs of each kind, the most common first: "2 agents, 1 command".
 pub(super) fn tasks_summary(kinds: &[wire::TaskKind]) -> String {
     [
         TaskKind::Agent,
@@ -214,7 +215,7 @@ pub(super) fn tasks_summary(kinds: &[wire::TaskKind]) -> String {
     .join(", ")
 }
 
-/// 950, 4.2k, 45k, 1.2M.
+/// Writes a count briefly: 950, 4.2k, 45k, 1.2M.
 pub fn short_count(count: u64) -> String {
     let scaled = |divisor: u32, unit: &str| {
         let hundreds = f64::from(u32::try_from(count / 100).unwrap_or(u32::MAX));

@@ -9,8 +9,8 @@ use crate::provider::Backend;
 use super::tasks::short_count;
 use super::{Presenter, index_for_slint, stat};
 
-/// Who answers, for people: Claude Code names them by its own ids, and one this window doesn't
-/// know stays as written.
+/// Names a provider for people, as Claude Code gives them by its own ids; one the window
+/// doesn't know stays as written.
 pub(super) fn provider_name(provider: &str) -> &str {
     match provider {
         "firstParty" => "Anthropic",
@@ -78,8 +78,8 @@ pub(super) fn usage_tab(backend: Backend, state: &ProviderUsageState, status: &S
     }
 }
 
-/// The plan's limits: every one the CLI's `/usage` lists, or the two its status events
-/// carry until it answers.
+/// Returns the plan's limits: every one `/usage` lists, or the two the status events carry
+/// until it answers.
 pub(super) fn limits_section(
     backend: Backend,
     report: Option<&wire::UsageReport>,
@@ -242,7 +242,7 @@ pub(super) fn period_section(title: &str, period: &wire::Period) -> StatSection 
     section(title, String::new(), rows)
 }
 
-/// When a limit starts over: "resets 15:00", or with the time left, "resets in 4h 58m (15:00)".
+/// Says when a limit resets: "resets 15:00", or with the time left "resets in 4h 58m (15:00)".
 pub(super) fn reset_text(at: jiff::Timestamp, with_time_left: bool) -> String {
     let seconds = at.as_second() - jiff::Timestamp::now().as_second();
     let clock = clock(at);
@@ -258,7 +258,7 @@ pub(super) fn reset_text(at: jiff::Timestamp, with_time_left: bool) -> String {
     format!("resets in {left} ({clock})")
 }
 
-/// A time to come, on the local clock: "15:00" within a day, "Mon 15:00" later.
+/// Writes a time to come on the local clock: "15:00" within a day, "Mon 15:00" later.
 pub(crate) fn clock(at: jiff::Timestamp) -> String {
     let seconds = at.as_second() - jiff::Timestamp::now().as_second();
     let local = at.to_zoned(jiff::tz::TimeZone::system());
@@ -269,12 +269,12 @@ pub(crate) fn clock(at: jiff::Timestamp) -> String {
     }
 }
 
-/// A time span as [`duration_text`] writes it.
+/// Writes a time span as [`duration_text`] does.
 pub fn short_duration(duration: std::time::Duration) -> String {
     duration_text(u64::try_from(duration.as_millis()).unwrap_or(u64::MAX))
 }
 
-/// "45s", "3m 12s", "1h 4m".
+/// Writes a time span briefly: "45s", "3m 12s", "1h 4m".
 pub(super) fn duration_text(milliseconds: u64) -> String {
     let seconds = milliseconds / 1_000;
     match seconds {
@@ -284,15 +284,15 @@ pub(super) fn duration_text(milliseconds: u64) -> String {
     }
 }
 
-/// `used` of `total` as a share from 0 to 1, for a bar.
+/// Returns `used` of `total` as a share from 0 to 1, for a bar.
 pub(super) fn fraction_of(used: u64, total: u64) -> f32 {
     let percent = used.saturating_mul(100) / total.max(1);
     f32::from(u16::try_from(percent.min(100)).unwrap_or(100)) / 100.0
 }
 
 impl<F: Frontend> Presenter<F> {
-    /// The usage panel: tabs for every coding agent (`Claude Code`, `agy`, `opencode`) with plan
-    /// limits, active session cost/time, context breakdown, and recent activity.
+    /// Shows the usage panel: a tab for each program with the plan's limits, the session's cost
+    /// and time, what fills the context, and recent activity.
     pub fn render_usage(&mut self, panel: &UsagePanel, status: &Status) {
         let usage = &mut self.usage;
         usage.open = panel.open;

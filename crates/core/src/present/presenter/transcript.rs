@@ -18,7 +18,7 @@ use crate::tools;
 use super::changes_view::{summary_words, turn_facts};
 use super::{OUTPUT_CHARS, OUTPUT_LINES, Presenter, cjk};
 
-/// A tool card's row, as `view` describes it; `output` only for an open card.
+/// Returns a tool card's row as `view` describes it; `output` only for an open card.
 pub(super) fn card(
     row: &mut Entry,
     view: tools::ToolView,
@@ -54,7 +54,6 @@ pub(super) fn card(
         .collect();
 }
 
-/// The Markdown blocks of `text`.
 pub(super) fn blocks(text: &str, han: CjkLanguage) -> Vec<MdBlock> {
     markdown::blocks(text)
         .iter()
@@ -62,8 +61,8 @@ pub(super) fn blocks(text: &str, han: CjkLanguage) -> Vec<MdBlock> {
         .collect()
 }
 
-/// A Markdown block for the window; its prose in the family of its own text, as a paragraph's
-/// script sets its lines (`han` for Han characters alone).
+/// Makes a Markdown block for the window, its prose set in the family its script takes, as a
+/// paragraph's script sets its lines (`han` for Han characters alone).
 pub(super) fn md_block(block: &Block, han: CjkLanguage) -> MdBlock {
     match block {
         Block::Text(source) => MdBlock {
@@ -131,7 +130,7 @@ pub(super) fn md_block(block: &Block, han: CjkLanguage) -> MdBlock {
     }
 }
 
-/// A long output's start, and what was left out.
+/// Cuts a long output, returning its start and a note of what was left out.
 pub(super) fn clip(output: &str) -> (String, String) {
     let lines = output.lines().count();
     let mut clipped = output
@@ -152,7 +151,8 @@ pub(super) fn clip(output: &str) -> (String, String) {
     (clipped, note)
 }
 
-/// Whether a question of Claude's is answered: an option picked, or something else written.
+/// Returns whether a question of Claude's is answered: an option picked, or something else
+/// written.
 pub(super) fn answered(picks: &[bool], other: &str) -> bool {
     picks.contains(&true) || !other.trim().is_empty()
 }
@@ -165,7 +165,7 @@ pub(super) fn failed_image(why: String) -> ShownImage {
     }
 }
 
-/// What only an open card shows is made only for one.
+/// Returns how much of a card to describe; what only an open card shows is made only for one.
 pub(super) fn card_depth(expanded: bool, hidden: bool) -> tools::Depth {
     if expanded && !hidden {
         tools::Depth::Full
@@ -207,8 +207,8 @@ pub(super) fn diff_kind(kind: tools::DiffKind) -> DiffKind {
 impl<F: Frontend> Presenter<F> {
     /// Brings the transcript in line with `chat`: the rows `changes` name, and those whose place
     /// in a run of tool calls changed (`open_runs` holds the runs opened, by their first call).
-    /// Shows what changed in the conversation, building each changed row once. Runs are
-    /// worked out again only when they can have changed: text growing never changes them.
+    /// Each changed row is built once. Runs are worked out again only when they can have
+    /// changed, which text growing never does.
     pub fn render_transcript(
         &mut self,
         chat: &Chat,
