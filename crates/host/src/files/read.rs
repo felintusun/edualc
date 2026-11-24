@@ -1,14 +1,13 @@
 //! What the daemon reads for a window: the sessions, the projects, a transcript.
 
 use std::collections::{HashMap, HashSet};
-use std::io::{Read as _, Seek as _, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
 use tokio::sync::{mpsc, oneshot};
 
 use crate::acp::{self, Agent, ExternalSession, brain};
-use crate::external::agy::{self, AgyTask, Step, StepKind, StepStatus};
+use crate::external::agy::{self, AgyTask};
 use crate::external::wire::TranscriptLine;
 use crate::folder::Folder;
 use crate::ids::SessionId;
@@ -74,13 +73,6 @@ fn encode_lines(lines: &[TranscriptLine]) -> Vec<String> {
 
 /// How long a `session/list` answer stays fresh before it is asked again.
 const CATALOG_TTL: Duration = Duration::from_secs(30);
-/// How recently an agy session started elsewhere must have written a `RUNNING` step to show
-/// as running.
-const AGY_LIVE_WINDOW: Duration = Duration::from_secs(120);
-/// How much of the end of an agy session's steps is read, to tell whether it runs and what it
-/// said last.
-const BRAIN_TAIL_BYTES: u64 = 32 * 1024;
-
 /// The way to [`keep_catalog`].
 pub type Catalog = mpsc::Sender<CatalogQuery>;
 
@@ -167,28 +159,14 @@ async fn query_catalog(catalog: &Catalog, cached_only: bool) -> Vec<ExternalSess
     answer.await.unwrap_or_default()
 }
 
-fn agy_brain_transcript(id: &SessionId) -> Option<PathBuf> {
-    let log = agy::steps(&agy::brain()?, id);
-    log.is_file().then_some(log)
-}
-
-fn is_agy_brain_log(path: &Path) -> bool {
-    agy::brain().is_some_and(|brain| agy::is_steps(&brain, path))
-}
-
-fn is_agy_board(path: &Path) -> bool {
-    agy::brain().is_some_and(|brain| path.starts_with(&brain))
-        && path.ends_with("swarm/board.jsonl")
-}
-
 /// Returns where a transcript is. An agy session's subagents and board are in agy's records,
 /// by the conversation the task names; an agy session started elsewhere is read from its steps.
 pub fn resolve(home: &ClaudeHome, place: &Place) -> Source {
     match place {
         Place::Path(path) => {
-            if is_agy_brain_log(path) {
+            if brain::is_steps_file(path) {
                 Source::AgySteps(path.clone())
-            } else if is_agy_board(path) {
+            } else if brain::is_board(path) {
                 Source::AgyBoard(path.clone())
             } else {
                 Source::Transcript(path.clone())
@@ -197,7 +175,7 @@ pub fn resolve(home: &ClaudeHome, place: &Place) -> Source {
         Place::Session { cwd, id } => {
             if let Some(found) = sessions::find_transcript(home, cwd, id) {
                 Source::Transcript(found)
-            } else if let Some(brain_log) = agy_brain_transcript(id) {
+            } else if let Some(brain_log) = brain::steps_file(id) {
                 Source::AgySteps(brain_log)
             } else {
                 Source::Transcript(sessions::transcript_path(home, cwd, id))
@@ -382,50 +360,6 @@ fn read_for(
     }
 }
 
-fn agy_brain_tail(path: &Path) -> Option<(SystemTime, Vec<Step>)> {
-    let mut file = std::fs::File::open(path).ok()?;
-    let metadata = file.metadata().ok()?;
-    let modified = metadata.modified().ok()?;
-    let len = metadata.len();
-    let start = len.saturating_sub(BRAIN_TAIL_BYTES);
-    file.seek(SeekFrom::Start(start)).ok()?;
-    let mut bytes = Vec::new();
-    file.take(BRAIN_TAIL_BYTES).read_to_end(&mut bytes).ok()?;
-    let text = String::from_utf8_lossy(&bytes);
-    let steps = text
-        .lines()
-        .skip(usize::from(start > 0))
-        .filter_map(|line| serde_json::from_str::<Step>(line).ok())
-        .collect();
-    Some((modified, steps))
-}
-
-fn agy_brain_last_said(id: &SessionId) -> Option<(SystemTime, String)> {
-    let path = agy_brain_transcript(id)?;
-    let (modified, steps) = agy_brain_tail(&path)?;
-    let last = steps.into_iter().rev().find_map(|step| {
-        (step.kind == StepKind::PlannerResponse)
-            .then_some(step.content)
-            .flatten()
-            .and_then(|text| sessions::first_sentence(&text))
-    })?;
-    Some((modified, last))
-}
-
-fn agy_brain_is_running(id: &SessionId, now: SystemTime) -> bool {
-    let Some(path) = agy_brain_transcript(id) else {
-        return false;
-    };
-    let Some((modified, steps)) = agy_brain_tail(&path) else {
-        return false;
-    };
-    let fresh = now.duration_since(modified).unwrap_or_default() < AGY_LIVE_WINDOW;
-    fresh
-        && steps
-            .last()
-            .is_some_and(|step| step.status == StepStatus::Running)
-}
-
 fn merge_live(mut live: Vec<LiveSession>, external: &[ExternalSession]) -> Vec<LiveSession> {
     let now = SystemTime::now();
     for ext in external {
@@ -435,7 +369,7 @@ fn merge_live(mut live: Vec<LiveSession>, external: &[ExternalSession]) -> Vec<L
         {
             continue;
         }
-        if agy_brain_is_running(&ext.id, now) {
+        if brain::is_running(&ext.id, now) {
             live.push(LiveSession {
                 pid: 0,
                 started: String::new(),
@@ -474,7 +408,7 @@ fn merge_projects(local: Vec<ProjectInfo>, external: &[ExternalSession]) -> Vec<
             continue;
         }
         let modified = if ext.backend == Backend::Agy {
-            agy_brain_transcript(&ext.id)
+            brain::steps_file(&ext.id)
                 .and_then(|path| path.metadata().ok()?.modified().ok())
                 .max(ext.modified)
         } else {
@@ -507,10 +441,10 @@ fn merge_sessions(
         }
         seen_ids.insert(ext.id.clone());
         let (brain_mod, last_said) = if ext.backend == Backend::Agy {
-            match agy_brain_last_said(&ext.id) {
+            match brain::last_said(&ext.id) {
                 Some((brain_mod, said)) => (Some(brain_mod), Some(said)),
                 None => (
-                    agy_brain_transcript(&ext.id)
+                    brain::steps_file(&ext.id)
                         .and_then(|path| path.metadata().ok()?.modified().ok()),
                     None,
                 ),

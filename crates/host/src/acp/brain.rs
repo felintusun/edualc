@@ -1,7 +1,9 @@
 //! agy's own records of a conversation (see [`crate::external::agy`]), read for the window.
 
 use std::borrow::Cow;
-use std::path::Path;
+use std::io::{Read as _, Seek as _, SeekFrom};
+use std::path::{Path, PathBuf};
+use std::time::{Duration, SystemTime};
 
 use serde::de::DeserializeOwned;
 
@@ -17,6 +19,7 @@ use crate::external::wire::{
     UserContent, UserMessage,
 };
 use crate::ids::{MessageId, SessionId, ToolUseId};
+use crate::sessions;
 
 /// Lists the running subagents and swarm members conversation `own` started, and its swarm's
 /// board.
@@ -298,6 +301,79 @@ pub(crate) fn post_line(line: &str) -> Option<TranscriptLine> {
         },
         is_sidechain: false,
     })
+}
+
+/// How recently an agy session started elsewhere must have written a `RUNNING` step to show
+/// as running.
+const AGY_LIVE_WINDOW: Duration = Duration::from_secs(120);
+/// How much of the end of an agy session's steps is read, to tell whether it runs and what it
+/// said last.
+const BRAIN_TAIL_BYTES: u64 = 32 * 1024;
+
+/// Returns the steps file of conversation `id`, if agy keeps one.
+pub(crate) fn steps_file(id: &SessionId) -> Option<PathBuf> {
+    let log = agy::steps(&agy::brain()?, id);
+    log.is_file().then_some(log)
+}
+
+/// Returns whether `path` is a conversation's steps file in agy's brain folder.
+pub(crate) fn is_steps_file(path: &Path) -> bool {
+    agy::brain().is_some_and(|brain| agy::is_steps(&brain, path))
+}
+
+/// Returns whether `path` is a swarm's board in agy's brain folder.
+pub(crate) fn is_board(path: &Path) -> bool {
+    agy::brain().is_some_and(|brain| path.starts_with(&brain))
+        && path.ends_with("swarm/board.jsonl")
+}
+
+/// Returns the first sentence of agy's last reply in conversation `id`, and when its steps were
+/// last written.
+pub(crate) fn last_said(id: &SessionId) -> Option<(SystemTime, String)> {
+    let path = steps_file(id)?;
+    let (modified, steps) = tail(&path)?;
+    let last = steps.into_iter().rev().find_map(|step| {
+        (step.kind == StepKind::PlannerResponse)
+            .then_some(step.content)
+            .flatten()
+            .and_then(|text| sessions::first_sentence(&text))
+    })?;
+    Some((modified, last))
+}
+
+/// Returns whether conversation `id` runs at `now`: its last step runs, and was written within
+/// [`AGY_LIVE_WINDOW`].
+pub(crate) fn is_running(id: &SessionId, now: SystemTime) -> bool {
+    let Some(path) = steps_file(id) else {
+        return false;
+    };
+    let Some((modified, steps)) = tail(&path) else {
+        return false;
+    };
+    let fresh = now.duration_since(modified).unwrap_or_default() < AGY_LIVE_WINDOW;
+    fresh
+        && steps
+            .last()
+            .is_some_and(|step| step.status == StepStatus::Running)
+}
+
+/// Reads the last steps of a conversation's steps file, and when it was last written.
+fn tail(path: &Path) -> Option<(SystemTime, Vec<Step>)> {
+    let mut file = std::fs::File::open(path).ok()?;
+    let metadata = file.metadata().ok()?;
+    let modified = metadata.modified().ok()?;
+    let len = metadata.len();
+    let start = len.saturating_sub(BRAIN_TAIL_BYTES);
+    file.seek(SeekFrom::Start(start)).ok()?;
+    let mut bytes = Vec::new();
+    file.take(BRAIN_TAIL_BYTES).read_to_end(&mut bytes).ok()?;
+    let text = String::from_utf8_lossy(&bytes);
+    let steps = text
+        .lines()
+        .skip(usize::from(start > 0))
+        .filter_map(|line| serde_json::from_str::<Step>(line).ok())
+        .collect();
+    Some((modified, steps))
 }
 
 #[cfg(test)]
