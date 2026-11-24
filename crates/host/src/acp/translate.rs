@@ -10,6 +10,7 @@ use serde_json::{Map, Value};
 use crate::agent::{Command, Event};
 use crate::app::Mode;
 use crate::call::{AcpCall, AcpKind, AcpOption, AcpStatus, Call, Diff, OptionId};
+use crate::edualc_tool::EdualcTool;
 use crate::external::acp::{
     self, AgentMethod, AgyArguments, AvailableCommand, Change, Chunk, ConfigOption, Incoming,
     Notified, OpencodeArguments, OpencodeQuestionOption, OptionKind, PermissionAsked, PlanEntry,
@@ -1047,7 +1048,7 @@ impl Translator {
     /// Sends a message from the agent's messaging tool without asking, as a Claude Code
     /// session's own messages go.
     pub fn tool_called(&mut self, call: CallId, to: String, message: String) -> Vec<Effect> {
-        if let Some(id) = self.open_call(&ToolName::EdualcSendMessage) {
+        if let Some(id) = self.open_call(&ToolName::Edualc(EdualcTool::SendMessage)) {
             self.calls.insert(call, id);
         }
         vec![Effect::Send { call, to, message }]
@@ -1055,7 +1056,7 @@ impl Translator {
 
     /// Lists the running sessions for the agent's messaging tool, without asking.
     pub fn listing_asked(&mut self, call: CallId) -> Vec<Effect> {
-        if let Some(id) = self.open_call(&ToolName::EdualcListSessions) {
+        if let Some(id) = self.open_call(&ToolName::Edualc(EdualcTool::ListSessions)) {
             self.calls.insert(call, id);
         }
         vec![Effect::List(call)]
@@ -1709,7 +1710,7 @@ impl Translator {
         // as a Claude Code session's messages do.
         if matches!(
             name,
-            ToolName::EdualcSendMessage | ToolName::EdualcListSessions
+            ToolName::Edualc(EdualcTool::SendMessage | EdualcTool::ListSessions)
         ) {
             let outcome = outcome_of(&asked.options, OptionKind::AllowOnce);
             effects.push(Self::answer(
@@ -3609,7 +3610,7 @@ mod tests {
         assert_eq!(
             shown("post_message", json!({ "text": "@verifier Ready." })),
             Some((
-                ToolName::EdualcSendMessage,
+                ToolName::Edualc(EdualcTool::SendMessage),
                 json!({ "to": "the board", "message": "@verifier Ready." })
             ))
         );

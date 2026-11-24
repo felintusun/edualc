@@ -11,6 +11,7 @@ pub mod decode;
 #[cfg(feature = "demo")]
 pub mod demo;
 pub mod desktop;
+pub mod edualc_tool;
 pub mod external;
 pub mod folder;
 pub mod grouping;

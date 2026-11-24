@@ -5,6 +5,7 @@ use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use crate::edualc_tool::EdualcTool;
 use crate::external::wire::{Questions, ToolName};
 
 /// `Bash`'s input, and `Monitor`'s, which runs a command too.
@@ -191,7 +192,7 @@ pub struct SendMessageInput {
 }
 
 /// A message from another session that waits to be let in, as edualc asks about it (see
-/// [`crate::external::wire::ToolName::EdualcIncomingMessage`]): who sent it, by the name it
+/// [`crate::edualc_tool::EdualcTool::IncomingMessage`]): who sent it, by the name it
 /// gave, and the message without its envelope.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct IncomingMessageInput {
@@ -230,8 +231,8 @@ impl KnownCall {
             Self::WebFetch(_) => ToolName::WebFetch,
             Self::Agent(_) => ToolName::Agent,
             Self::Questions(_) => ToolName::AskUserQuestion,
-            Self::SendMessage(_) => ToolName::EdualcSendMessage,
-            Self::ListSessions(_) => ToolName::EdualcListSessions,
+            Self::SendMessage(_) => ToolName::Edualc(EdualcTool::SendMessage),
+            Self::ListSessions(_) => ToolName::Edualc(EdualcTool::ListSessions),
         }
     }
 

@@ -5,6 +5,7 @@ use std::path::Path;
 
 use crate::app::{Ask, AskKind, Mode};
 use crate::call::{AcpCall, AcpOptionKind};
+use crate::edualc_tool::EdualcTool;
 use crate::external::tool_input::{BashInput, IncomingMessageInput, WebFetchInput};
 use crate::external::wire::{self, ToolKind, ToolName};
 use crate::present::Frontend;
@@ -109,7 +110,7 @@ pub(super) fn tool_prompt(
     let view = tools::describe(tool, input, cwd, tools::Depth::Headline);
     let agent = backend.agent();
     let (title, summary) = match (tool, tool.kind()) {
-        (ToolName::EdualcIncomingMessage, _) => {
+        (ToolName::Edualc(EdualcTool::IncomingMessage), _) => {
             let incoming = tools::read::<IncomingMessageInput>(tool, input);
             let from = incoming
                 .as_ref()
@@ -163,7 +164,7 @@ pub(super) fn tool_prompt(
 /// Labels the button that remembers a rule Claude Code suggests, in the words of Claude Code
 /// 2.1.329's permission dialog: "Yes, and don't ask again for npm test commands in ~/code/app".
 pub(super) fn always_label(rule: &wire::Suggestion, cwd: &Path) -> String {
-    let incoming = ToolName::EdualcIncomingMessage.to_string();
+    let incoming = ToolName::Edualc(EdualcTool::IncomingMessage).to_string();
     let bash = ToolName::Bash.to_string();
     let web_fetch = ToolName::WebFetch.to_string();
     match rule {

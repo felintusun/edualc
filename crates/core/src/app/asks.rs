@@ -6,6 +6,7 @@ use serde_json::Value;
 
 use crate::call::{self, AcpCall, AcpOption, AcpOptionKind};
 use crate::chat::ToolState;
+use crate::edualc_tool::EdualcTool;
 use crate::external::wire::{
     self, Destination, PermissionResult, PermissionUpdate, ToolInput, ToolName,
 };
@@ -137,7 +138,9 @@ impl<F: Frontend> App<F> {
                 }
             }
             // Another session's message, turned down: nothing of the session's own is stopped.
-            AskKind::Tool { tool, .. } if *tool == ToolName::EdualcIncomingMessage => {
+            AskKind::Tool { tool, .. }
+                if *tool == ToolName::Edualc(EdualcTool::IncomingMessage) =>
+            {
                 ("The user turned the message down.".to_owned(), false)
             }
             AskKind::Tool { .. } if feedback.is_empty() => (
@@ -376,9 +379,7 @@ impl<F: Frontend> App<F> {
             | ToolName::Skill
             | ToolName::TodoWrite
             | ToolName::SendMessage
-            | ToolName::EdualcSendMessage
-            | ToolName::EdualcListSessions
-            | ToolName::EdualcIncomingMessage
+            | ToolName::Edualc(_)
             | ToolName::Other(_) => None,
         };
         let suggestions = suggestions.into_iter().map(wire::Offered::read).collect();

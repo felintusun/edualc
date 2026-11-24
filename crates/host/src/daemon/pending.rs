@@ -204,9 +204,7 @@ pub(super) fn request_summary(request: &IncomingRequest, cwd: &Path) -> String {
         | wire::ToolName::TodoWrite
         | wire::ToolName::Skill
         | wire::ToolName::SendMessage
-        | wire::ToolName::EdualcSendMessage
-        | wire::ToolName::EdualcListSessions
-        | wire::ToolName::EdualcIncomingMessage
+        | wire::ToolName::Edualc(_)
         | wire::ToolName::Other(_) => {
             if !description.trim().is_empty() {
                 description.clone()

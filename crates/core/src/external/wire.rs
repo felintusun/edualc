@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
 use crate::app::{Mode, PermissionMode};
+use crate::edualc_tool::EdualcTool;
 use crate::ids::{MessageId, RequestId, SessionId, ToolUseId};
 
 /// A task Claude Code runs (a subagent, a shell command, a monitor), the same on every event
@@ -58,9 +59,8 @@ pub const DENIED: &str = "The user doesn't want to proceed with this tool use.";
 
 /// A tool Claude calls, as the CLI names it; an MCP tool (`mcp__<server>__<tool>`) or one this
 /// window doesn't know keeps its name.
-#[derive(
-    Debug, Clone, PartialEq, Eq, Deserialize, Serialize, strum::EnumString, strum::Display,
-)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize, strum::EnumString)]
+#[cfg_attr(test, derive(strum::EnumIter))]
 #[serde(from = "String", into = "String")]
 pub enum ToolName {
     Bash,
@@ -88,23 +88,54 @@ pub enum ToolName {
     /// Claude Code's own message to another session, by name or by its inbox's address, or to
     /// one of its subagents.
     SendMessage,
-    /// edualc's messaging tool, as an agy session calls it.
-    #[strum(serialize = "mcp__edualc__send_message")]
-    EdualcSendMessage,
-    /// edualc's tool listing the sessions, as an agy session calls it.
-    #[strum(serialize = "mcp__edualc__list_sessions")]
-    EdualcListSessions,
-    /// Not a tool: edualc asks under this name whether another session's message may come in
-    /// (see [`crate::external::tool_input::IncomingMessageInput`]).
-    #[strum(serialize = "edualc_incoming_message")]
-    EdualcIncomingMessage,
+    /// One of edualc's own tools, by the name the program calls it; [`ToolName::from`] reads
+    /// those names.
+    #[strum(disabled)]
+    Edualc(EdualcTool),
     #[strum(default)]
     Other(String),
 }
 
 impl From<String> for ToolName {
     fn from(name: String) -> Self {
-        name.parse().unwrap_or(Self::Other(name))
+        match name.parse::<EdualcTool>() {
+            Ok(tool) => Self::Edualc(tool),
+            Err(_) => name.parse().unwrap_or(Self::Other(name)),
+        }
+    }
+}
+
+// strum's Display can't show a variant its parse leaves out, so the names are written here, as
+// the CLI gives them; a test reads each back.
+impl std::fmt::Display for ToolName {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let name = match self {
+            Self::Edualc(tool) => return tool.fmt(formatter),
+            Self::Other(name) => name,
+            Self::Bash => "Bash",
+            Self::BashOutput => "BashOutput",
+            Self::KillShell => "KillShell",
+            Self::Monitor => "Monitor",
+            Self::Read => "Read",
+            Self::NotebookRead => "NotebookRead",
+            Self::Write => "Write",
+            Self::Edit => "Edit",
+            Self::MultiEdit => "MultiEdit",
+            Self::NotebookEdit => "NotebookEdit",
+            Self::Glob => "Glob",
+            Self::Grep => "Grep",
+            Self::Ls => "LS",
+            Self::WebFetch => "WebFetch",
+            Self::WebSearch => "WebSearch",
+            Self::Task => "Task",
+            Self::Agent => "Agent",
+            Self::Skill => "Skill",
+            Self::TodoWrite => "TodoWrite",
+            Self::AskUserQuestion => "AskUserQuestion",
+            Self::ExitPlanMode => "ExitPlanMode",
+            Self::SendMessage => "SendMessage",
+        };
+        formatter.write_str(name)
     }
 }
 
@@ -142,9 +173,7 @@ impl ToolName {
             | Self::AskUserQuestion
             | Self::ExitPlanMode
             | Self::SendMessage
-            | Self::EdualcSendMessage
-            | Self::EdualcListSessions
-            | Self::EdualcIncomingMessage
+            | Self::Edualc(_)
             | Self::Other(_) => ToolKind::Other,
         }
     }
@@ -175,9 +204,7 @@ impl ToolName {
             | Self::TodoWrite
             | Self::AskUserQuestion
             | Self::SendMessage
-            | Self::EdualcSendMessage
-            | Self::EdualcListSessions
-            | Self::EdualcIncomingMessage
+            | Self::Edualc(_)
             | Self::Other(_) => false,
         }
     }
@@ -855,7 +882,7 @@ impl IncomingRequest {
             .map(|from| {
                 serde_json::to_value(Suggestion::AddRules {
                     rules: vec![Rule {
-                        tool_name: ToolName::EdualcIncomingMessage.to_string(),
+                        tool_name: EdualcTool::IncomingMessage.to_string(),
                         rule_content: Some(from.to_owned()),
                     }],
                     destination: RuleDestination::Session,
@@ -867,7 +894,7 @@ impl IncomingRequest {
             message,
         };
         Ok(Self::CanUseTool {
-            tool_name: ToolName::EdualcIncomingMessage,
+            tool_name: ToolName::Edualc(EdualcTool::IncomingMessage),
             input: serde_json::to_value(input)?,
             permission_suggestions: offered.into_iter().collect(),
             description: String::new(),
@@ -880,7 +907,7 @@ impl IncomingRequest {
 /// Returns the sender you let in for the session when answering an
 /// [`IncomingRequest::incoming_message`], if you took that offer.
 pub fn sender_let_in(updates: &[PermissionUpdate]) -> Option<String> {
-    let incoming = ToolName::EdualcIncomingMessage.to_string();
+    let incoming = ToolName::Edualc(EdualcTool::IncomingMessage).to_string();
     updates.iter().find_map(|update| match update {
         PermissionUpdate::Offered(offered) => {
             match serde_json::from_value::<Suggestion>(offered.clone()) {
@@ -1713,6 +1740,19 @@ mod tests {
     use serde_json::json;
 
     use super::*;
+
+    #[test]
+    fn each_tool_reads_back_by_the_name_it_shows() {
+        for tool in <ToolName as strum::IntoEnumIterator>::iter() {
+            if matches!(tool, ToolName::Other(_)) {
+                continue;
+            }
+            assert_eq!(ToolName::from(tool.to_string()), tool, "{tool}");
+        }
+        assert_eq!(ToolName::Ls.to_string(), "LS");
+        let unknown = ToolName::from("mcp__github__create_issue".to_owned());
+        assert_eq!(unknown.to_string(), "mcp__github__create_issue");
+    }
 
     #[test]
     fn a_transcript_entry_carries_its_session_folder_and_time() {

@@ -7,6 +7,7 @@ use serde::de::DeserializeOwned;
 use serde_json::Value;
 
 use crate::call::AcpCall;
+use crate::edualc_tool::EdualcTool;
 use crate::external::tool_input::{
     AgentInput, BashInput, EditInput, GlobInput, GrepInput, IncomingMessageInput, MultiEditInput,
     NotebookEditInput, ReadInput, SendMessageInput, SkillInput, TodoStatus, TodoWriteInput,
@@ -225,7 +226,7 @@ pub fn describe(name: &ToolName, input: &Value, cwd: &Path, depth: Depth) -> Too
                 }
             }
         }
-        ToolName::EdualcSendMessage => {
+        ToolName::Edualc(EdualcTool::SendMessage) => {
             if let Some(SendMessageInput { to, message }) = read(name, input) {
                 view.title = format!("Message to {to}");
                 view.summary = first_line(&message);
@@ -234,7 +235,7 @@ pub fn describe(name: &ToolName, input: &Value, cwd: &Path, depth: Depth) -> Too
                 }
             }
         }
-        ToolName::EdualcIncomingMessage => {
+        ToolName::Edualc(EdualcTool::IncomingMessage) => {
             if let Some(IncomingMessageInput { from, message }) = read(name, input) {
                 view.title = format!("Message from {from}");
                 view.summary = first_line(&message);
@@ -253,7 +254,7 @@ pub fn describe(name: &ToolName, input: &Value, cwd: &Path, depth: Depth) -> Too
             }
         }
         // Shown as the MCP tool it is, as any other server's.
-        ToolName::EdualcListSessions => {
+        ToolName::Edualc(EdualcTool::ListSessions) => {
             view.title = "list_sessions".to_owned();
             view.summary = format!("edualc  {}", compact(input, 120));
             if full {
@@ -280,8 +281,8 @@ pub fn describe(name: &ToolName, input: &Value, cwd: &Path, depth: Depth) -> Too
         | ToolName::AskUserQuestion
         | ToolName::ExitPlanMode
         | ToolName::SendMessage
-        | ToolName::EdualcSendMessage
-        | ToolName::EdualcIncomingMessage => Writing::Prose,
+        | ToolName::Edualc(EdualcTool::SendMessage)
+        | ToolName::Edualc(EdualcTool::IncomingMessage) => Writing::Prose,
         ToolName::Bash
         | ToolName::BashOutput
         | ToolName::KillShell
@@ -297,7 +298,7 @@ pub fn describe(name: &ToolName, input: &Value, cwd: &Path, depth: Depth) -> Too
         | ToolName::Ls
         | ToolName::WebFetch
         | ToolName::Skill
-        | ToolName::EdualcListSessions
+        | ToolName::Edualc(EdualcTool::ListSessions)
         | ToolName::Other(_) => Writing::Code,
     };
     view
@@ -372,9 +373,7 @@ pub fn file_of(name: &ToolName, input: &Value) -> Option<PathBuf> {
         | ToolName::AskUserQuestion
         | ToolName::ExitPlanMode
         | ToolName::SendMessage
-        | ToolName::EdualcSendMessage
-        | ToolName::EdualcListSessions
-        | ToolName::EdualcIncomingMessage
+        | ToolName::Edualc(_)
         | ToolName::Other(_) => None,
     }
 }
