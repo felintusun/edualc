@@ -25,8 +25,8 @@ pub fn parts(plan: &str) -> Vec<PlanPart> {
         .collect()
 }
 
-/// The part's first words, as a name for what is about it (its comment button, read out by a
-/// screen reader): its first line without heading or bullet marks, cut short.
+/// Returns the part's first words, to name what is about it, such as its comment button as a
+/// screen reader reads it: its first line without heading or bullet marks, cut short.
 pub fn excerpt(plan: &str, part: &PlanPart) -> String {
     const MAX_CHARS: usize = 60;
     let first_line = plan
@@ -42,7 +42,7 @@ pub fn excerpt(plan: &str, part: &PlanPart) -> String {
     crate::tools::truncate_chars(words, MAX_CHARS)
 }
 
-/// What to tell Claude to revise; empty if nothing was said.
+/// Writes what to tell Claude to revise; empty if nothing was said.
 pub fn feedback(plan: &str, parts: &[PlanPart], overall: &str) -> String {
     let mut said: Vec<String> = parts
         .iter()
@@ -69,7 +69,7 @@ pub fn feedback(plan: &str, parts: &[PlanPart], overall: &str) -> String {
     )
 }
 
-/// `plan` with each comment as a note right under the part it is about.
+/// Returns `plan` with each comment as a note right under the part it is about.
 pub fn annotated(plan: &str, parts: &[PlanPart], overall: &str) -> String {
     let mut out = String::with_capacity(plan.len());
     let mut at = 0;

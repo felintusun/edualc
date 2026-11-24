@@ -10,12 +10,12 @@ use serde_json::Value;
 use crate::external::wire::TaskId;
 use crate::ids::SessionId;
 
-/// Where agy keeps its conversations.
+/// Returns where agy keeps its conversations.
 pub fn brain() -> Option<PathBuf> {
     dirs::home_dir().map(|home| home.join(".gemini/antigravity-cli/brain"))
 }
 
-/// Conversation `id`'s folder of what agy wrote for it.
+/// Returns the folder of what agy wrote for conversation `id`.
 pub fn generated(brain: &std::path::Path, id: &SessionId) -> PathBuf {
     brain.join(id.as_str()).join(".system_generated")
 }
@@ -25,7 +25,8 @@ pub fn generated(brain: &std::path::Path, id: &SessionId) -> PathBuf {
 /// a moment (seen as a session was loaded), and the second stands in.
 pub const STEP_LOGS: [&str; 2] = ["transcript.jsonl", "transcript_full.jsonl"];
 
-/// Conversation `id`'s steps: the first of [`STEP_LOGS`] that is there, else the first's path.
+/// Returns the path of conversation `id`'s steps: the first of [`STEP_LOGS`] that is there,
+/// else the first's.
 pub fn steps(brain: &std::path::Path, id: &SessionId) -> PathBuf {
     let logs = generated(brain, id).join("logs");
     STEP_LOGS
@@ -35,7 +36,7 @@ pub fn steps(brain: &std::path::Path, id: &SessionId) -> PathBuf {
         .unwrap_or_else(|| logs.join(STEP_LOGS[0]))
 }
 
-/// Whether `path` names a conversation's steps under `brain`.
+/// Returns whether `path` names a conversation's steps under `brain`.
 pub fn is_steps(brain: &std::path::Path, path: &std::path::Path) -> bool {
     path.starts_with(brain)
         && path.parent().is_some_and(|logs| logs.ends_with("logs"))
@@ -173,7 +174,7 @@ const CONVERSATION: &str = "agy-";
 const BOARD: &str = "agy-board-";
 
 impl AgyTask {
-    /// The task this is, if it is one of an agy session's.
+    /// Reads `task` as an agy session's task, if it is one.
     pub fn of(task: &TaskId) -> Option<Self> {
         let name = task.to_string();
         if let Some(id) = name.strip_prefix(BOARD) {
@@ -233,7 +234,7 @@ struct Bucket {
     reset_time: Option<jiff::Timestamp>,
 }
 
-/// The buckets that limit anything, as quotas.
+/// Reads the buckets that limit anything, as quotas.
 fn applying<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<Vec<Quota>, D::Error> {
     Vec::<Bucket>::deserialize(deserializer)?
         .into_iter()
@@ -253,9 +254,9 @@ fn applying<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<Vec<Quo
 const LISTED: &str = "Models within this group: ";
 
 impl QuotaGroup {
-    /// Whether the model agy names `model` ("Gemini 3.8 Flash (High)", its effort in
-    /// brackets, or "Orchestrator (Argon)") draws on this group's quotas: the group is named
-    /// after it, or its description lists it.
+    /// Returns whether the model agy names `model` draws on this group's quotas: the group is
+    /// named after it, or its description lists it. agy names models with their effort in
+    /// brackets, "Gemini 3.8 Flash (High)", or as "Orchestrator (Argon)".
     pub fn covers(&self, model: &str) -> bool {
         if let Some(inner) = model
             .strip_prefix("Orchestrator (")

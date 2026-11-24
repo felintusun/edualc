@@ -71,8 +71,8 @@ fn config() -> WebSocketConfig {
         .max_frame_size(Some(MAX_FRAME))
 }
 
-/// The addresses `server` names, looked up on the runtime's blocking threads, which keeps what
-/// else runs there going meanwhile.
+/// Looks up the addresses `server` names on the runtime's blocking threads, so that what else
+/// runs there goes on meanwhile.
 pub async fn lookup(server: &Server) -> Result<Vec<SocketAddr>, Error> {
     let authority = server.authority();
     let found = tokio::time::timeout(
@@ -88,7 +88,7 @@ pub async fn lookup(server: &Server) -> Result<Vec<SocketAddr>, Error> {
     Ok(found.collect())
 }
 
-/// The window's end of the line to `server`, at one of `addresses`, its token shown.
+/// Opens the window's end of the line to `server` at one of `addresses`, and shows its token.
 pub async fn connect(server: &Server, addresses: &[SocketAddr]) -> Result<Line, Error> {
     let authority = server.authority();
     tokio::time::timeout(REACH, reach(server, addresses))
@@ -155,7 +155,8 @@ async fn reach(server: &Server, addresses: &[SocketAddr]) -> Result<Line, Error>
     Ok(socket)
 }
 
-/// A TLS handshake's failure, the pinned certificate's mismatch named.
+/// Turns a TLS handshake's failure into an error that names a mismatch with the pinned
+/// certificate.
 fn refused_certificate(error: io::Error, authority: &str) -> Error {
     let mismatch = error
         .get_ref()
@@ -189,8 +190,8 @@ where
     Ok(())
 }
 
-/// The next message; pings, pongs and text frames between are passed over (tungstenite answers
-/// pings itself).
+/// Waits for the next message, passing over pings, pongs and text frames; tungstenite answers
+/// pings itself.
 pub async fn recv<S, T>(socket: &mut S, deframer: &mut Deframer<T>) -> Result<T, Error>
 where
     S: StreamExt<Item = Result<Message, tokio_tungstenite::tungstenite::Error>> + Unpin,
@@ -203,9 +204,14 @@ where
     }
 }
 
-/// What the next frame brings: a message, or none for a ping, a pong or a text frame, which
-/// say only that the other side is there (tungstenite answers pings itself). A line watched for
-/// silence counts each frame, not each message. A line closed for its token says so.
+/// Waits for the next frame and returns the message it completes. `None` for a frame that
+/// completes none: part of a message, or a ping, a pong or a text frame, which say only that
+/// the other side is there. A line watched for silence counts each frame, not each message.
+///
+/// # Errors
+///
+/// Fails when the line closes or breaks, or a frame doesn't read; [`Error::Token`] when the
+/// line was closed for its token.
 pub async fn next<S, T>(socket: &mut S, deframer: &mut Deframer<T>) -> Result<Option<T>, Error>
 where
     S: StreamExt<Item = Result<Message, tokio_tungstenite::tungstenite::Error>> + Unpin,

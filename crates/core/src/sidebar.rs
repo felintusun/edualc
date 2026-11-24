@@ -72,8 +72,8 @@ pub struct Running {
 }
 
 impl Running {
-    /// The name to show beside its title: none where the title is that name, as for a session
-    /// that has no title yet, or one the user titled as it is named.
+    /// Returns the name to show beside its title; `None` where the title is that name, as for a
+    /// session with no title yet, or one you titled as it is named.
     pub fn name_beside_title(&self) -> Option<&str> {
         (self.title != self.name).then_some(self.name.as_str())
     }
@@ -91,8 +91,8 @@ pub struct Earlier {
     pub backend: Backend,
 }
 
-/// The rows, in order: the project's running sessions (those waiting for their user first, then
-/// the others, by title), then its earlier ones as saved. A part with nothing to list has no
+/// Returns the rows in order: the project's running sessions (those waiting for you first, then
+/// the others by title), then its earlier ones as saved. A part with nothing to list has no
 /// heading.
 pub fn rows(listing: &Listing<'_>) -> Vec<Row> {
     let own_id = listing.own.as_ref().map(|own| own.id);
@@ -229,7 +229,8 @@ pub fn rows(listing: &Listing<'_>) -> Vec<Row> {
     rows
 }
 
-/// Whether any of `texts` holds `filter`, letter case aside; an empty filter lets all through.
+/// Returns whether any of `texts` holds `filter`, ignoring case; an empty filter lets all
+/// through.
 fn matches<'a>(filter: &str, texts: impl IntoIterator<Item = &'a str>) -> bool {
     let filter = filter.trim().to_lowercase();
     filter.is_empty()

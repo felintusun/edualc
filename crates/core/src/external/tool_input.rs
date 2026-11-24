@@ -24,7 +24,7 @@ pub struct BashInput {
 }
 
 impl BashInput {
-    /// A command alone, as the adapter or the user's `!` gives one.
+    /// Makes a call of a command alone, as the adapter or your `!` gives one.
     pub fn command(command: String, description: Option<String>) -> Self {
         Self {
             command,
@@ -47,7 +47,7 @@ pub struct ReadInput {
 }
 
 impl ReadInput {
-    /// The whole file.
+    /// Makes a read of the whole file.
     pub fn whole(file_path: PathBuf) -> Self {
         Self {
             file_path,
@@ -75,7 +75,7 @@ pub struct EditInput {
 }
 
 impl EditInput {
-    /// One occurrence replaced.
+    /// Makes an edit that replaces one occurrence.
     pub fn once(file_path: PathBuf, old_string: String, new_string: String) -> Self {
         Self {
             file_path,
@@ -219,7 +219,7 @@ pub enum KnownCall {
 }
 
 impl KnownCall {
-    /// The tool's name, as the window shows it.
+    /// Returns the tool's name, as the window shows it.
     pub fn name(&self) -> ToolName {
         match self {
             Self::Bash(_) => ToolName::Bash,
@@ -235,8 +235,11 @@ impl KnownCall {
         }
     }
 
-    /// The call's input, as Claude Code's field names give it. Fails only for a path that
-    /// isn't UTF-8, which JSON can't hold.
+    /// Writes the call's input under Claude Code's field names.
+    ///
+    /// # Errors
+    ///
+    /// Fails only for a path that isn't UTF-8, which JSON can't hold.
     pub fn input(&self) -> Result<Value, serde_json::Error> {
         match self {
             Self::Bash(input) => serde_json::to_value(input),

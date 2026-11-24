@@ -32,7 +32,7 @@ const PATIENCE: Duration = Duration::from_secs(10);
 /// The helper's address space: decoding's allocations and the program around them.
 const MAX_ADDRESS_SPACE_BYTES: u64 = 1024 * 1024 * 1024;
 
-/// Why the daemon has no image from the helper.
+/// Why the helper gave no image.
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     #[error("couldn't start the image decoder: {0}")]
@@ -72,7 +72,7 @@ pub async fn show(bytes: &[u8]) -> Result<Pixels, Error> {
     checked_shown(&answer)
 }
 
-/// The helper's whole answer to `job` for `bytes`.
+/// Runs the helper on `bytes` for `job` and returns its whole answer.
 async fn exchange(program: &std::path::Path, job: Job, bytes: &[u8]) -> Result<Vec<u8>, Error> {
     if bytes.len() > MAX_INPUT_BYTES {
         return Err(Refusal::TooManyBytes.into());
@@ -126,7 +126,7 @@ async fn exchange(program: &std::path::Path, job: Job, bytes: &[u8]) -> Result<V
     Ok(answer)
 }
 
-/// The helper's answer, taken only if it is one whole answer that holds together.
+/// Reads the helper's answer, only if it is one whole answer that holds together.
 fn checked(answer: &[u8]) -> Result<Picture, Error> {
     if answer.len() > MAX_ANSWER_BYTES {
         return Err(Error::TooMuch);
@@ -154,7 +154,7 @@ fn checked(answer: &[u8]) -> Result<Picture, Error> {
     }
 }
 
-/// The helper's answer to show, taken as [`checked`] takes one to send.
+/// Reads the helper's answer to show, as [`checked`] reads one to send.
 fn checked_shown(answer: &[u8]) -> Result<Pixels, Error> {
     if answer.len() > MAX_SHOWN_ANSWER_BYTES {
         return Err(Error::TooMuch);
@@ -176,8 +176,8 @@ fn checked_shown(answer: &[u8]) -> Result<Pixels, Error> {
     }
 }
 
-/// The helper: confined, then the bytes on its standard input made into what `job` asks, and
-/// one answer on its standard output.
+/// Runs as the helper: confines itself, makes the bytes on its standard input into what `job`
+/// asks, and writes one answer on its standard output.
 pub fn run(job: Job) -> ExitCode {
     if let Err(error) = confine() {
         // Nothing is read unconfined; the daemon sees the failure (stderr is for a person
@@ -236,10 +236,10 @@ enum ConfineError {
     SeccompBackend(#[from] seccompiler::BackendError),
 }
 
-/// Confines the helper, in an order where nothing set up later needs what was taken earlier:
-/// closed to other processes, sure to hold nothing but its standard streams, then no file,
-/// socket or signal (Landlock), bounded (rlimits), and last the system calls decoding makes,
-/// with no memory made executable (seccomp).
+/// Confines the helper, in an order where nothing set up later needs what was taken away
+/// earlier: closed to other processes; holding nothing but its standard streams; no file,
+/// socket or signal (Landlock); bounded (rlimits); and last only the system calls decoding
+/// makes, with no memory made executable (seccomp).
 fn confine() -> Result<(), ConfineError> {
     rustix::process::set_dumpable_behavior(DumpableBehavior::NotDumpable)?;
     only_standard_streams()?;
@@ -294,8 +294,8 @@ fn only_standard_streams() -> Result<(), ConfineError> {
     Ok(())
 }
 
-/// The system calls the helper makes once confined: reading its input, writing its answer,
-/// memory (never executable), and ending. Any other kills it.
+/// Builds the filter of the system calls the helper makes once confined: reading its input,
+/// writing its answer, memory (never executable), and ending. Any other kills it.
 fn filter() -> Result<BpfProgram, ConfineError> {
     let on_fd = |fd: u64| -> Result<SeccompRule, ConfineError> {
         Ok(SeccompRule::new(vec![SeccompCondition::new(

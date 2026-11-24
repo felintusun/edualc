@@ -46,7 +46,7 @@ pub struct Servers {
 }
 
 impl Servers {
-    /// What is kept at `path`; nothing, if there is no file yet.
+    /// Reads what is kept at `path`; empty if there is no file yet.
     pub fn load(path: &Path) -> Result<Self, Error> {
         let path = path.to_owned();
         match std::fs::read(&path) {
@@ -58,9 +58,13 @@ impl Servers {
         }
     }
 
-    /// Whether `server` may be paired as `name`: a name is another edualcd's alone, and pairing
-    /// over it would lose that one's token without a word. What is reached the same way may
-    /// take its own name again, with a token made anew.
+    /// Checks that `server` may be paired as `name`. A name belongs to one edualcd, and pairing
+    /// over it would silently lose that one's token; what is reached the same way may take its
+    /// own name again, with a new token.
+    ///
+    /// # Errors
+    ///
+    /// Fails if another edualcd is paired as `name`.
     pub fn free(&self, name: &str, server: &Server) -> Result<(), Error> {
         match self.servers.get(name) {
             Some(paired) if !paired.same_place(server) => Err(Error::Taken(name.to_owned())),
@@ -83,10 +87,11 @@ impl Servers {
         }
     }
 
-    /// The name to pair `server` as when none is given: its host's, unless another is paired
-    /// by that name already (another port there, or a demo where an edualcd listened), which
-    /// `host:port` then tells apart, and `host:port demo` a demo from an edualcd there. Pairing
-    /// again with what is reached the same way takes its name: a token made anew replaces the
+    /// Returns the name to pair `server` as when none is given: its host's, unless another is
+    /// paired by that name already (another port there, or a demo where an edualcd listened).
+    /// Then `host:port` tells them apart, and `host:port demo` a demo from an edualcd there.
+    ///
+    /// Pairing again with what is reached the same way takes its name: a new token replaces the
     /// old, and a demo never replaces an edualcd's token.
     pub fn name_for(&self, server: &Server) -> String {
         let authority = server.authority();
@@ -104,7 +109,7 @@ impl Servers {
         free.cloned().unwrap_or(authority)
     }
 
-    /// Forgets the edualcd paired as `name`; the default, if it was, becomes another.
+    /// Forgets the edualcd paired as `name`; if it was the default, another becomes it.
     pub fn forget(&mut self, name: &str) {
         self.servers.remove(name);
         if self.default.as_deref() == Some(name) {
@@ -112,17 +117,17 @@ impl Servers {
         }
     }
 
-    /// Those paired, by name.
+    /// Lists those paired, by name.
     pub fn paired(&self) -> impl Iterator<Item = (&String, &Server)> {
         self.servers.iter()
     }
 
-    /// The one reached unless another is named.
+    /// Returns the name of the one reached unless another is named.
     pub fn default_name(&self) -> Option<&str> {
         self.default.as_deref()
     }
 
-    /// The edualcd named, or the default one.
+    /// Returns the edualcd named, or the default one.
     pub fn chosen(&self, name: Option<&str>) -> Result<(String, Server), Error> {
         let name = name
             .map(str::to_owned)
@@ -139,7 +144,7 @@ impl Servers {
         }
     }
 
-    /// Writes the file at `path` anew, the user's alone.
+    /// Writes the file at `path` anew, readable by you alone.
     pub fn save(&self, path: &Path) -> Result<(), Error> {
         let path = path.to_owned();
         let io = |source| Error::Io {
