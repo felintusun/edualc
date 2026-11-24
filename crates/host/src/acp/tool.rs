@@ -136,7 +136,7 @@ fn response_line<T: Serialize>(id: Value, reply: Reply<T>) -> Result<String, ser
     })
 }
 
-/// The answer to a method the tool doesn't have.
+/// Answers a method the tool doesn't have.
 fn unserved(id: Value) -> Result<String, serde_json::Error> {
     response_line::<()>(
         id,
@@ -147,7 +147,7 @@ fn unserved(id: Value) -> Result<String, serde_json::Error> {
     )
 }
 
-/// The tools, as `tools/list` lists them.
+/// Lists the tools as `tools/list` does.
 fn listing() -> Listing {
     Listing {
         tools: vec![
@@ -250,7 +250,7 @@ pub fn run() -> std::process::ExitCode {
     std::process::ExitCode::SUCCESS
 }
 
-/// A call, as the adapter answers it.
+/// Passes a call to the adapter and returns its answer.
 fn called(socket: &std::path::Path, params: Value) -> Answer {
     let unreadable = || Answer {
         text: super::outbox::Refusal::Unreadable.to_string(),
@@ -279,7 +279,7 @@ fn called(socket: &std::path::Path, params: Value) -> Answer {
     })
 }
 
-/// The protocol version the agent asked for, else the tool's own.
+/// Returns the protocol version the agent asked for, else the tool's own.
 fn protocol_version(params: Value) -> String {
     match serde_json::from_value::<Option<mcp::InitializeParams>>(params) {
         Ok(Some(mcp::InitializeParams {

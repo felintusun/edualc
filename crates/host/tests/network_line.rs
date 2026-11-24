@@ -78,7 +78,6 @@ fn auth(token: &str) -> Message {
     })
 }
 
-/// What the client gets next that isn't a ping, in time.
 async fn next(client: &mut Client) -> Option<Message> {
     loop {
         match tokio::time::timeout(Duration::from_secs(8), client.next()).await {

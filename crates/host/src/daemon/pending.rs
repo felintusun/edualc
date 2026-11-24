@@ -42,8 +42,7 @@ pub(super) struct Pending {
 }
 
 impl Pending {
-    /// A typed event decoded from the process's stdout, alongside its serialized [`agent::Event`]
-    /// wire representation for attaching windows.
+    /// Takes an event the process wrote, with the line it came as, to give windows that attach.
     pub(super) fn saw(&mut self, event: &agent::Event, wire_line: &str, cwd: &Path) {
         match event {
             agent::Event::System(wire::System::Init { .. }) => {
@@ -123,7 +122,7 @@ impl Pending {
         }
     }
 
-    /// A command the window sent to the session.
+    /// Takes a command the window sent to the session.
     pub(super) fn sent(&mut self, command: &agent::Command) {
         match command {
             agent::Command::ControlResponse { .. } | agent::Command::Choose { .. } => {
@@ -136,7 +135,7 @@ impl Pending {
         }
     }
 
-    /// What it does now; a question's summary was computed when asked.
+    /// Returns what the session does now; a question's summary was made when it was asked.
     pub(super) fn state(&self) -> HostedState {
         if let Some(asked) = self.asked.values().min_by_key(|asked| asked.since) {
             HostedState::Waiting {
@@ -150,7 +149,7 @@ impl Pending {
         }
     }
 
-    /// A turn is under way: one a prompt started, or one the session started itself.
+    /// Returns whether a turn is under way, started by a prompt or by the session itself.
     pub(super) fn in_turn(&self) -> bool {
         self.turns > 0 || self.own_turn
     }
@@ -226,7 +225,7 @@ pub(super) fn request_summary(request: &IncomingRequest, cwd: &Path) -> String {
     }
 }
 
-/// What an ACP agent asks about, as its call's card says it.
+/// Says what an ACP agent asks about, as its call's card does.
 pub(super) fn acp_request_summary(call: &crate::call::AcpCall, cwd: &Path) -> String {
     let view = tools::describe_acp(call, cwd, tools::Depth::Headline);
     let summary = if view.summary.trim().is_empty() {

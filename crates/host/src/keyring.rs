@@ -17,7 +17,7 @@ pub enum Error {
     NotAKey,
 }
 
-/// The keyring, unlocked: the desktop asks for its password if it is locked.
+/// Opens the keyring unlocked; the desktop asks for its password if it is locked.
 async fn unlocked() -> Result<oo7::Keyring, Error> {
     let keyring = oo7::Keyring::new().await?;
     keyring.unlock().await?;
@@ -38,13 +38,13 @@ pub(crate) async fn remove() -> Result<(), Error> {
     Ok(())
 }
 
-/// Whether a key is kept, told without unlocking the keyring.
+/// Returns whether a key is kept, without unlocking the keyring.
 pub(crate) async fn stored() -> Result<bool, Error> {
     let keyring = oo7::Keyring::new().await?;
     Ok(!keyring.search_items(&ATTRIBUTES).await?.is_empty())
 }
 
-/// The key kept, if one is.
+/// Returns the key kept, if one is.
 pub(crate) async fn load() -> Result<Option<ApiKey>, Error> {
     let keyring = unlocked().await?;
     let Some(item) = keyring.search_items(&ATTRIBUTES).await?.into_iter().next() else {

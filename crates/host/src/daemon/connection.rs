@@ -17,7 +17,7 @@ use super::acts::act_for;
 use super::hub::ToHub;
 use super::{HELLO, Line, QUEUE, keep, tell};
 
-/// A window's connection by the socket: its two directions pumped into a [`Line`].
+/// Serves a window's connection by the socket, pumping its two directions into a [`Line`].
 pub(super) async fn window(
     channel: ipc::AsyncChannel,
     id: WindowId,
@@ -53,8 +53,9 @@ pub(super) async fn window(
     }
 }
 
-/// A window's connection, over whatever carries its line: hello, then its requests to its
-/// [`Connection`], and what the hub, sessions and the desktop say back, until it hangs up.
+/// Serves a window over whatever carries its line: the hello, then its requests to its
+/// [`Connection`] and what the hub, the sessions and the daemon's acts answer, until it hangs
+/// up.
 pub(super) async fn window_over(
     line: Line,
     id: WindowId,
@@ -298,7 +299,7 @@ impl Connection {
         self
     }
 
-    /// What a request comes to (sans-io).
+    /// Returns what a request comes to.
     pub(super) fn handle(&mut self, request: ToDaemon) -> Vec<Effect> {
         match request {
             ToDaemon::Start { key, .. } | ToDaemon::Attach { key, .. }

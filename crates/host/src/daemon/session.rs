@@ -28,7 +28,7 @@ pub(super) enum Doing {
 }
 
 impl Doing {
-    /// An agent event the process wrote: the files named, if a turn is under way.
+    /// Takes an event the process wrote, keeping the files it names while a turn is under way.
     pub(super) fn saw(&mut self, event: &agent::Event) {
         let Self::Turn { touched } = self else {
             return;
@@ -50,8 +50,8 @@ impl Doing {
         }
     }
 
-    /// What the keeper is told as the session becomes `busy` or not: a turn starts, or ends,
-    /// its changes in short to go to `changed`.
+    /// Returns what to tell the keeper as the session becomes `busy` or not: that a turn
+    /// starts, or that it ends, its changes in short to go to `changed`.
     pub(super) fn follow(
         &mut self,
         busy: bool,
@@ -184,14 +184,14 @@ impl Session {
         }
     }
 
-    /// The input closed: the process is to end.
+    /// Marks the input closed at `now`; a process that doesn't end within [`GRACE`] is killed.
     pub(super) fn input_closed(&mut self, now: Instant) {
         if self.phase == Phase::Running {
             self.phase = Phase::Closing(now);
         }
     }
 
-    /// When the process is to be killed, if it is to be.
+    /// Returns when the process is to be killed, if it is to be.
     pub(super) fn kill_at(&self) -> Option<Instant> {
         match self.phase {
             Phase::Closing(since) => Some(since + GRACE),
@@ -226,8 +226,8 @@ impl Session {
         }
     }
 
-    /// Lines to the process's input, its output to the window that shows it, and its end, until
-    /// it ends.
+    /// Runs the session until the process ends: lines to its input, its output to the window
+    /// that shows it, and its end.
     pub(super) async fn event_loop(
         mut self,
         place: &Place,

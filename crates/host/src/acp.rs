@@ -63,7 +63,7 @@ pub(crate) enum Agent {
 }
 
 impl Agent {
-    /// The program that speaks ACP.
+    /// Returns the program that speaks ACP.
     fn program(self) -> &'static str {
         match self {
             Self::Agy => "agy",
@@ -71,7 +71,7 @@ impl Agent {
         }
     }
 
-    /// Its arguments, to speak ACP on stdio.
+    /// Returns the arguments that make it speak ACP on stdio.
     fn arguments(self) -> &'static [&'static str] {
         match self {
             Self::Agy => &["acp", "--disable-telemetry"],
@@ -79,7 +79,7 @@ impl Agent {
         }
     }
 
-    /// How to get it, told when it isn't on PATH.
+    /// Returns how to get it, told when it isn't on PATH.
     fn install_hint(self) -> &'static str {
         match self {
             Self::Agy => "install it from antigravity.google",

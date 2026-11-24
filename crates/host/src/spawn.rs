@@ -143,9 +143,9 @@ pub fn spawn(launch: &Launch, runtime: &tokio::runtime::Handle) -> Result<Spawne
     })
 }
 
-/// An ACP agent's session: edualc's own adapter (see [`crate::acp`]), which runs the agent's
-/// ACP command and speaks stream-json to the daemon as `claude` does, serves the session's
-/// inbox, publishes its record and carries its messages.
+/// Starts an ACP agent's session in edualc's own adapter (see [`crate::acp`]). It runs the
+/// agent's ACP command, speaks stream-json to the daemon as `claude` does, serves the
+/// session's inbox, publishes its record and carries its messages.
 fn spawn_acp(
     launch: &Launch,
     cwd: &Path,
@@ -187,8 +187,8 @@ fn spawn_acp(
     })
 }
 
-/// A model's name or alias as the programs take them (`opus`, `claude-sonnet-5-5[1m]`,
-/// opencode's `opencode/big-pickle`): nothing that could be read as more than that.
+/// Checks a model's name or alias as the programs take them (`opus`, `claude-sonnet-5-5[1m]`,
+/// opencode's `opencode/big-pickle`), refusing anything that could be read as more than that.
 fn model_name(model: &str) -> Result<&str, Error> {
     let fits = !model.is_empty()
         && model.len() <= 100

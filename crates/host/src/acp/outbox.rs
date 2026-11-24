@@ -48,7 +48,7 @@ pub(super) enum Outcome {
 }
 
 impl Outcome {
-    /// What the calling session is told, and whether as an error.
+    /// Returns what the calling session is told, and whether as an error.
     pub(super) fn told(&self) -> (String, bool) {
         match self {
             Self::Sent(to) => (

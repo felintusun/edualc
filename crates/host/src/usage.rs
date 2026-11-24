@@ -19,7 +19,7 @@ use crate::provider::Backend;
 /// How long a standalone `claude` usage probe gets to answer.
 const CLAUDE_USAGE_WAIT: Duration = Duration::from_secs(15);
 
-/// Which coding agent binaries exist on PATH (or are named by `CLAUDE_BIN`).
+/// Lists the programs on PATH, or named by `CLAUDE_BIN`.
 pub(crate) fn available_backends() -> Vec<Backend> {
     Backend::ALL
         .into_iter()

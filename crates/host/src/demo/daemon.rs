@@ -59,7 +59,7 @@ pub async fn run(line: Line) {
     }
 }
 
-/// The hello, and the sessions the demo runs (none; four "run in other terminals").
+/// Sends the hello and the sessions the demo runs: none, but four "run in other terminals".
 fn greet(outbox: &Sender<FromDaemon>) {
     let settings = Settings {
         trusted_folders: vec![demo::Folder::Trailhead.path().to_path_buf()],
@@ -78,7 +78,7 @@ fn greet(outbox: &Sender<FromDaemon>) {
     tell(outbox, FromDaemon::Hosted(Vec::new()));
 }
 
-/// What a window reads, from the demo project.
+/// Answers what a window reads from the demo project.
 fn read_for(outbox: &Sender<FromDaemon>, request: ActId, read: Read) {
     let answer = match read {
         Read::Live => Answer::Live(demo::running()),
@@ -140,7 +140,7 @@ fn read_for(outbox: &Sender<FromDaemon>, request: ActId, read: Read) {
     tell(outbox, FromDaemon::Answer { request, answer });
 }
 
-/// One of the demo's folders, or why a path isn't one.
+/// Returns one of the demo's folders, or why a path isn't one.
 fn demo_folder(path: &Path) -> Result<std::path::PathBuf, String> {
     demo::projects()
         .into_iter()
@@ -155,7 +155,7 @@ fn tell(outbox: &Sender<FromDaemon>, message: FromDaemon) {
     }
 }
 
-/// What the desktop is asked, answered as the demo can.
+/// Answers what the daemon is asked to do, as far as the demo can.
 fn acted(outbox: &Sender<FromDaemon>, request: ActId, act: Act) {
     let message = match act {
         Act::CheckTrust { folder } => FromDaemon::Trusted {

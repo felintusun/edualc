@@ -222,7 +222,7 @@ impl Hub {
             .map(|(_, key)| key)
     }
 
-    /// The session a window shows under `key`.
+    /// Returns the session a window shows under `key`.
     pub(super) fn shown_as(&self, window: WindowId, key: Generation) -> Option<HostedId> {
         self.sessions
             .iter()
@@ -230,7 +230,7 @@ impl Hub {
             .map(|(id, _)| *id)
     }
 
-    /// What a window's ask comes to (sans-io).
+    /// Returns what a window's ask comes to.
     pub(super) fn handle(&mut self, window: WindowId, ask: Ask) -> Vec<Step> {
         match ask {
             Ask::Start { key, launch } => {
@@ -307,7 +307,7 @@ impl Hub {
         }
     }
 
-    /// A window hung up: what it showed is shown nowhere, and runs on.
+    /// Lets go of what a window that hung up showed; it is shown nowhere, and runs on.
     pub(super) fn left(&mut self, window: WindowId) -> Vec<Step> {
         let mut steps = Vec::new();
         for (id, kept) in &mut self.sessions {

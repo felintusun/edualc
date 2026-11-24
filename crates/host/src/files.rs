@@ -756,7 +756,7 @@ fn merge_sessions(
     merged
 }
 
-/// A session's changes as the keeper wrote them.
+/// Opens a session's changes as the keeper wrote them.
 fn kept_changes(session: &crate::ids::SessionId) -> Result<snapshots::Store, ipc::Unkept> {
     let home =
         snapshots::home().ok_or_else(|| ipc::Unkept("there is no state folder".to_owned()))?;

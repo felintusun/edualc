@@ -150,8 +150,8 @@ impl Inbox {
         Ok(inbox)
     }
 
-    /// The session goes by `id` and `name` from now on, as the agent named its conversation:
-    /// the record says so again.
+    /// Renames the session to `id` and `name`, as the agent named its conversation, and writes
+    /// its record again.
     pub fn rename(&mut self, id: &SessionId, name: &MessagingName) -> Result<(), Error> {
         let now_ms = now_ms();
         self.record.session_id = id.clone();
@@ -161,7 +161,7 @@ impl Inbox {
         self.publish()
     }
 
-    /// The record written where other sessions look for it.
+    /// Writes the record where other sessions look for it.
     fn publish(&self) -> Result<(), Error> {
         let text =
             serde_json::to_vec(&self.record).map_err(|error| Error::Publish(error.into()))?;
@@ -192,7 +192,7 @@ impl Inbox {
     }
 }
 
-/// What one peer posts: an `auth` line with the token, then messages.
+/// Reads what one peer posts: an `auth` line with the token, then messages.
 async fn read_posted(stream: UnixStream, token: Token, posted: mpsc::Sender<String>) {
     let mut lines = BufReader::new(stream.take(POSTED_BYTES)).lines();
     let authenticated = match lines.next_line().await {
@@ -238,7 +238,7 @@ fn now_ms() -> u64 {
     u64::try_from(jiff::Timestamp::now().as_millisecond()).unwrap_or_default()
 }
 
-/// Which machine and pid namespace the pid is in, as Claude Code writes it:
+/// Returns which machine and pid namespace the pid is in, as Claude Code writes it:
 /// `linux:<boot id>:pid:[<namespace>]`.
 fn pid_domain() -> Option<String> {
     let boot = std::fs::read_to_string("/proc/sys/kernel/random/boot_id").ok()?;

@@ -42,8 +42,8 @@ pub struct Line {
 }
 
 impl Line {
-    /// A line, and its other end: what a window asks goes in at `.0`'s first, and what the
-    /// daemon says comes out at `.1`'s second.
+    /// Makes a line and its other end: what a window asks goes in at the sender, and what the
+    /// daemon says comes out at the receiver.
     #[must_use]
     pub fn pair() -> (Self, mpsc::Sender<ToDaemon>, mpsc::Receiver<FromDaemon>) {
         let (asks, requests) = mpsc::channel(QUEUE);

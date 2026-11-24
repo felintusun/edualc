@@ -80,7 +80,7 @@ pub(super) async fn write_line(stdin: &mut ChildStdin, line: &str) -> std::io::R
     stdin.flush().await
 }
 
-/// A process's output, line by line (split sans-io), to its session.
+/// Passes a process's output to its session, line by line.
 pub(super) async fn pump(
     mut output: impl tokio::io::AsyncRead + Unpin,
     stream: Stream,
@@ -109,7 +109,7 @@ pub(super) async fn pump(
     }
 }
 
-/// A line to a window, in pieces that fit messages.
+/// Sends a line to a window in pieces that fit messages.
 pub(super) async fn send_line(
     outbox: &mpsc::Sender<FromDaemon>,
     key: Generation,

@@ -18,7 +18,8 @@ use crate::external::wire::{
 };
 use crate::ids::{MessageId, SessionId, ToolUseId};
 
-/// The subagents and swarm members conversation `own` started that run, and its swarm's board.
+/// Lists the running subagents and swarm members conversation `own` started, and its swarm's
+/// board.
 pub(super) fn tasks(own: &SessionId) -> Vec<BackgroundTask> {
     let Some(brain) = agy::brain() else {
         return Vec::new();
@@ -33,8 +34,8 @@ pub(super) fn tasks(own: &SessionId) -> Vec<BackgroundTask> {
     background_tasks(own, swarm, subagents)
 }
 
-/// The tasks a session's records tell of: its swarm's board and running workers, then the
-/// subagents outside the swarm that are alive, each by its conversation.
+/// Lists the tasks a session's records tell of: its swarm's board and running workers, then
+/// the subagents outside the swarm that are alive, each by its conversation.
 fn background_tasks(
     own: &SessionId,
     swarm: Option<Swarm>,
@@ -82,7 +83,7 @@ fn background_tasks(
     tasks
 }
 
-/// A JSON file agy wrote, if it is there; one it can't read is logged.
+/// Reads a JSON file agy wrote, if it is there; one that can't be read is logged.
 fn read<Record: DeserializeOwned>(path: &Path) -> Option<Record> {
     let text = match std::fs::read_to_string(path) {
         Ok(text) => text,
@@ -151,9 +152,9 @@ pub(crate) fn step_lines(lines: &[String]) -> Vec<TranscriptLine> {
     out
 }
 
-/// A line of a conversation's steps as a transcript line: a message to the model as a prompt,
-/// the model's answer with its tool calls by agy's names (those edualc acts on by the window's),
-/// and any error step.
+/// Reads a line of a conversation's steps as a transcript line: a message to the model as a
+/// prompt, the model's answer with its tool calls by agy's names (those edualc acts on by the
+/// window's), or an error step.
 pub(crate) fn step_line(line: &str) -> Option<TranscriptLine> {
     let step: Step = serde_json::from_str(line)
         .inspect_err(|error| tracing::debug!(%error, "an agy step edualc can't read"))
@@ -259,9 +260,9 @@ fn strip_tag_blocks<'a>(text: &'a str, open: &str, close: &str) -> Cow<'a, str> 
     Cow::Owned(kept)
 }
 
-/// A message agy puts to the model, without the wrappers agy puts around it (`<SYSTEM_MESSAGE>`,
-/// `<USER_REQUEST>`, `<ADDITIONAL_METADATA>`, `<USER_SETTINGS_CHANGE>`) and without the fields
-/// before another conversation's message (`[Message] timestamp=… sender=… priority=… content=`).
+/// Takes the wrappers off a message agy puts to the model (`<SYSTEM_MESSAGE>`,
+/// `<USER_REQUEST>`, `<ADDITIONAL_METADATA>`, `<USER_SETTINGS_CHANGE>`), and the fields before
+/// another conversation's message (`[Message] timestamp=… sender=… priority=… content=`).
 fn unwrapped(text: &str) -> String {
     let first = strip_tag_blocks(text, "<ADDITIONAL_METADATA>", "</ADDITIONAL_METADATA>");
     let second = strip_tag_blocks(&first, "<USER_SETTINGS_CHANGE>", "</USER_SETTINGS_CHANGE>");
@@ -282,7 +283,7 @@ fn unwrapped(text: &str) -> String {
         .to_owned()
 }
 
-/// A post on a swarm's board, as what its member said.
+/// Reads a post on a swarm's board as what its member said.
 pub(crate) fn post_line(line: &str) -> Option<TranscriptLine> {
     let post: BoardPost = serde_json::from_str(line)
         .inspect_err(|error| tracing::debug!(%error, "a board post edualc can't read"))

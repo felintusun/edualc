@@ -53,7 +53,7 @@ impl Access {
     }
 }
 
-/// The line's route.
+/// Returns the line's route.
 pub fn router(access: Access) -> Router {
     Router::new()
         .route("/api/line", get(line))
@@ -130,8 +130,8 @@ enum Unadmitted {
     Silent,
 }
 
-/// Whether the line's first frame shows `token` (any, if there is none to show), in time and in
-/// size.
+/// Checks that the line's first frame shows `token`, or any if there is none to show, in time
+/// and within its size.
 async fn let_in(socket: &mut WebSocket, token: Option<&Token>) -> Result<(), Unadmitted> {
     let first = tokio::time::timeout(AUTH_WITHIN, socket.recv())
         .await

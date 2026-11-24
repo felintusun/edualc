@@ -53,7 +53,7 @@ pub struct Listening {
 }
 
 impl Listening {
-    /// Where an edualcd serving the network listened last; none if none has yet.
+    /// Reads where an edualcd serving the network listened last; `None` if none has yet.
     pub fn kept() -> Result<Option<Self>, Error> {
         let path = folder()?.join(LISTENING);
         read(&path)?
@@ -93,9 +93,9 @@ impl std::fmt::Debug for State {
 }
 
 impl State {
-    /// What was kept, or made now where nothing was: the certificate for `names` (the names and
-    /// addresses windows may reach edualcd by; a pinned certificate is trusted whatever it
-    /// names, but a browser shows them).
+    /// Reads what was kept, or makes it where nothing was: the certificate for `names`, the
+    /// names and addresses windows may reach edualcd by. A pinned certificate is trusted
+    /// whatever it names, but a browser shows them.
     pub fn load(names: &[String]) -> Result<Self, Error> {
         let folder = folder()?;
         let certificate_path = folder.join(CERTIFICATE);
@@ -144,7 +144,7 @@ impl State {
     }
 }
 
-/// The folder, made if it isn't there, and checked to be the user's alone; one of theirs with
+/// Returns the folder, made if it isn't there and checked to be yours alone. One of yours with
 /// looser permissions is closed to others first.
 fn folder() -> Result<PathBuf, Error> {
     let state = dirs::state_dir().ok_or(Error::NoHome)?;
@@ -172,7 +172,7 @@ fn folder() -> Result<PathBuf, Error> {
     Ok(folder)
 }
 
-/// A file's bytes, or none if it isn't there; a link isn't followed.
+/// Reads a file's bytes without following a link; `None` if it isn't there.
 fn read(path: &Path) -> Result<Option<Vec<u8>>, Error> {
     let opened = OpenOptions::new()
         .read(true)
@@ -216,7 +216,7 @@ fn write(path: &Path, bytes: &[u8]) -> Result<(), Error> {
     file.sync_all().map_err(io)
 }
 
-/// `O_NOFOLLOW`, as `OpenOptions` takes it.
+/// Returns `O_NOFOLLOW` as `OpenOptions` takes it.
 fn nofollow() -> i32 {
     i32::try_from(rustix::fs::OFlags::NOFOLLOW.bits()).unwrap_or_default()
 }
