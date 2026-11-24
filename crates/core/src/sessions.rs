@@ -18,9 +18,9 @@ use crate::ids::SessionId;
 #[cfg(not(target_arch = "wasm32"))]
 use crate::process;
 
-/// A session's two words, an adjective and a noun picked by its id, so the same each time it
-/// runs: edualcd names a session's process by them, and Claude Code keeps that name as the
-/// session's custom title too, which is a name then, not a title.
+/// A session's two words, an adjective and a noun picked by its id, so they stay the same each
+/// time it runs. edualcd names a session's process by them, and Claude Code keeps that name as
+/// the session's custom title too, which is then a name and not a title.
 #[derive(Debug, Clone, PartialEq, Eq, derive_more::Display)]
 pub struct PetName(String);
 
@@ -39,21 +39,20 @@ impl PetName {
         ))
     }
 
-    /// Whether `text` holds the two words, as each name edualc gave the session has.
+    /// Returns whether `text` holds the two words, as every name edualc gave the session does.
     fn is_in(&self, text: &str) -> bool {
         text.contains(self.0.as_str())
     }
 }
 
-/// The name other Claude Code sessions message a session's process by (`--name`): an adjective
-/// and a noun picked by the session's id, so the same each time it runs, then its project. The
-/// CLI's own name comes from the process id, and changes as the session is started again.
+/// The name other sessions message a session's process by (`--name`). It stays the same each
+/// time the session runs; Claude Code's own name comes from the process id and changes.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, derive_more::Display)]
 pub struct MessagingName(String);
 
 impl MessagingName {
-    /// The name of session `id` in the folder `cwd`: an adjective, a noun, the folder's name
-    /// and two digits, all but the folder picked by the id.
+    /// Returns the name of session `id` in `cwd`: its [`PetName`], the folder's name, and two
+    /// digits picked by the id.
     pub fn of(id: &SessionId, cwd: &Path) -> Self {
         Self(format!(
             "{}-{}-{:02}",
@@ -71,9 +70,9 @@ impl MessagingName {
 /// The most of the folder's name a session's name takes.
 const PROJECT_PART_CHARS: usize = 20;
 
-/// The folder's name as a session's name takes it, as Claude Code writes its own names
-/// (`claude_but_sane` as `claude-but-sane`): lowercase letters and digits, the rest a dash, at
-/// most [`PROJECT_PART_CHARS`]. "project" for a folder with no such letters.
+/// Returns the folder's name as Claude Code writes it in names (`claude_but_sane` as
+/// `claude-but-sane`): lowercase letters and digits, the rest a dash, at most
+/// [`PROJECT_PART_CHARS`]. A folder with no such letters gives "project".
 fn project_part(cwd: &Path) -> String {
     let folder = cwd
         .file_name()
@@ -93,7 +92,7 @@ fn project_part(cwd: &Path) -> String {
     }
 }
 
-/// A number a session's id holds: eight of its hex digits, from the `at`th on.
+/// Returns a number from a session's id: eight of its hex digits, from the `at`th on.
 pub fn id_number(id: &SessionId, at: usize) -> usize {
     let digits: String = id
         .as_str()
@@ -110,7 +109,6 @@ pub fn id_number(id: &SessionId, at: usize) -> usize {
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct SessionInfo {
-    /// The program it talks to.
     pub backend: crate::provider::Backend,
     pub id: SessionId,
     pub title: String,
@@ -145,7 +143,8 @@ impl Worktree {
     }
 }
 
-/// `path` as a worktree, if it is a linked one: its `.git` is a file naming the real one.
+/// Returns `path` as a worktree if it is a linked one, whose `.git` is a file naming the real
+/// one.
 pub fn linked_worktree(path: &Path) -> Option<Worktree> {
     let pointer = read_small(&path.join(".git"), GIT_POINTER_BYTES)?;
     let gitdir = PathBuf::from(pointer.strip_prefix("gitdir:")?.trim());
@@ -167,7 +166,7 @@ pub fn linked_worktree(path: &Path) -> Option<Worktree> {
     })
 }
 
-/// The last part of a path, for a title; the whole path for `/`.
+/// Returns the last part of a path, for a title; the whole path for `/`.
 pub fn folder_name(path: &Path) -> String {
     path.file_name().map_or_else(
         || path.display().to_string(),
@@ -182,8 +181,8 @@ pub struct ProjectInfo {
     pub modified: SystemTime,
 }
 
-/// A session some Claude Code process is running right now (a terminal, an editor, the
-/// background), as that process reports itself.
+/// A session a Claude Code process runs now, in a terminal, an editor or the background, as
+/// the process reports itself.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct LiveSession {
@@ -194,14 +193,14 @@ pub struct LiveSession {
     pub cwd: PathBuf,
     /// The name other sessions message it by.
     pub name: String,
-    /// As its transcript names it; none before it has one.
+    /// The title its transcript gives, once it has one.
     pub title: Option<String>,
     pub kind: LiveKind,
     pub status: LiveStatus,
     pub worktree: Option<Worktree>,
     /// Its subagents running now, as their records tell (see [`running_agents`]).
     pub agents: usize,
-    /// The program it runs, as where its transcript is says; Claude Code before it has one.
+    /// The program it runs, told by where its transcript is; Claude Code before it has one.
     pub backend: crate::provider::Backend,
 }
 
@@ -238,8 +237,8 @@ pub fn config_dir() -> PathBuf {
 /// `~/.claude.json` runs to hundreds of kilobytes; anything far larger isn't that file.
 pub const GLOBAL_CONFIG_BYTES: u64 = 64 * 1024 * 1024;
 
-/// Where Claude Code keeps `.claude.json`: beside its configuration folder, or in it when that
-/// is moved.
+/// Returns where Claude Code keeps `.claude.json`: beside its configuration folder, or in it
+/// when that is moved.
 pub fn global_config_path() -> PathBuf {
     std::env::var_os("CLAUDE_CONFIG_DIR").map_or_else(
         || dirs::home_dir().unwrap_or_default().join(".claude.json"),
@@ -251,8 +250,8 @@ fn projects_dir() -> PathBuf {
     config_dir().join("projects")
 }
 
-/// A project's folder name as Claude Code writes it: its path, each character but a letter or
-/// a digit a dash.
+/// Returns a project's folder name as Claude Code writes it: its path with each character but
+/// a letter or a digit made a dash.
 pub fn project_name(cwd: &Path) -> String {
     cwd.to_string_lossy()
         .chars()
@@ -270,7 +269,7 @@ fn project_dir(cwd: &Path) -> PathBuf {
     projects_dir().join(project_name(cwd))
 }
 
-/// The folders a project's transcripts are in, in each of [`transcript_homes`].
+/// Returns the folders a project's transcripts are in, in each of [`transcript_homes`].
 fn project_dirs(cwd: &Path) -> Vec<PathBuf> {
     let name = project_name(cwd);
     transcript_homes()
@@ -279,9 +278,9 @@ fn project_dirs(cwd: &Path) -> Vec<PathBuf> {
         .collect()
 }
 
-/// The folders a project's sessions are in: its own (see [`project_dirs`]) and those of its
-/// worktrees, in each of `homes`. Claude Code keeps worktrees in `.claude/worktrees/` and moves
-/// the transcript of a session that enters one to the worktree's folder.
+/// Returns the folders a project's sessions are in, in each of `homes`: its own and those of
+/// its worktrees. Claude Code keeps worktrees in `.claude/worktrees/`, and moves the transcript
+/// of a session that enters one to the worktree's folder.
 fn session_dirs(homes: &[PathBuf], cwd: &Path) -> Vec<PathBuf> {
     let name = project_name(cwd);
     let worktrees = format!("{name}--claude-worktrees-");
@@ -299,14 +298,13 @@ fn session_dirs(homes: &[PathBuf], cwd: &Path) -> Vec<PathBuf> {
         .collect()
 }
 
-/// The folders of transcripts' folders a project's are read from as files: Claude Code's.
-/// agy's and opencode's sessions are the programs' own to list and load (see `edualcd`'s ACP
-/// adapter).
+/// Returns the folders of projects whose transcripts are read as files: Claude Code's alone.
+/// agy and opencode list and load their own sessions (see the ACP adapter).
 fn transcript_homes() -> Vec<PathBuf> {
     vec![projects_dir()]
 }
 
-/// Whether `path` lies inside agy's brain folder.
+/// Returns whether `transcript` is in agy's brain folder.
 #[cfg(not(target_arch = "wasm32"))]
 fn is_agy_brain_path(transcript: &Path) -> bool {
     crate::external::agy::brain().is_some_and(|brain| transcript.starts_with(&brain))
@@ -317,7 +315,7 @@ fn is_agy_brain_path(_transcript: &Path) -> bool {
     false
 }
 
-/// Whether `id` has an external agy brain transcript on disk.
+/// Returns whether agy keeps the steps of a session `id` in its brain folder.
 #[cfg(not(target_arch = "wasm32"))]
 pub fn is_agy_brain_session(id: &SessionId) -> bool {
     crate::external::agy::brain()
@@ -329,7 +327,7 @@ pub fn is_agy_brain_session(_id: &SessionId) -> bool {
     false
 }
 
-/// The program a session saved at `transcript` talks to, as where its transcript is says.
+/// Returns the program a session saved at `transcript` runs, told by where the file is.
 pub fn backend_of(transcript: &Path) -> crate::provider::Backend {
     if is_agy_brain_path(transcript) {
         crate::provider::Backend::Agy
@@ -338,8 +336,8 @@ pub fn backend_of(transcript: &Path) -> crate::provider::Backend {
     }
 }
 
-/// Whether `session_cwd` belongs to project `project_cwd`: the project itself, one of its
-/// `.claude/worktrees/`, or a linked git worktree whose gitdir is under `project_cwd/.git`.
+/// Returns whether `session_cwd` belongs to the project `project_cwd`: it is the project, one
+/// of its `.claude/worktrees/`, or a linked git worktree whose gitdir is in its `.git`.
 #[cfg(not(target_arch = "wasm32"))]
 pub fn belongs_to_project(session_cwd: &Path, project_cwd: &Path) -> bool {
     if session_cwd == project_cwd
@@ -361,22 +359,21 @@ pub fn belongs_to_project(session_cwd: &Path, project_cwd: &Path) -> bool {
     gitdir.starts_with(project_cwd.join(".git"))
 }
 
-/// Where a Claude Code session in `cwd` keeps its transcript.
+/// Returns where a Claude Code session in `cwd` keeps its transcript.
 pub fn transcript_path(cwd: &Path, id: &SessionId) -> PathBuf {
     project_dir(cwd).join(format!("{}.jsonl", id.as_str()))
 }
 
-/// Where a session's transcript is: under its working directory, or under another project's
-/// when it moved there (a session entering a worktree is relocated to the worktree's); in the
-/// user's own home or in agy's sessions'. The newest, if more than one has it.
+/// Finds a session's transcript: under its folder's project, or another project's if it moved
+/// there by entering a worktree. The newest wins if more than one has it.
 pub fn find_transcript(cwd: &Path, id: &SessionId) -> Option<PathBuf> {
     let name = format!("{}.jsonl", id.as_str());
     newest(project_dirs(cwd).into_iter().map(|dir| dir.join(&name)))
         .or_else(|| transcript_in_any(&transcript_homes(), id))
 }
 
-/// Session `id`'s transcript in any project of the folders of projects `homes`; the newest,
-/// if more than one has it.
+/// Finds session `id`'s transcript in any project in `homes`; the newest if more than one has
+/// it.
 fn transcript_in_any(homes: &[PathBuf], id: &SessionId) -> Option<PathBuf> {
     let name = format!("{}.jsonl", id.as_str());
     newest(
@@ -391,15 +388,15 @@ fn transcript_in_any(homes: &[PathBuf], id: &SessionId) -> Option<PathBuf> {
 /// What the transcripts say of a session to continue.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum Saved {
-    /// No home keeps a transcript of it.
+    /// No transcript of it is kept.
     Nowhere,
-    /// The folder it was started in: where it goes on, as the sidebar opens it there.
+    /// The folder it was started in, where it goes on as the sidebar would open it.
     StartedIn(PathBuf),
     /// Its transcript names no folder in its first lines.
     Unplaced,
 }
 
-/// Session `id` as its transcript says, whichever home and project keep it.
+/// Returns what session `id`'s transcript says of it, whichever project keeps it.
 pub fn saved(id: &SessionId) -> Saved {
     saved_in(&transcript_homes(), id)
 }
@@ -411,15 +408,15 @@ fn saved_in(homes: &[PathBuf], id: &SessionId) -> Saved {
     }
 }
 
-/// Where session `id` working in `cwd` writes its transcript, or will once it writes (see
+/// Returns where session `id` working in `cwd` writes its transcript, or will (see
 /// [`transcript_in`]).
 pub fn written_transcript(cwd: &Path, id: &SessionId) -> PathBuf {
     transcript_in(&projects_dir(), cwd, id)
 }
 
-/// Where session `id` working in `cwd` has its transcript in the folder of projects' folders
-/// `projects`: under its folder's project, or another's when it moved there (into a worktree);
-/// under its folder's project if it is not written yet.
+/// Returns where session `id` working in `cwd` has its transcript in `projects`: under its
+/// folder's project, or another's if it moved there by entering a worktree. A transcript not
+/// written yet goes under its folder's project.
 fn transcript_in(projects: &Path, cwd: &Path, id: &SessionId) -> PathBuf {
     let name = format!("{}.jsonl", id.as_str());
     let own = projects.join(project_name(cwd)).join(&name);
@@ -436,7 +433,7 @@ fn transcript_in(projects: &Path, cwd: &Path, id: &SessionId) -> PathBuf {
     .unwrap_or(own)
 }
 
-/// The most recently changed of the files there are.
+/// Returns the most recently changed of the files that exist.
 fn newest(paths: impl Iterator<Item = PathBuf>) -> Option<PathBuf> {
     paths
         .filter_map(|path| {
@@ -447,12 +444,12 @@ fn newest(paths: impl Iterator<Item = PathBuf>) -> Option<PathBuf> {
         .map(|(_, path)| path)
 }
 
-/// Where a session's transcript is, or would be if it is not written yet.
+/// Returns where a session's transcript is, or will be once written.
 pub fn locate(cwd: &Path, id: &SessionId) -> PathBuf {
     find_transcript(cwd, id).unwrap_or_else(|| transcript_path(cwd, id))
 }
 
-/// The transcripts in a directory, newest first.
+/// Lists the transcripts in a folder, newest first.
 #[cfg(not(target_arch = "wasm32"))]
 fn transcripts(dir: &Path) -> Vec<(PathBuf, SystemTime)> {
     let entries = match std::fs::read_dir(dir) {
@@ -484,9 +481,9 @@ fn transcripts(dir: &Path) -> Vec<(PathBuf, SystemTime)> {
     files
 }
 
-/// The sessions of the project in `cwd`, those in its worktrees among them, newest first.
-/// Sessions without a prompt (started, never used) are left out. Those in `known` whose
-/// transcript hasn't changed since are taken as they are, not read again.
+/// Lists the sessions of the project in `cwd` and its worktrees, newest first. Sessions
+/// without a prompt are left out, and those in `known` whose transcript hasn't changed aren't
+/// read again.
 #[cfg(not(target_arch = "wasm32"))]
 pub fn list(cwd: &Path, limit: usize, known: Vec<SessionInfo>) -> Vec<SessionInfo> {
     let mut known: HashMap<SessionId, SessionInfo> = known
@@ -525,7 +522,7 @@ pub fn list(cwd: &Path, limit: usize, known: Vec<SessionInfo>) -> Vec<SessionInf
         .collect()
 }
 
-/// Every working directory Claude Code was used in that still exists, most recent first.
+/// Lists every folder Claude Code was used in that still exists, most recent first.
 #[cfg(not(target_arch = "wasm32"))]
 pub fn projects() -> Vec<ProjectInfo> {
     let mut projects: Vec<_> = transcript_homes()
@@ -550,7 +547,7 @@ pub fn projects() -> Vec<ProjectInfo> {
     projects
 }
 
-/// The sessions Claude Code processes are running now, other than our own (`claude -p`).
+/// Lists the sessions Claude Code processes run now, but not our own (`claude -p`).
 #[cfg(not(target_arch = "wasm32"))]
 pub fn live() -> Vec<LiveSession> {
     let dir = config_dir().join("sessions");
@@ -618,13 +615,12 @@ pub fn live() -> Vec<LiveSession> {
 }
 
 /// How long a subagent's transcript may go unwritten and the agent still count as running.
-/// Claude Code marks an agent finished as it ends; one whose end went unsaid (its session was
-/// killed) is no longer counted once it has been quiet this long.
+/// Claude Code marks an agent finished as it ends, but not when its session is killed.
 const AGENT_QUIET: std::time::Duration = std::time::Duration::from_secs(30 * 60);
 
-/// The subagents of the session whose transcript is `transcript` that run at `now`: those whose
-/// record beside it (`<session>/subagents/agent-<id>.meta.json`) isn't marked finished, and
-/// whose transcript was written within [`AGENT_QUIET`].
+/// Counts the subagents of the session at `transcript` that run at `now`: those whose record
+/// (`<session>/subagents/agent-<id>.meta.json`) isn't marked finished, and whose transcript
+/// was written within [`AGENT_QUIET`].
 #[cfg(not(target_arch = "wasm32"))]
 pub fn running_agents(transcript: &Path, now: SystemTime) -> usize {
     let Ok(entries) = std::fs::read_dir(transcript.with_extension("").join("subagents")) else {
@@ -664,8 +660,8 @@ const RECORD_BYTES: u64 = 64 * 1024;
 /// What is read of a transcript at once: whole sessions run to tens of megabytes.
 const TRANSCRIPT_BYTES: u64 = 512 * 1024 * 1024;
 
-/// A small regular file's text: not a FIFO, which would block, nor a device or a huge file
-/// (anything running as the user can put those where a record or `.git` is expected).
+/// Reads a small regular file's text. A FIFO would block, and a device or a huge file could be
+/// put where a record or `.git` is expected by anything running as you.
 fn read_small(path: &Path, limit: u64) -> Option<String> {
     let metadata = std::fs::metadata(path).ok()?;
     if !metadata.is_file() || metadata.len() > limit {
@@ -680,8 +676,8 @@ fn read_small(path: &Path, limit: u64) -> Option<String> {
     Some(text)
 }
 
-/// The whole lines of a transcript from `offset` on, as they are written, and the offset after
-/// the last.
+/// Reads the whole lines of a transcript from `offset` on, and returns them with the offset
+/// after the last.
 #[cfg(not(target_arch = "wasm32"))]
 pub fn read_lines_from(path: &Path, offset: u64) -> std::io::Result<(Vec<String>, u64)> {
     if !std::fs::metadata(path)?.is_file() {
@@ -701,12 +697,12 @@ pub fn read_lines_from(path: &Path, offset: u64) -> std::io::Result<(Vec<String>
     Ok((lines, offset + whole as u64))
 }
 
-/// A transcript's lines, read: those that don't parse are passed over.
+/// Parses a transcript's lines, passing over those that don't parse.
 pub fn parse_lines(lines: &[String]) -> Vec<TranscriptLine> {
     lines.iter().filter_map(|line| parse_line(line)).collect()
 }
 
-/// Where Claude Code keeps the transcript of subagent `task` of the session whose transcript is
+/// Returns where Claude Code keeps the transcript of subagent `task` of the session at
 /// `session`.
 pub fn transcript_of(session: &Path, task: &crate::external::wire::TaskId) -> PathBuf {
     session
@@ -728,8 +724,8 @@ fn parse_line(line: &str) -> Option<TranscriptLine> {
 /// Titles are appended as the session goes on; prompts are at the start. Neither needs the
 /// whole file, which can be many megabytes.
 const PEEK_BYTES: u64 = 128 * 1024;
-/// Head scan budget so oversized initial snapshot or attachment lines (>128 KiB) don't cut off
-/// the first prompt or `cwd` on large transcripts.
+/// How much of a transcript's start is read for its first prompt and `cwd`, past a snapshot or
+/// an attachment longer than [`PEEK_BYTES`].
 const HEAD_SCAN_BYTES: u64 = 4 * 1024 * 1024;
 
 struct Summary {
@@ -738,7 +734,7 @@ struct Summary {
     last_said: Option<String>,
 }
 
-/// A session's title, the worktree it last worked in, and the start of its last reply.
+/// Reads a session's title, the worktree it last worked in, and the start of its last reply.
 fn summary(path: &Path) -> Option<Summary> {
     let mut file = File::open(path).ok()?;
     let length = file.metadata().ok()?.len();
@@ -826,7 +822,7 @@ fn summary(path: &Path) -> Option<Summary> {
         })
 }
 
-/// The first readable sentence an assistant turn wrote, for card and row summaries.
+/// Returns the first readable sentence an assistant turn wrote, for cards and rows.
 pub fn assistant_sentence(blocks: &[crate::external::wire::ContentBlock]) -> Option<String> {
     let combined = blocks
         .iter()
@@ -903,7 +899,7 @@ fn split_first_sentence(text: &str) -> &str {
     text
 }
 
-/// The first line with text in it: a title is shown on one line, in a row of its height.
+/// Returns the first line with text in it, as a title is shown on one line.
 fn title_line(text: &str) -> &str {
     text.lines()
         .map(str::trim)
@@ -911,7 +907,8 @@ fn title_line(text: &str) -> &str {
         .unwrap_or_default()
 }
 
-/// A title from another session's message: who sent it and what it says, as far as known.
+/// Makes a title from another session's message: who sent it and what it says, as far as
+/// known.
 fn peer_title(name: Option<&str>, body: Option<&str>) -> String {
     match (name, body) {
         (Some(name), Some(body)) => format!("{name}: {}", body.trim()),
@@ -921,7 +918,7 @@ fn peer_title(name: Option<&str>, body: Option<&str>) -> String {
     }
 }
 
-/// The worktree a session works in now, as its transcript last said.
+/// Returns the worktree a session works in now, as its transcript last said.
 pub fn worktree_of(transcript: &Path) -> Option<Worktree> {
     summary(transcript).and_then(|found| found.worktree)
 }
@@ -933,8 +930,8 @@ fn recorded_cwd(path: &Path) -> Option<PathBuf> {
         .map(|record| record.cwd)
 }
 
-/// The prompt a user message holds, if it holds one: a prompt sent after `!` commands comes
-/// after their rows.
+/// Returns the prompt a user message holds, if any; a prompt sent after `!` commands follows
+/// their rows.
 fn prompt_text(content: &UserContent) -> Option<String> {
     let (whole, blocks) = match content {
         UserContent::Text(text) => (Some(text.as_str()), [].as_slice()),
@@ -965,7 +962,7 @@ fn prompt_text(content: &UserContent) -> Option<String> {
         })
 }
 
-/// The lines at the start of a transcript, read only as far as they are wanted.
+/// Reads the lines at the start of a transcript, only as far as they are wanted.
 fn head_lines(file: File) -> impl Iterator<Item = String> {
     BufReader::new(file.take(HEAD_SCAN_BYTES))
         .lines()
@@ -979,7 +976,7 @@ fn read_range(file: &mut File, start: u64, end: u64) -> Option<String> {
     Some(String::from_utf8_lossy(&bytes).into_owned())
 }
 
-/// How long ago, briefly: "now", "5m", "3h", "2d", "6w".
+/// Says how long ago, briefly: "now", "5m", "3h", "2d", "6w".
 pub fn age(modified: SystemTime) -> String {
     let seconds = SystemTime::now()
         .duration_since(modified)
