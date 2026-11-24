@@ -1,8 +1,7 @@
 //! How text looks: Fira where it is installed, at the size the desktop sets.
 
-use std::collections::HashSet;
-
-use crate::desktop::{self, Program};
+#[cfg(not(target_arch = "wasm32"))]
+use slint::fontique_012::fontique::{Collection, GenericFamily};
 
 /// The interface's and the code's families, in order of preference.
 const SANS: &[&str] = &["Fira Sans"];
@@ -19,24 +18,33 @@ pub(crate) struct Fonts {
     pub(crate) mono: Option<String>,
 }
 
-/// Fira if installed; otherwise what fontconfig takes for sans and monospace.
+/// Returns Fira if it is installed, else the desktop's sans and monospace.
+///
+/// Slint's font collection belongs to the thread that draws: call this there.
+#[cfg(not(target_arch = "wasm32"))]
 pub(crate) fn fonts() -> Fonts {
-    let installed = installed_families();
-    let pick = |preferred: &[&str], generic: &str| {
-        preferred
-            .iter()
-            .find(|family| installed.contains(**family))
-            .map(|family| (*family).to_owned())
-            .or_else(|| fc_match(generic))
-    };
+    let mut collection = slint::fontique_012::shared_collection();
     Fonts {
-        sans: pick(SANS, "sans-serif"),
-        mono: pick(MONO, "monospace"),
+        sans: pick(&mut collection, SANS, GenericFamily::SansSerif),
+        mono: pick(&mut collection, MONO, GenericFamily::Monospace),
     }
 }
 
-/// The desktop's text size in logical pixels: GNOME's (and GTK's) interface font and text
-/// scaling, or KDE's general font, or 11pt.
+#[cfg(not(target_arch = "wasm32"))]
+fn pick(collection: &mut Collection, preferred: &[&str], generic: GenericFamily) -> Option<String> {
+    if let Some(family) = preferred
+        .iter()
+        .find(|family| collection.family_id(family).is_some())
+    {
+        return Some((*family).to_owned());
+    }
+    let id = collection.generic_families(generic).next()?;
+    collection.family_name(id).map(str::to_owned)
+}
+
+/// Returns the desktop's text size in logical pixels: GNOME's (and GTK's) interface font and
+/// text scaling, or KDE's general font, or 11pt.
+#[cfg(not(target_arch = "wasm32"))]
 pub(crate) fn desktop_text_size() -> f32 {
     gnome_points()
         .or_else(kde_points)
@@ -46,47 +54,41 @@ pub(crate) fn desktop_text_size() -> f32 {
 /// The text size where no desktop says one (the browser demo's), in logical pixels.
 pub(crate) const DEFAULT_TEXT_SIZE: f32 = DEFAULT_POINTS * PIXELS_PER_POINT;
 
-/// What `program` prints, if it is there and succeeds.
-fn ask(program: Program, args: &[&str]) -> Option<String> {
-    match desktop::run(program, args) {
-        Ok(stdout) => Some(String::from_utf8_lossy(&stdout).trim().to_owned()),
-        Err(error) => {
-            tracing::debug!(%error, "no answer from the desktop");
-            None
-        }
-    }
-}
-
-fn installed_families() -> HashSet<String> {
-    ask(Program::FcList, &[":", "family"])
-        .unwrap_or_default()
-        .lines()
-        .flat_map(|line| line.split(','))
-        .map(|family| family.trim().to_owned())
-        .collect()
-}
-
-fn fc_match(generic: &str) -> Option<String> {
-    ask(Program::FcMatch, &["-f", "%{family[0]}", generic]).filter(|family| !family.is_empty())
-}
-
-/// GNOME's interface font ("'Adwaita Sans 11'") times its text scaling factor.
+/// GNOME's interface font ("Adwaita Sans 11") times its text scaling factor, as the desktop's
+/// Settings portal reads them.
+#[cfg(not(target_arch = "wasm32"))]
 fn gnome_points() -> Option<f32> {
-    let setting = |key: &str| {
-        ask(
-            Program::Gsettings,
-            &["get", "org.gnome.desktop.interface", key],
-        )
-    };
-    let points = font_points(setting("font-name")?.trim_matches('\''))?;
-    let scaling = setting("text-scaling-factor")
-        .and_then(|factor| factor.parse::<f32>().ok())
-        .filter(|factor| *factor > 0.0)
-        .unwrap_or(1.0);
-    Some(points * scaling)
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .inspect_err(|error| tracing::debug!(%error, "no runtime to ask the desktop"))
+        .ok()?;
+    runtime.block_on(async {
+        const INTERFACE: &str = "org.gnome.desktop.interface";
+        let settings = ashpd::desktop::settings::Settings::new()
+            .await
+            .inspect_err(|error| tracing::debug!(%error, "no Settings portal"))
+            .ok()?;
+        let font: String = settings
+            .read(INTERFACE, "font-name")
+            .await
+            .inspect_err(|error| tracing::debug!(%error, "the portal has no GNOME font"))
+            .ok()?;
+        let points = font_points(&font)?;
+        // The factor is a double; its decimal parses to the nearest f32, without a cast.
+        let scaling = settings
+            .read::<f64>(INTERFACE, "text-scaling-factor")
+            .await
+            .ok()
+            .and_then(|factor| factor.to_string().parse::<f32>().ok())
+            .filter(|factor| *factor > 0.0)
+            .unwrap_or(1.0);
+        Some(points * scaling)
+    })
 }
 
 /// The size at the end of a font name, as GNOME writes it: "Adwaita Sans 11".
+#[cfg(not(target_arch = "wasm32"))]
 fn font_points(font: &str) -> Option<f32> {
     font.rsplit(' ')
         .next()?
@@ -96,6 +98,7 @@ fn font_points(font: &str) -> Option<f32> {
 }
 
 /// KDE's general font: `font=Noto Sans,10,-1,5,…` under `[General]` in `kdeglobals`.
+#[cfg(not(target_arch = "wasm32"))]
 fn kde_points() -> Option<f32> {
     let config = std::fs::read_to_string(dirs::config_dir()?.join("kdeglobals")).ok()?;
     let mut in_general = false;

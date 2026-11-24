@@ -41,9 +41,10 @@ two-face.workspace = true
 slint = { git = "https://github.com/barafael/slint", rev = "d206fd1d88f7b8b818d0b73ec1356db2a9439173", version = "1.20.0", default-features = false, features = ["std", "compat-1-2", "accessibility", "backend-winit", "renderer-femtovg", "unstable-fontique-012"] }
 tracing-subscriber.workspace = true
 clap.workspace = true
-# The desktop the window is on (`seat`): links through the OpenURI portal, notifications over
-# D-Bus, the folder picker, all without running a program.
-ashpd = { version = "0.14", default-features = false, features = ["tokio", "open_uri"] }
+# The desktop the window is on (`seat`, `appearance`): links through the OpenURI portal, GNOME's
+# text size through the Settings portal, notifications over D-Bus, the folder picker, all
+# without running a program.
+ashpd = { version = "0.14", default-features = false, features = ["tokio", "open_uri", "settings"] }
 zbus = { version = "6", default-features = false, features = ["tokio"] }
 rfd = "0.18"
 tokio.workspace = true

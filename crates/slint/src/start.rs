@@ -176,11 +176,12 @@ pub(crate) fn main() -> Result<std::process::ExitCode, slint::PlatformError> {
         }
     };
     let connect::Connected { line, greeting } = connected;
-    // Found together: the fonts on a thread of their own while the desktop's text size is asked.
+    // We ask the desktop's text size on a thread of its own while the fonts are found here:
+    // Slint's font collection belongs to the thread that draws.
     let (fonts, text_size) = std::thread::scope(|scope| {
-        let fonts = scope.spawn(crate::appearance::fonts);
-        let text_size = crate::appearance::desktop_text_size();
-        let fonts = fonts
+        let text_size = scope.spawn(crate::appearance::desktop_text_size);
+        let fonts = crate::appearance::fonts();
+        let text_size = text_size
             .join()
             .unwrap_or_else(|panic| std::panic::resume_unwind(panic));
         (fonts, text_size)
