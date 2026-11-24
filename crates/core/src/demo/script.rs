@@ -38,7 +38,7 @@ pub enum Sink {
 }
 
 impl Sink {
-    /// A line the session wrote, as the window takes it.
+    /// Sends a line the session wrote, as the window takes it.
     fn line(&self, key: Generation, text: String) {
         let told = match self {
             Self::Events(events) => events
@@ -92,7 +92,7 @@ impl Sink {
         }
     }
 
-    /// The session ended, as the window asked.
+    /// Tells the window the session ended, as it asked.
     pub fn ended(&self, key: Generation) {
         let told = match self {
             Self::Events(events) => events
@@ -155,7 +155,7 @@ pub struct Out {
 }
 
 impl Out {
-    /// One provider-neutral event for the session's window.
+    /// Sends an event to the session's window.
     pub fn event(&self, event: &agent::Event) {
         match serde_json::to_string(event) {
             Ok(line) => self.sink.line(self.key, line),
@@ -219,8 +219,8 @@ impl Session {
         }
     }
 
-    /// A piece of a line the window wrote to the process; the last piece ends the line, which
-    /// may start something to run (see [`Task`]).
+    /// Takes a piece of a line the window wrote to the process. The last piece ends the line,
+    /// which may start something to run (see [`Task`]).
     pub fn take(&mut self, text: &str, last: bool) -> Option<Task> {
         match self.pieces.push((), text, last) {
             Ok(Some(line)) => self.line(&line),
@@ -322,7 +322,7 @@ impl Session {
         None
     }
 
-    /// A prompt: a turn plays the scenario it picks.
+    /// Takes a prompt, whose turn plays the scenario it picks.
     fn prompt_text(&mut self, prompt: String) -> Task {
         self.turns += 1;
         let (said, inbox) = async_channel::unbounded();
@@ -343,8 +343,9 @@ impl Session {
     }
 }
 
-/// A tool's input, from its type in [`crate::external::tool_input`] or the wire's. Fails only
-/// for a path that isn't UTF-8, which the demo's aren't: logged, the call shows no input.
+/// Writes a tool's input from its type in [`crate::external::tool_input`] or the wire's. That
+/// fails only for a path that isn't UTF-8, which the demo's aren't; the failure is logged and
+/// the call shows no input.
 pub fn input(typed: &impl Serialize) -> Value {
     serde_json::to_value(typed).unwrap_or_else(|error| {
         tracing::warn!(%error, "a tool input the demo can't write");
@@ -396,7 +397,7 @@ impl Turn {
         });
     }
 
-    /// Text, streamed as it is written, then whole.
+    /// Says text, streamed as it is written and then whole.
     pub async fn say(&self, text: &str) -> Result<(), Interrupted> {
         let id = MessageId::from(format!("msg_{}", uuid::Uuid::new_v4().simple()));
         let event = |event: StreamEvent| {
@@ -434,7 +435,7 @@ impl Turn {
         Ok(())
     }
 
-    /// A tool call; its id, for its result.
+    /// Makes a tool call and returns its id, for its result.
     pub fn call(&self, name: ToolName, input: Value) -> ToolUseId {
         let id = ToolUseId::from(format!("toolu_{}", uuid::Uuid::new_v4().simple()));
         self.assistant(
@@ -458,7 +459,7 @@ impl Turn {
         )));
     }
 
-    /// A tool call that needs no asking, its result after `milliseconds`.
+    /// Runs a tool call that needs no asking, with its result after `milliseconds`.
     pub async fn run(
         &self,
         name: ToolName,
@@ -497,7 +498,7 @@ impl Turn {
         }
     }
 
-    /// The turn's end.
+    /// Ends the turn.
     pub fn finish(&self, text: &str) {
         self.out.event(&agent::Event::Result(TurnResult {
             subtype: ResultKind::Success,
@@ -522,7 +523,7 @@ impl Turn {
         }));
     }
 
-    /// The turn's end, as an interrupt makes it.
+    /// Ends the turn as an interrupt does.
     pub fn interrupted(&self) {
         self.out.event(&agent::Event::User(UserLine::of_session(
             UserContent::Blocks(vec![ContentBlock::Text {
@@ -532,7 +533,7 @@ impl Turn {
         self.finish("interrupted");
     }
 
-    /// The folder the turn works in, for the paths its tools name.
+    /// Returns `relative` in the folder the turn works in, for the paths its tools name.
     pub fn path(&self, relative: &str) -> PathBuf {
         self.out.cwd.join(relative)
     }

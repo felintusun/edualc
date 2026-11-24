@@ -52,7 +52,7 @@ enum GenError {
     Stale { stale: Vec<PathBuf> },
 }
 
-/// `text` as `cargo fmt` leaves it, so the files written match the formatted ones committed.
+/// Formats `text` as `cargo fmt` does, so that the files written match the ones committed.
 fn formatted(root: &Path, path: &Path, text: &str) -> Result<String, GenError> {
     use std::io::Write as _;
     use std::process::{Command, Stdio};
@@ -87,7 +87,7 @@ fn formatted(root: &Path, path: &Path, text: &str) -> Result<String, GenError> {
         .map_err(|error| failed(std::io::Error::new(std::io::ErrorKind::InvalidData, error)))
 }
 
-/// The repository's root, from this crate's place in it.
+/// Returns the repository's root, from this crate's place in it.
 fn root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
 }

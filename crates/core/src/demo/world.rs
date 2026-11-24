@@ -198,7 +198,7 @@ fn ago(age: Duration) -> SystemTime {
         .unwrap_or(SystemTime::UNIX_EPOCH)
 }
 
-/// A transcript's title, as Claude Code wrote it in.
+/// Returns a transcript's title, as Claude Code wrote it in.
 fn title(transcript: &str) -> Option<String> {
     transcript
         .lines()
@@ -212,7 +212,7 @@ fn title(transcript: &str) -> Option<String> {
         })
 }
 
-/// The last readable sentence the assistant wrote in `transcript`, for card previews.
+/// Returns the last readable sentence the assistant wrote in `transcript`, for cards.
 fn last_said(transcript: &str) -> Option<String> {
     transcript
         .lines()
@@ -236,7 +236,7 @@ fn last_said(transcript: &str) -> Option<String> {
         })
 }
 
-/// The sessions saved in `cwd`, newest first.
+/// Lists the sessions saved in `cwd`, newest first.
 pub fn saved(cwd: &Path) -> Vec<SessionInfo> {
     SAVED
         .iter()
@@ -254,7 +254,7 @@ pub fn saved(cwd: &Path) -> Vec<SessionInfo> {
         .collect()
 }
 
-/// The sessions running in other terminals.
+/// Lists the sessions running in other terminals.
 pub fn running() -> Vec<LiveSession> {
     RUNNING
         .iter()
@@ -281,7 +281,7 @@ pub fn running() -> Vec<LiveSession> {
         .collect()
 }
 
-/// The folders Claude Code was used in, most recent first.
+/// Lists the folders Claude Code was used in, most recent first.
 pub fn projects() -> Vec<ProjectInfo> {
     let mut projects: Vec<ProjectInfo> = FOLDERS
         .iter()
@@ -294,7 +294,7 @@ pub fn projects() -> Vec<ProjectInfo> {
     projects
 }
 
-/// Every demo folder with its recent saved sessions, most recent first.
+/// Lists every demo folder with its recent saved sessions, most recent first.
 pub fn overview() -> Vec<crate::ipc::ProjectOverview> {
     let mut projects: Vec<crate::ipc::ProjectOverview> = FOLDERS
         .iter()
@@ -312,7 +312,7 @@ pub fn overview() -> Vec<crate::ipc::ProjectOverview> {
     projects
 }
 
-/// The transcript at `path`, found by the session id it is named after.
+/// Returns the transcript at `path`, found by the session id it is named after.
 pub fn transcript(path: &Path) -> Option<&'static str> {
     let id = Uuid::try_parse(path.file_stem()?.to_str()?).ok()?;
     SAVED
@@ -322,8 +322,8 @@ pub fn transcript(path: &Path) -> Option<&'static str> {
         .map(|saved| saved.transcript.as_str())
 }
 
-/// What a folder would run as Claude Code starts there, unless it is trusted: only the cloned
-/// one has anything to say.
+/// Returns what a folder would run as Claude Code starts there, unless it is trusted; only the
+/// cloned one has anything to say.
 pub fn untrusted(folder: &Path) -> Option<Vec<Runs>> {
     (folder == Folder::GpxViewer.path()).then(|| {
         vec![

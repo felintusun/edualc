@@ -379,7 +379,7 @@ async fn questions(turn: &Turn) -> Result<&'static str, Interrupted> {
     Ok("Answered.")
 }
 
-/// The answers the window gave to AskUserQuestion, by question.
+/// Returns the answers the window gave to AskUserQuestion, by question.
 fn given_answers(answer: &PermissionResult) -> BTreeMap<String, String> {
     match answer {
         PermissionResult::Allow {
@@ -438,12 +438,11 @@ async fn chart(turn: &Turn) -> Result<&'static str, Interrupted> {
     Ok("Charted.")
 }
 
-/// Whether the window allowed the call.
 fn allowed(answer: &PermissionResult) -> bool {
     matches!(answer, PermissionResult::Allow { .. })
 }
 
-/// A denial's result, with what the user said to do instead.
+/// Makes a denial's result, with what you said to do instead.
 fn declined(answer: &PermissionResult) -> UserContent {
     let said = match answer {
         PermissionResult::Deny { message, .. } => message.as_str(),
@@ -452,7 +451,7 @@ fn declined(answer: &PermissionResult) -> UserContent {
     text(format!("{} {said}", crate::external::wire::DENIED))
 }
 
-/// A tool's result of text alone.
+/// Makes a tool's result of text alone.
 fn text(text: impl Into<String>) -> UserContent {
     UserContent::Text(text.into())
 }
@@ -465,7 +464,7 @@ fn command(command: &str, description: &str) -> serde_json::Value {
     ))
 }
 
-/// The answer to `initialize`: the models, commands and account the window lists.
+/// Returns the answer to `initialize`: the models, commands and account the window lists.
 pub fn initialized() -> Initialized {
     let model =
         |value: &str, display_name: &str, resolved_model: &str, description: &str| ModelInfo {
@@ -516,7 +515,7 @@ pub fn initialized() -> Initialized {
     }
 }
 
-/// The answer to a side question (`/btw`).
+/// Returns the answer to a side question (`/btw`).
 pub fn side_answer(question: &str) -> &'static str {
     let lowered = question.to_lowercase();
     if lowered.contains("3 m") || lowered.contains("threshold") {
@@ -534,7 +533,7 @@ pub fn side_answer(question: &str) -> &'static str {
     }
 }
 
-/// A `!` command, run "in the project": a few are played, the rest say so.
+/// Plays a `!` command run "in the project": a few are played, the rest say they aren't.
 pub fn shell(out: &Out, command: &str) {
     let command = command.trim();
     let (stdout, stderr) = if command.starts_with("git log") {

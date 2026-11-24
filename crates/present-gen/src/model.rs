@@ -91,7 +91,7 @@ impl Scalar {
         }
     }
 
-    /// The Rust type the presentation model holds it as.
+    /// Returns the Rust type the presentation model holds it as.
     pub fn rust(self) -> &'static str {
         match self {
             Self::String => "String",
@@ -103,7 +103,7 @@ impl Scalar {
         }
     }
 
-    /// Whether it is a float, which has no `Eq`.
+    /// Returns whether it is a float, which has no `Eq`.
     pub fn is_float(self) -> bool {
         matches!(self, Self::Float | Self::Length)
     }
@@ -133,7 +133,7 @@ pub enum Kind {
 }
 
 impl Kind {
-    /// The Rust type the presentation model holds it as.
+    /// Returns the Rust type the presentation model holds it as.
     pub fn rust(&self) -> String {
         match self {
             Self::One(item) => item.rust().to_owned(),
@@ -189,7 +189,7 @@ impl Model {
         Self::parse(types, types_source, state, state_source)
     }
 
-    /// The model from the two files' text; the paths only name them in errors.
+    /// Parses the model from the two files' text; the paths only name them in errors.
     pub fn parse(
         types: &Path,
         types_source: String,
@@ -282,7 +282,8 @@ impl Model {
         })
     }
 
-    /// Whether a value of this type holds a float anywhere, through the structs it holds.
+    /// Returns whether a value of this type holds a float anywhere, through the structs it
+    /// holds.
     pub fn has_float(&self, kind: &Kind) -> bool {
         self.item_has_float(kind.item(), &mut Vec::new())
     }
@@ -328,7 +329,7 @@ fn document(path: &Path, source: String) -> Result<SyntaxNode, ReadError> {
     Ok(document)
 }
 
-/// What a document exports, in the order written.
+/// Returns what a document exports, in the order written.
 fn exported(document: &SyntaxNode) -> impl Iterator<Item = SyntaxNode> {
     document
         .children()
@@ -344,7 +345,8 @@ fn declared_name(declaration: &SyntaxNode) -> String {
         .to_string()
 }
 
-/// The keywords written directly in a node, before its parts: `global`, or `in property`.
+/// Returns the keywords written directly in a node, before its parts: `global`, or
+/// `in property`.
 fn keywords(node: &SyntaxNode) -> impl Iterator<Item = String> {
     node.children_with_tokens()
         .filter_map(|child| child.as_token().cloned())
@@ -356,12 +358,13 @@ fn is_global(component: &SyntaxNode) -> bool {
     keywords(component).any(|keyword| keyword == "global")
 }
 
-/// Whether a property is declared `in`: set from outside and only read inside, unlike `in-out`.
+/// Returns whether a property is declared `in`: set from outside and only read inside, unlike
+/// `in-out`.
 fn set_from_outside(property: &SyntaxNode) -> bool {
     keywords(property).eq(["in", "property"])
 }
 
-/// The type of a struct's member or a property, from its `Type` node.
+/// Reads the type of a struct's member or a property from its `Type` node.
 fn kind_of(
     node: &SyntaxNode,
     owner: &str,

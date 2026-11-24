@@ -13,7 +13,7 @@ const GENERATED: &str =
 /// code that only grew keeps until it is coloured again.
 const DRAWN_BY_THE_WINDOW: [(&str, &str); 1] = [("MdBlock", "body")];
 
-/// `kebab-case` to `CamelCase`.
+/// Turns `kebab-case` into `CamelCase`.
 fn camel(name: &str) -> String {
     name.split('-')
         .map(|part| {
@@ -25,7 +25,7 @@ fn camel(name: &str) -> String {
         .collect()
 }
 
-/// `kebab-case` to `snake_case`.
+/// Turns `kebab-case` into `snake_case`.
 fn snake(name: &str) -> String {
     name.replace('-', "_")
 }
@@ -52,8 +52,8 @@ fn rust_record(model: &Model, record: &Record, out: &mut Vec<String>) {
     out.push("}\n".to_owned());
 }
 
-/// `crates/core/src/present/model.rs`: the model as plain Rust data, which the presenter fills
-/// and every frontend shows.
+/// Writes `crates/core/src/present/model.rs`: the model as plain Rust data, which the presenter
+/// fills and every frontend shows.
 pub fn present(model: &Model) -> String {
     let mut out = vec![format!(
         "//! What the window shows, as plain data: the Slint window's types, for every frontend.
@@ -84,9 +84,9 @@ use super::{{Image, Styled}};
     out.join("\n")
 }
 
-/// `crates/slint/src/ui/model.rs`: the model as Slint's types, and each presented global brought
-/// in line with a new state, setting only what changed and changing list models row by row (a
-/// row that stays keeps its selection and what was typed into it).
+/// Writes `crates/slint/src/ui/model.rs`: the model as Slint's types, and code that brings each
+/// presented global in line with a new state. It sets only what changed and changes list
+/// models row by row, so that a row that stays keeps its selection and what was typed into it.
 pub fn slint(model: &Model) -> String {
     let mut out = vec![format!(
         "//! The presentation model as Slint's types, and the window's globals brought in line with it.
