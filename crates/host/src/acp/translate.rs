@@ -1397,8 +1397,14 @@ impl Translator {
         if entries.is_empty() {
             return Vec::new();
         }
+        let input = match serde_json::to_value(plan_todos(entries)) {
+            Ok(input) => input,
+            Err(error) => {
+                tracing::warn!(%error, "the agent's plan can't be written: not shown");
+                return Vec::new();
+            }
+        };
         let id = self.local_id("plan");
-        let input = serde_json::to_value(plan_todos(entries)).unwrap_or(Value::Null);
         let tool_use = ContentBlock::ToolUse {
             id: ToolUseId::from(id.clone()),
             name: ToolName::TodoWrite,
