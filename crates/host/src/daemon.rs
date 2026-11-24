@@ -15,9 +15,10 @@ use tokio::task::JoinSet;
 use tokio::time::Instant;
 
 use crate::ipc::{self, FromDaemon, ToDaemon};
+use crate::sessions::ClaudeHome;
 use crate::{files, snapshots};
 
-use connection::{WindowId, window, window_over};
+use connection::{Shared, WindowId, window, window_over};
 use hub::Hub;
 
 /// How long the daemon waits, with no window and no session, before it ends.
@@ -69,6 +70,12 @@ pub fn run(options: Options) -> std::process::ExitCode {
     {
         tracing::warn!(%error, "the daemon stays open to the user's other processes");
     }
+    let Some(claude) = ClaudeHome::of_user() else {
+        tracing::error!(
+            "no folder of Claude Code's: neither $CLAUDE_CONFIG_DIR nor a home folder is set"
+        );
+        return std::process::ExitCode::FAILURE;
+    };
     let folder = match ipc::Folder::open() {
         Ok(folder) => folder,
         Err(error) => {
@@ -97,7 +104,7 @@ pub fn run(options: Options) -> std::process::ExitCode {
             return std::process::ExitCode::FAILURE;
         }
     };
-    match runtime.block_on(serve(listener, options)) {
+    match runtime.block_on(serve(listener, options, claude)) {
         Ok(()) => std::process::ExitCode::SUCCESS,
         Err(error) => {
             tracing::error!(%error, "the daemon failed");
@@ -107,7 +114,11 @@ pub fn run(options: Options) -> std::process::ExitCode {
 }
 
 /// Takes windows as they connect, until no window and no session is left for [`IDLE`].
-async fn serve(listener: ipc::Listener, options: Options) -> Result<(), ipc::Error> {
+async fn serve(
+    listener: ipc::Listener,
+    options: Options,
+    claude: ClaudeHome,
+) -> Result<(), ipc::Error> {
     let lingers = options.network.is_some();
     let mut network = options.network.map(|config| {
         let (lines, taken) = mpsc::channel(QUEUE);
@@ -129,7 +140,8 @@ async fn serve(listener: ipc::Listener, options: Options) -> Result<(), ipc::Err
     let (running, mut sessions) = watch::channel(0usize);
     // With no state folder, nothing keeps the changes, and what is sent for them is dropped.
     let (keeper, jobs) = mpsc::channel(QUEUE);
-    let keeper_task = snapshots::home().map(|home| tokio::spawn(snapshots::keep(home, jobs)));
+    let keeper_task =
+        snapshots::home().map(|home| tokio::spawn(snapshots::keep(home, claude.clone(), jobs)));
     let hub_task = tokio::spawn(Hub::default().event_loop(
         requests,
         running,
@@ -140,6 +152,13 @@ async fn serve(listener: ipc::Listener, options: Options) -> Result<(), ipc::Err
     tokio::spawn(files::keep_settings(settings_changes));
     let (catalog, catalog_queries) = mpsc::channel(QUEUE);
     tokio::spawn(files::keep_catalog(catalog_queries));
+    let shared = Shared {
+        hub,
+        keeper,
+        settings_keeper,
+        catalog,
+        claude,
+    };
     let mut windows = JoinSet::new();
     let mut last_window = WindowId::default();
     let mut quiet_since = Some(Instant::now());
@@ -154,14 +173,7 @@ async fn serve(listener: ipc::Listener, options: Options) -> Result<(), ipc::Err
             accepted = ipc::AsyncChannel::accept(&listener) => match accepted {
                 Ok(channel) => {
                     last_window = last_window.next();
-                    windows.spawn(window(
-                        channel,
-                        last_window,
-                        hub.clone(),
-                        keeper.clone(),
-                        settings_keeper.clone(),
-                        catalog.clone(),
-                    ));
+                    windows.spawn(window(channel, last_window, shared.clone()));
                     quiet_since = None;
                 }
                 Err(error) => tracing::warn!(%error, "refused a connection"),
@@ -174,14 +186,7 @@ async fn serve(listener: ipc::Listener, options: Options) -> Result<(), ipc::Err
             } => match line {
                 Some(line) => {
                     last_window = last_window.next();
-                    windows.spawn(window_over(
-                        line,
-                        last_window,
-                        hub.clone(),
-                        keeper.clone(),
-                        settings_keeper.clone(),
-                        catalog.clone(),
-                    ));
+                    windows.spawn(window_over(line, last_window, shared.clone()));
                     quiet_since = None;
                 }
                 None => {
@@ -215,6 +220,7 @@ async fn serve(listener: ipc::Listener, options: Options) -> Result<(), ipc::Err
     }
     // The hub's requests close; it ends its sessions, and is awaited; then the keeper, once
     // they have sent it their last turns.
+    let Shared { hub, keeper, .. } = shared;
     drop(hub);
     if let Err(error) = hub_task.await {
         tracing::error!(%error, "the hub failed");
@@ -271,14 +277,14 @@ mod tests {
         let (hub, _hub_requests) = mpsc::channel(8);
         let (settings_keeper, _settings_changes) = mpsc::channel(8);
         let (catalog, _catalog_queries) = mpsc::channel(8);
-        let window = tokio::spawn(window_over(
-            line,
-            WindowId(1),
+        let shared = Shared {
             hub,
-            no_keeper(),
+            keeper: no_keeper(),
             settings_keeper,
             catalog,
-        ));
+            claude: ClaudeHome::moved_to(PathBuf::from("/nowhere")),
+        };
+        let window = tokio::spawn(window_over(line, WindowId(1), shared));
         asks.send(ToDaemon::Hello {
             protocol: ipc::PROTOCOL,
         })

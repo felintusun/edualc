@@ -227,28 +227,52 @@ pub enum LiveStatus {
     Other,
 }
 
-pub fn config_dir() -> PathBuf {
-    std::env::var_os("CLAUDE_CONFIG_DIR").map_or_else(
-        || dirs::home_dir().unwrap_or_default().join(".claude"),
-        PathBuf::from,
-    )
+/// Claude Code's own folder, where it keeps its settings, transcripts and the records of the
+/// sessions running: `$CLAUDE_CONFIG_DIR`, else `~/.claude`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ClaudeHome {
+    dir: PathBuf,
+    /// `.claude.json`: beside the folder, or in it when `$CLAUDE_CONFIG_DIR` moves it.
+    global_config: PathBuf,
+}
+
+impl ClaudeHome {
+    /// Returns yours; `None` where neither `$CLAUDE_CONFIG_DIR` nor a home folder is set.
+    pub fn of_user() -> Option<Self> {
+        match std::env::var_os("CLAUDE_CONFIG_DIR").filter(|dir| !dir.is_empty()) {
+            Some(dir) => Some(Self::moved_to(PathBuf::from(dir))),
+            None => dirs::home_dir().map(|home| Self {
+                dir: home.join(".claude"),
+                global_config: home.join(".claude.json"),
+            }),
+        }
+    }
+
+    /// Returns a home moved to `dir`, as `$CLAUDE_CONFIG_DIR` moves it, with `.claude.json` in
+    /// it.
+    pub fn moved_to(dir: PathBuf) -> Self {
+        Self {
+            global_config: dir.join(".claude.json"),
+            dir,
+        }
+    }
+
+    pub fn global_config(&self) -> &Path {
+        &self.global_config
+    }
+
+    /// Returns the folder of the records of the sessions running.
+    pub fn records(&self) -> PathBuf {
+        self.dir.join("sessions")
+    }
+
+    fn projects(&self) -> PathBuf {
+        self.dir.join("projects")
+    }
 }
 
 /// `~/.claude.json` runs to hundreds of kilobytes; anything far larger isn't that file.
 pub const GLOBAL_CONFIG_BYTES: u64 = 64 * 1024 * 1024;
-
-/// Returns where Claude Code keeps `.claude.json`: beside its configuration folder, or in it
-/// when that is moved.
-pub fn global_config_path() -> PathBuf {
-    std::env::var_os("CLAUDE_CONFIG_DIR").map_or_else(
-        || dirs::home_dir().unwrap_or_default().join(".claude.json"),
-        |dir| PathBuf::from(dir).join(".claude.json"),
-    )
-}
-
-fn projects_dir() -> PathBuf {
-    config_dir().join("projects")
-}
 
 /// Returns a project's folder name as Claude Code writes it: its path with each character but
 /// a letter or a digit made a dash.
@@ -265,43 +289,25 @@ pub fn project_name(cwd: &Path) -> String {
         .collect()
 }
 
-fn project_dir(cwd: &Path) -> PathBuf {
-    projects_dir().join(project_name(cwd))
+fn project_dir(projects: &Path, cwd: &Path) -> PathBuf {
+    projects.join(project_name(cwd))
 }
 
-/// Returns the folders a project's transcripts are in, in each of [`transcript_homes`].
-fn project_dirs(cwd: &Path) -> Vec<PathBuf> {
-    let name = project_name(cwd);
-    transcript_homes()
-        .into_iter()
-        .map(|projects| projects.join(&name))
-        .collect()
-}
-
-/// Returns the folders a project's sessions are in, in each of `homes`: its own and those of
-/// its worktrees. Claude Code keeps worktrees in `.claude/worktrees/`, and moves the transcript
-/// of a session that enters one to the worktree's folder.
-fn session_dirs(homes: &[PathBuf], cwd: &Path) -> Vec<PathBuf> {
+/// Returns the folders in `projects` a project's sessions are in: its own and those of its
+/// worktrees. Claude Code keeps worktrees in `.claude/worktrees/`, and moves the transcript of
+/// a session that enters one to the worktree's folder.
+fn session_dirs(projects: &Path, cwd: &Path) -> Vec<PathBuf> {
     let name = project_name(cwd);
     let worktrees = format!("{name}--claude-worktrees-");
-    homes
-        .iter()
-        .flat_map(|home| {
-            let in_worktrees = std::fs::read_dir(home)
-                .into_iter()
-                .flatten()
-                .filter_map(Result::ok)
-                .filter(|entry| entry.file_name().to_string_lossy().starts_with(&worktrees))
-                .map(|entry| entry.path());
-            std::iter::once(home.join(&name)).chain(in_worktrees)
-        })
+    let in_worktrees = std::fs::read_dir(projects)
+        .into_iter()
+        .flatten()
+        .filter_map(Result::ok)
+        .filter(|entry| entry.file_name().to_string_lossy().starts_with(&worktrees))
+        .map(|entry| entry.path());
+    std::iter::once(projects.join(&name))
+        .chain(in_worktrees)
         .collect()
-}
-
-/// Returns the folders of projects whose transcripts are read as files: Claude Code's alone.
-/// agy and opencode list and load their own sessions (see the ACP adapter).
-fn transcript_homes() -> Vec<PathBuf> {
-    vec![projects_dir()]
 }
 
 /// Returns whether `transcript` is in agy's brain folder.
@@ -360,26 +366,26 @@ pub fn belongs_to_project(session_cwd: &Path, project_cwd: &Path) -> bool {
 }
 
 /// Returns where a Claude Code session in `cwd` keeps its transcript.
-pub fn transcript_path(cwd: &Path, id: &SessionId) -> PathBuf {
-    project_dir(cwd).join(format!("{}.jsonl", id.as_str()))
+pub fn transcript_path(home: &ClaudeHome, cwd: &Path, id: &SessionId) -> PathBuf {
+    project_dir(&home.projects(), cwd).join(format!("{}.jsonl", id.as_str()))
 }
 
 /// Finds a session's transcript: under its folder's project, or another project's if it moved
 /// there by entering a worktree. The newest wins if more than one has it.
-pub fn find_transcript(cwd: &Path, id: &SessionId) -> Option<PathBuf> {
-    let name = format!("{}.jsonl", id.as_str());
-    newest(project_dirs(cwd).into_iter().map(|dir| dir.join(&name)))
-        .or_else(|| transcript_in_any(&transcript_homes(), id))
+pub fn find_transcript(home: &ClaudeHome, cwd: &Path, id: &SessionId) -> Option<PathBuf> {
+    Some(transcript_path(home, cwd, id))
+        .filter(|path| path.is_file())
+        .or_else(|| transcript_in_any(&home.projects(), id))
 }
 
-/// Finds session `id`'s transcript in any project in `homes`; the newest if more than one has
-/// it.
-fn transcript_in_any(homes: &[PathBuf], id: &SessionId) -> Option<PathBuf> {
+/// Finds session `id`'s transcript in any project in `projects`; the newest if more than one
+/// has it.
+fn transcript_in_any(projects: &Path, id: &SessionId) -> Option<PathBuf> {
     let name = format!("{}.jsonl", id.as_str());
     newest(
-        homes
-            .iter()
-            .flat_map(|projects| std::fs::read_dir(projects).into_iter().flatten())
+        std::fs::read_dir(projects)
+            .into_iter()
+            .flatten()
             .filter_map(Result::ok)
             .map(|entry| entry.path().join(&name)),
     )
@@ -397,12 +403,8 @@ pub enum Saved {
 }
 
 /// Returns what session `id`'s transcript says of it, whichever project keeps it.
-pub fn saved(id: &SessionId) -> Saved {
-    saved_in(&transcript_homes(), id)
-}
-
-fn saved_in(homes: &[PathBuf], id: &SessionId) -> Saved {
-    match transcript_in_any(homes, id) {
+pub fn saved(home: &ClaudeHome, id: &SessionId) -> Saved {
+    match transcript_in_any(&home.projects(), id) {
         None => Saved::Nowhere,
         Some(transcript) => recorded_cwd(&transcript).map_or(Saved::Unplaced, Saved::StartedIn),
     }
@@ -410,8 +412,8 @@ fn saved_in(homes: &[PathBuf], id: &SessionId) -> Saved {
 
 /// Returns where session `id` working in `cwd` writes its transcript, or will (see
 /// [`transcript_in`]).
-pub fn written_transcript(cwd: &Path, id: &SessionId) -> PathBuf {
-    transcript_in(&projects_dir(), cwd, id)
+pub fn written_transcript(home: &ClaudeHome, cwd: &Path, id: &SessionId) -> PathBuf {
+    transcript_in(&home.projects(), cwd, id)
 }
 
 /// Returns where session `id` working in `cwd` has its transcript in `projects`: under its
@@ -442,11 +444,6 @@ fn newest(paths: impl Iterator<Item = PathBuf>) -> Option<PathBuf> {
         })
         .max_by_key(|(modified, _)| *modified)
         .map(|(_, path)| path)
-}
-
-/// Returns where a session's transcript is, or will be once written.
-pub fn locate(cwd: &Path, id: &SessionId) -> PathBuf {
-    find_transcript(cwd, id).unwrap_or_else(|| transcript_path(cwd, id))
 }
 
 /// Lists the transcripts in a folder, newest first.
@@ -485,17 +482,23 @@ fn transcripts(dir: &Path) -> Vec<(PathBuf, SystemTime)> {
 /// without a prompt are left out, and those in `known` whose transcript hasn't changed aren't
 /// read again.
 #[cfg(not(target_arch = "wasm32"))]
-pub fn list(cwd: &Path, limit: usize, known: Vec<SessionInfo>) -> Vec<SessionInfo> {
+pub fn list(
+    home: &ClaudeHome,
+    cwd: &Path,
+    limit: usize,
+    known: Vec<SessionInfo>,
+) -> Vec<SessionInfo> {
     let mut known: HashMap<SessionId, SessionInfo> = known
         .into_iter()
         .map(|session| (session.id.clone(), session))
         .collect();
-    let mut files: Vec<(PathBuf, SystemTime)> = session_dirs(&transcript_homes(), cwd)
+    let mut files: Vec<(PathBuf, SystemTime)> = session_dirs(&home.projects(), cwd)
         .iter()
         .flat_map(|dir| transcripts(dir))
         .collect();
     files.sort_by_key(|(_, modified)| std::cmp::Reverse(*modified));
-    // A session in both homes is listed once, as its newer transcript has it.
+    // A session in the project and in one of its worktrees is listed once, as its newer
+    // transcript has it.
     let mut seen = std::collections::HashSet::new();
     files.retain(|(path, _)| seen.insert(path.file_name().map(std::ffi::OsStr::to_owned)));
     files
@@ -524,16 +527,17 @@ pub fn list(cwd: &Path, limit: usize, known: Vec<SessionInfo>) -> Vec<SessionInf
 
 /// Lists every folder Claude Code was used in that still exists, most recent first.
 #[cfg(not(target_arch = "wasm32"))]
-pub fn projects() -> Vec<ProjectInfo> {
-    let mut projects: Vec<_> = transcript_homes()
-        .iter()
-        .flat_map(|projects| match std::fs::read_dir(projects) {
-            Ok(entries) => entries.filter_map(Result::ok).collect(),
-            Err(error) => {
-                tracing::debug!(%error, dir = %projects.display(), "no projects");
-                Vec::new()
-            }
-        })
+pub fn projects(home: &ClaudeHome) -> Vec<ProjectInfo> {
+    let folder = home.projects();
+    let entries = match std::fs::read_dir(&folder) {
+        Ok(entries) => entries,
+        Err(error) => {
+            tracing::debug!(%error, dir = %folder.display(), "no projects");
+            return Vec::new();
+        }
+    };
+    let mut projects: Vec<_> = entries
+        .filter_map(Result::ok)
         .filter_map(|entry| {
             let (newest, modified) = transcripts(&entry.path()).into_iter().next()?;
             let path = recorded_cwd(&newest)?;
@@ -541,7 +545,8 @@ pub fn projects() -> Vec<ProjectInfo> {
         })
         .collect();
     projects.sort_by_key(|project| std::cmp::Reverse(project.modified));
-    // A project with sessions in both homes is listed once.
+    // A project whose sessions are kept in more than one folder, as a worktree's are, is
+    // listed once.
     let mut seen = std::collections::HashSet::new();
     projects.retain(|project| seen.insert(project.path.clone()));
     projects
@@ -549,8 +554,8 @@ pub fn projects() -> Vec<ProjectInfo> {
 
 /// Lists the sessions Claude Code processes run now, but not our own (`claude -p`).
 #[cfg(not(target_arch = "wasm32"))]
-pub fn live() -> Vec<LiveSession> {
-    let dir = config_dir().join("sessions");
+pub fn live(home: &ClaudeHome) -> Vec<LiveSession> {
+    let dir = home.records();
     let entries = match std::fs::read_dir(&dir) {
         Ok(entries) => entries,
         Err(error) => {
@@ -577,7 +582,7 @@ pub fn live() -> Vec<LiveSession> {
             let shown = matches!(record.kind, LiveKind::Interactive | LiveKind::Bg)
                 && record.pid != std::process::id();
             (shown && process::is_running(record.pid, &started)).then(|| {
-                let transcript = find_transcript(&record.cwd, &record.session_id);
+                let transcript = find_transcript(home, &record.cwd, &record.session_id);
                 LiveSession {
                     pid: record.pid,
                     started,
@@ -1074,8 +1079,11 @@ mod tests {
 
     #[test]
     fn project_dirs_are_named_like_claude_code_names_them() {
-        let dir = project_dir(Path::new("/home/someone/code/my_project.v2"));
-        assert!(dir.ends_with("-home-someone-code-my-project-v2"));
+        let dir = project_dir(
+            Path::new("/projects"),
+            Path::new("/home/someone/code/my_project.v2"),
+        );
+        assert_eq!(dir, Path::new("/projects/-home-someone-code-my-project-v2"));
     }
 
     #[test]
@@ -1088,7 +1096,7 @@ mod tests {
         for dir in [&own, &in_worktree, &other] {
             std::fs::create_dir_all(dir).expect("a scratch transcripts folder");
         }
-        let mut found = session_dirs(std::slice::from_ref(&home), cwd);
+        let mut found = session_dirs(&home, cwd);
         found.sort();
         assert_eq!(found, [own, in_worktree]);
         std::fs::remove_dir_all(&home).expect("the scratch directory goes");
@@ -1182,31 +1190,27 @@ mod tests {
     #[test]
     fn a_session_goes_on_where_it_was_started() {
         let scratch = std::env::temp_dir().join(format!("edualc-started-{}", std::process::id()));
-        let (users, agys) = (scratch.join("users"), scratch.join("agy"));
+        let home = ClaudeHome::moved_to(scratch.clone());
+        let projects = scratch.join("projects");
         let id =
             SessionId::try_from("5d6e7f80-91a2-4b3c-8d4e-5f60718293a4".to_owned()).expect("an id");
-        let transcript = agys.join("-w-app").join(format!("{id}.jsonl"));
+        let transcript = projects.join("-w-app").join(format!("{id}.jsonl"));
         std::fs::create_dir_all(transcript.parent().expect("a folder")).expect("a project");
-        std::fs::create_dir_all(&users).expect("a home");
         let line = |cwd: &str| json!({ "type": "user", "cwd": cwd, "sessionId": id.as_str() });
         std::fs::write(
             &transcript,
             format!("{}\n{}\n", line("/w/app"), line("/somewhere/else")),
         )
         .expect("a transcript");
-        let homes = [users.clone(), agys];
-        assert_eq!(
-            saved_in(&homes, &id),
-            Saved::StartedIn(PathBuf::from("/w/app"))
-        );
+        assert_eq!(saved(&home, &id), Saved::StartedIn(PathBuf::from("/w/app")));
         let unknown =
             SessionId::try_from("00000000-1111-4222-8333-444444444444".to_owned()).expect("an id");
-        assert_eq!(saved_in(&homes, &unknown), Saved::Nowhere);
-        let unplaced = users.join("-w-lib").join(format!("{unknown}.jsonl"));
+        assert_eq!(saved(&home, &unknown), Saved::Nowhere);
+        let unplaced = projects.join("-w-lib").join(format!("{unknown}.jsonl"));
         std::fs::create_dir_all(unplaced.parent().expect("a folder")).expect("a project");
         std::fs::write(&unplaced, format!("{}\n", json!({ "type": "summary" })))
             .expect("a transcript");
-        assert_eq!(saved_in(&homes, &unknown), Saved::Unplaced);
+        assert_eq!(saved(&home, &unknown), Saved::Unplaced);
         std::fs::remove_dir_all(&scratch).expect("the scratch folder goes");
     }
 

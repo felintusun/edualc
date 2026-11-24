@@ -14,7 +14,7 @@ use zeroize::Zeroizing;
 use crate::external::claude_files::{InboxLine, SessionKey, SessionRecord};
 use crate::ids::SessionId;
 use crate::process;
-use crate::sessions::MessagingName;
+use crate::sessions::{ClaudeHome, MessagingName};
 
 /// The most a peer may post on one connection.
 const POSTED_BYTES: u64 = 1024 * 1024;
@@ -72,8 +72,14 @@ impl Drop for Published {
 }
 
 impl Inbox {
-    /// Opens the inbox of session `id`, working in `cwd`, named `name` for others to message.
-    pub fn open(id: &SessionId, cwd: &Path, name: &MessagingName) -> Result<Self, Error> {
+    /// Opens the inbox of session `id`, working in `cwd`, named `name` for others to message,
+    /// and publishes its record in `claude`.
+    pub fn open(
+        claude: &ClaudeHome,
+        id: &SessionId,
+        cwd: &Path,
+        name: &MessagingName,
+    ) -> Result<Self, Error> {
         let pid = std::process::id();
         let started = process::stat(pid).ok_or(Error::NoStart)?.started;
         let runtime = dirs::runtime_dir().ok_or(Error::NoRuntime)?;
@@ -92,7 +98,7 @@ impl Inbox {
         let token = Token(Zeroizing::new(hex(&random)));
         random.fill(0);
 
-        let sessions = crate::sessions::config_dir().join("sessions");
+        let sessions = claude.records();
         std::fs::DirBuilder::new()
             .recursive(true)
             .mode(0o700)

@@ -160,8 +160,9 @@ pub fn begin(
         view::PageFrontend::new(view),
         events,
         link,
-        // A page or a phone can't bring another program's window forward.
-        Desktop::of(&greeting, view::DESKTOP_TEXT_SIZE, false),
+        // A page or a phone can't bring another program's window forward, nor read Claude
+        // Code's folder on edualcd's machine.
+        Desktop::of(&greeting, view::DESKTOP_TEXT_SIZE, false, None),
         greeting.settings.clone(),
         edualc_core::app::Start {
             cwd,

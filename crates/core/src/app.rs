@@ -25,7 +25,7 @@ use crate::present::{Command, Frontend, OverviewView, Presenter, Seat};
 use crate::provider;
 use crate::repeat::Repeat;
 use crate::sessions::{
-    self, LiveSession, LiveStatus, MessagingName, ProjectInfo, SessionInfo, Worktree,
+    self, ClaudeHome, LiveSession, LiveStatus, MessagingName, ProjectInfo, SessionInfo, Worktree,
 };
 use crate::settings::{self, Settings, Zoom};
 use crate::sidebar;
@@ -1059,6 +1059,8 @@ pub struct App<F: Frontend> {
     settings: Settings,
     /// The desktop's text size, in logical pixels, which the zoom scales.
     desktop_text_size: f32,
+    /// Claude Code's folder, where this window can read it (see [`Desktop`]).
+    claude_home: Option<ClaudeHome>,
     /// The program named on the command line, restored on the project and start pages.
     default_backend: provider::Backend,
     /// The programs on PATH when the window connected.
@@ -1132,6 +1134,7 @@ impl<F: Frontend> App<F> {
             finds_windows,
             text_size: desktop_text_size,
             backends: available_backends,
+            claude_home,
         } = desktop_found;
         let mut view = Presenter::new(frontend, finds_windows);
         let (settings, settings_problem) = match settings {
@@ -1206,6 +1209,7 @@ impl<F: Frontend> App<F> {
             told_shown: None,
             settings,
             desktop_text_size,
+            claude_home,
             default_backend: backend,
             available_backends,
             start_filter: String::new(),
@@ -2150,16 +2154,25 @@ pub struct Desktop {
     text_size: f32,
     /// The programs on PATH when the window connected.
     backends: Vec<provider::Backend>,
+    /// Claude Code's folder, for a window on the daemon's machine, which can read it.
+    claude_home: Option<ClaudeHome>,
 }
 
 impl Desktop {
-    /// Takes what the daemon told, the desktop's text size in logical pixels, and whether other
-    /// programs' windows can be found here.
-    pub fn of(greeting: &link::Greeting, text_size: f32, finds_windows: bool) -> Self {
+    /// Takes what the daemon told, the desktop's text size in logical pixels, whether other
+    /// programs' windows can be found here, and Claude Code's folder if this window shares the
+    /// daemon's machine.
+    pub fn of(
+        greeting: &link::Greeting,
+        text_size: f32,
+        finds_windows: bool,
+        claude_home: Option<ClaudeHome>,
+    ) -> Self {
         Self {
             finds_windows,
             text_size,
             backends: greeting.backends.clone(),
+            claude_home,
         }
     }
 
@@ -2170,6 +2183,7 @@ impl Desktop {
             finds_windows: false,
             text_size,
             backends: vec![provider::Backend::Claude],
+            claude_home: None,
         }
     }
 }
@@ -2284,6 +2298,7 @@ mod tests {
                     finds_windows: false,
                     text_size: 14.0,
                     backends: vec![provider::Backend::Claude],
+                    claude_home: None,
                 },
                 Ok(Settings::default()),
                 Start {
@@ -3198,6 +3213,7 @@ mod tests {
                     finds_windows: false,
                     text_size: 14.0,
                     backends: vec![provider::Backend::Claude],
+                    claude_home: None,
                 },
                 Ok(settings),
                 Start {

@@ -22,7 +22,9 @@ use crate::folder::Folder;
 use crate::ids::SessionId;
 use crate::ipc::{self, ActId, Answer, FromDaemon, Place, ProjectOverview, Read, Target, Watched};
 use crate::provider::Backend;
-use crate::sessions::{LiveKind, LiveSession, LiveStatus, MessagingName, ProjectInfo, SessionInfo};
+use crate::sessions::{
+    ClaudeHome, LiveKind, LiveSession, LiveStatus, MessagingName, ProjectInfo, SessionInfo,
+};
 use crate::{sessions, settings, snapshots};
 
 /// Where what is told to a window goes.
@@ -117,9 +119,12 @@ pub(crate) enum ClaudeTrust {
 
 /// Returns whether Claude Code applies `folder`'s own settings, which it does once the
 /// folder's record says it is trusted.
-pub(crate) fn trusted_for_claude_code(folder: &Path) -> Result<bool, ClaudeTrustError> {
-    let config = sessions::global_config_path();
-    let path = std::fs::canonicalize(&config).unwrap_or(config);
+pub(crate) fn trusted_for_claude_code(
+    home: &ClaudeHome,
+    folder: &Path,
+) -> Result<bool, ClaudeTrustError> {
+    let config = home.global_config();
+    let path = std::fs::canonicalize(config).unwrap_or_else(|_| config.to_owned());
     Ok(read_claude_json(&path)?
         .projects
         .get(&claude_project_key(folder))
@@ -132,9 +137,12 @@ pub(crate) fn trusted_for_claude_code(folder: &Path) -> Result<bool, ClaudeTrust
 ///
 /// We write the file as Claude Code does: under its lock, read afresh, with that one record
 /// changed and the rest kept. Nothing is written if the record says so already.
-pub(crate) fn trust_for_claude_code(folder: &Path) -> Result<ClaudeTrust, ClaudeTrustError> {
+pub(crate) fn trust_for_claude_code(
+    home: &ClaudeHome,
+    folder: &Path,
+) -> Result<ClaudeTrust, ClaudeTrustError> {
     trust_in(
-        &sessions::global_config_path(),
+        home.global_config(),
         &claude_project_key(folder),
         &CLAUDE_LOCK_WAITS,
     )
@@ -418,7 +426,7 @@ fn is_agy_board(path: &Path) -> bool {
 
 /// Returns where a transcript is. An agy session's subagents and board are in agy's records,
 /// by the conversation the task names; an agy session started elsewhere is read from its steps.
-pub fn resolve(place: &Place) -> Source {
+pub fn resolve(home: &ClaudeHome, place: &Place) -> Source {
     match place {
         Place::Path(path) => {
             if is_agy_brain_log(path) {
@@ -430,12 +438,12 @@ pub fn resolve(place: &Place) -> Source {
             }
         }
         Place::Session { cwd, id } => {
-            if let Some(found) = sessions::find_transcript(cwd, id) {
+            if let Some(found) = sessions::find_transcript(home, cwd, id) {
                 Source::Transcript(found)
             } else if let Some(brain_log) = agy_brain_transcript(id) {
                 Source::AgySteps(brain_log)
             } else {
-                Source::Transcript(sessions::locate(cwd, id))
+                Source::Transcript(sessions::transcript_path(home, cwd, id))
             }
         }
         Place::Subagent { cwd, id, task } => match (AgyTask::of(task), agy::brain()) {
@@ -446,7 +454,7 @@ pub fn resolve(place: &Place) -> Source {
                 Source::AgyBoard(agy::generated(&brain, &conversation).join("swarm/board.jsonl"))
             }
             (Some(_), None) | (None, _) => Source::Transcript(sessions::transcript_of(
-                &sessions::written_transcript(cwd, id),
+                &sessions::written_transcript(home, cwd, id),
                 task,
             )),
         },
@@ -454,7 +462,13 @@ pub fn resolve(place: &Place) -> Source {
 }
 
 /// Reads what a window asked for, off the runtime's thread, and tells it.
-pub async fn answer(request: ActId, read: Read, outbox: Outbox, catalog: Catalog) {
+pub async fn answer(
+    home: ClaudeHome,
+    request: ActId,
+    read: Read,
+    outbox: Outbox,
+    catalog: Catalog,
+) {
     if let Read::ProviderUsage { backend, cwd } = read {
         let usage = crate::usage::query(backend, cwd).await;
         if outbox
@@ -485,7 +499,8 @@ pub async fn answer(request: ActId, read: Read, outbox: Outbox, catalog: Catalog
     };
     let pieces = outbox.clone();
     let answered =
-        tokio::task::spawn_blocking(move || read_for(request, read, &pieces, &external)).await;
+        tokio::task::spawn_blocking(move || read_for(&home, request, read, &pieces, &external))
+            .await;
     let answer = match answered {
         Ok(answer) => answer,
         Err(error) => {
@@ -506,33 +521,41 @@ pub async fn answer(request: ActId, read: Read, outbox: Outbox, catalog: Catalog
 const OVERVIEW_SESSIONS: usize = 5;
 
 /// Returns what `read` comes to. A transcript's lines go to `pieces` first, as they are read.
-fn read_for(request: ActId, read: Read, pieces: &Outbox, external: &[ExternalSession]) -> Answer {
+fn read_for(
+    home: &ClaudeHome,
+    request: ActId,
+    read: Read,
+    pieces: &Outbox,
+    external: &[ExternalSession],
+) -> Answer {
     match read {
-        Read::Live => Answer::Live(merge_live(sessions::live(), external)),
-        Read::Projects => Answer::Projects(merge_projects(sessions::projects(), external)),
+        Read::Live => Answer::Live(merge_live(sessions::live(home), external)),
+        Read::Projects => Answer::Projects(merge_projects(sessions::projects(home), external)),
         Read::Overview => {
-            let overviews: Vec<ProjectOverview> = merge_projects(sessions::projects(), external)
-                .into_iter()
-                .map(|project| {
-                    let local = sessions::list(&project.path, OVERVIEW_SESSIONS, Vec::new());
-                    let sessions =
-                        merge_sessions(local, external, &project.path, OVERVIEW_SESSIONS);
-                    ProjectOverview {
-                        path: project.path,
-                        modified: project.modified,
-                        sessions,
-                    }
-                })
-                .collect();
+            let overviews: Vec<ProjectOverview> =
+                merge_projects(sessions::projects(home), external)
+                    .into_iter()
+                    .map(|project| {
+                        let local =
+                            sessions::list(home, &project.path, OVERVIEW_SESSIONS, Vec::new());
+                        let sessions =
+                            merge_sessions(local, external, &project.path, OVERVIEW_SESSIONS);
+                        ProjectOverview {
+                            path: project.path,
+                            modified: project.modified,
+                            sessions,
+                        }
+                    })
+                    .collect();
             Answer::Overview(chunk_overview(request, overviews, pieces))
         }
         Read::Sessions { cwd, limit, known } => {
             let limit = limit.min(MOST_SESSIONS);
-            let local = sessions::list(&cwd, limit, known);
+            let local = sessions::list(home, &cwd, limit, known);
             Answer::Sessions(merge_sessions(local, external, &cwd, limit))
         }
         Read::Transcript { place, from } => {
-            let source = resolve(&place);
+            let source = resolve(home, &place);
             // Only a transcript is read, by no link (`sessions::open_transcript`): a place a
             // window names could otherwise lead the daemon to any file of the user's.
             let read = match source.read_from(from) {
@@ -553,7 +576,7 @@ fn read_for(request: ActId, read: Read, pieces: &Outbox, external: &[ExternalSes
             }
         }
         Read::WorktreeOf { cwd, id } => Answer::Worktree(
-            sessions::find_transcript(&cwd, &id)
+            sessions::find_transcript(home, &cwd, &id)
                 .and_then(|transcript| sessions::worktree_of(&transcript)),
         ),
         Read::LinkedWorktree { cwd } => Answer::Worktree(sessions::linked_worktree(&cwd)),
@@ -586,7 +609,7 @@ fn read_for(request: ActId, read: Read, pieces: &Outbox, external: &[ExternalSes
             unreachable!("ProviderUsage is handled asynchronously in files::answer")
         }
         Read::Saved(id) => {
-            let saved = sessions::saved(&id);
+            let saved = sessions::saved(home, &id);
             let saved = if saved == sessions::Saved::Nowhere {
                 external
                     .iter()
@@ -981,7 +1004,7 @@ enum Left {
 /// Keeps a window's watches in one inotify instance, named as the window named them, until the
 /// window's orders end. A thread of its own reads what inotify notices; it ends with the actor,
 /// when the pipe it waits on beside inotify closes.
-pub async fn watch(mut orders: mpsc::Receiver<Order>, outbox: Outbox) {
+pub async fn watch(home: ClaudeHome, mut orders: mpsc::Receiver<Order>, outbox: Outbox) {
     // Not blocking, so the thread reads all there is each time `poll` wakes it.
     let started = inotify::init(CreateFlags::CLOEXEC | CreateFlags::NONBLOCK).and_then(|inotify| {
         let reading = rustix::io::fcntl_dupfd_cloexec(&inotify, 0)?;
@@ -1007,7 +1030,7 @@ pub async fn watch(mut orders: mpsc::Receiver<Order>, outbox: Outbox) {
         let changed: HashSet<Watched> = tokio::select! {
             order = orders.recv() => match order {
                 Some(Order::Watch(watched, target)) => {
-                    let mut watch = start(&target);
+                    let mut watch = start(&home, &target);
                     let mut left = watch.place(&inotify, &mut false);
                     left.extend(watches.insert(watched, watch).and_then(|old| old.descriptor()));
                     forget_unused(&inotify, &watches, left);
@@ -1198,11 +1221,11 @@ fn nearest_folder(goal: &Path) -> Option<PathBuf> {
 }
 
 /// Returns the watch for `target`, not placed yet.
-fn start(target: &Target) -> Watch {
+fn start(home: &ClaudeHome, target: &Target) -> Watch {
     match target {
-        Target::Records => Watch::new(sessions::config_dir().join("sessions"), None),
+        Target::Records => Watch::new(home.records(), None),
         Target::Transcript(place) => {
-            let file = resolve(place).path().to_owned();
+            let file = resolve(home, place).path().to_owned();
             let goal = file.parent().map_or_default(Path::to_path_buf);
             Watch::new(goal, Some(file))
         }
@@ -1383,7 +1406,8 @@ mod tests {
             std::fs::create_dir_all(&dir).expect("a scratch folder");
             let (orders, received) = mpsc::channel(8);
             let (outbox, told) = mpsc::channel(8);
-            let actor = tokio::spawn(watch(received, outbox));
+            let claude = ClaudeHome::moved_to(dir.join("claude"));
+            let actor = tokio::spawn(watch(claude, received, outbox));
             let watched = Watched::new();
             let target = Target::Transcript(Place::Path(dir.join(transcript)));
             orders
@@ -1723,7 +1747,7 @@ mod tests {
                 .join("8287c7b4-6f01-4d71-95bf-8379dbf2fefa")
                 .join(".system_generated/logs/transcript.jsonl");
             assert!(matches!(
-                resolve(&Place::Path(log.clone())),
+                resolve(&ClaudeHome::moved_to(PathBuf::from("/nowhere")), &Place::Path(log.clone())),
                 Source::AgySteps(path) if path == log
             ));
         }

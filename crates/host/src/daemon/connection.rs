@@ -1,5 +1,5 @@
-//! A window's connection: its hello, its requests to the hub and the desktop, and what is said
-//! back to it.
+//! A window's connection: its hello, its requests to the hub and the daemon's actors, and what
+//! is said back to it.
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -11,21 +11,25 @@ use crate::ipc::{
     self, Act, ActId, Deframer, FromDaemon, Generation, HostedId, StartFailure, ToDaemon,
 };
 use crate::provider::Launch;
+use crate::sessions::ClaudeHome;
 use crate::{files, sessions, settings, snapshots};
 
 use super::acts::act_for;
 use super::hub::ToHub;
+
+/// What every window's connection reaches: the daemon's actors, and Claude Code's folder.
+#[derive(Debug, Clone)]
+pub(super) struct Shared {
+    pub(super) hub: mpsc::Sender<ToHub>,
+    pub(super) keeper: mpsc::Sender<snapshots::Job>,
+    pub(super) settings_keeper: mpsc::Sender<files::SettingsChange>,
+    pub(super) catalog: files::Catalog,
+    pub(super) claude: ClaudeHome,
+}
 use super::{HELLO, Line, QUEUE, keep, tell};
 
 /// Serves a window's connection by the socket, pumping its two directions into a [`Line`].
-pub(super) async fn window(
-    channel: ipc::AsyncChannel,
-    id: WindowId,
-    hub: mpsc::Sender<ToHub>,
-    keeper: mpsc::Sender<snapshots::Job>,
-    settings_keeper: mpsc::Sender<files::SettingsChange>,
-    catalog: files::Catalog,
-) {
+pub(super) async fn window(channel: ipc::AsyncChannel, id: WindowId, shared: Shared) {
     let (mut reading, writing) = channel.split();
     let (line, requests, answers) = Line::pair();
     let mut deframer = Deframer::default();
@@ -46,7 +50,7 @@ pub(super) async fn window(
         }
     });
     let writer = tokio::spawn(write(writing, answers));
-    window_over(line, id, hub, keeper, settings_keeper, catalog).await;
+    window_over(line, id, shared).await;
     reader.abort();
     if let Err(error) = writer.await {
         tracing::debug!(%error, "the writer ended");
@@ -56,24 +60,18 @@ pub(super) async fn window(
 /// Serves a window over whatever carries its line: the hello, then its requests to its
 /// [`Connection`] and what the hub, the sessions and the daemon's acts answer, until it hangs
 /// up.
-pub(super) async fn window_over(
-    line: Line,
-    id: WindowId,
-    hub: mpsc::Sender<ToHub>,
-    keeper: mpsc::Sender<snapshots::Job>,
-    settings_keeper: mpsc::Sender<files::SettingsChange>,
-    catalog: files::Catalog,
-) {
+pub(super) async fn window_over(line: Line, id: WindowId, shared: Shared) {
     let Line {
         mut requests,
         outbox,
     } = line;
     match tokio::time::timeout(HELLO, requests.recv()).await {
         Ok(Some(ToDaemon::Hello { protocol })) => {
+            let claude = shared.claude.clone();
             let (settings, live, backends) = tokio::task::spawn_blocking(move || {
                 (
                     settings::load().map_err(|error| error.to_string()),
-                    sessions::live(),
+                    sessions::live(&claude),
                     crate::usage::available_backends(),
                 )
             })
@@ -101,7 +99,7 @@ pub(super) async fn window_over(
         }
     }
     let connection = Connection::new(id)
-        .event_loop(requests, outbox, hub, keeper, settings_keeper, catalog)
+        .event_loop(requests, outbox, shared)
         .await;
     tracing::info!(window = ?connection.id, "a window's connection ended");
 }
@@ -121,7 +119,7 @@ pub(super) async fn write(mut writing: ipc::Writing, mut answers: mpsc::Receiver
 pub(super) enum Effect {
     /// For the hub.
     Hub(Ask),
-    /// For the desktop, answered to the window.
+    /// For the daemon's acts, answered to the window.
     Act { request: ActId, act: Act },
     /// What was asked can't be done; the window is told.
     Refuse {
@@ -201,11 +199,15 @@ impl Connection {
         mut self,
         mut requests: mpsc::Receiver<ToDaemon>,
         outbox: mpsc::Sender<FromDaemon>,
-        hub: mpsc::Sender<ToHub>,
-        keeper: mpsc::Sender<snapshots::Job>,
-        settings_keeper: mpsc::Sender<files::SettingsChange>,
-        catalog: files::Catalog,
+        shared: Shared,
     ) -> Self {
+        let Shared {
+            hub,
+            keeper,
+            settings_keeper,
+            catalog,
+            claude,
+        } = shared;
         let window = self.id;
         if hub
             .send(ToHub::Joined {
@@ -218,12 +220,13 @@ impl Connection {
             return self;
         }
         let (watching, watch_orders) = mpsc::channel(QUEUE);
-        tokio::spawn(files::watch(watch_orders, outbox.clone()));
+        tokio::spawn(files::watch(claude.clone(), watch_orders, outbox.clone()));
         while let Some(request) = requests.recv().await {
             for effect in self.handle(request) {
                 match effect {
                     Effect::Read { request, read } => {
                         tokio::spawn(files::answer(
+                            claude.clone(),
                             request,
                             read,
                             outbox.clone(),
@@ -266,7 +269,7 @@ impl Connection {
                     }
                     Effect::Act { request, act } => {
                         let outbox = outbox.clone();
-                        tokio::spawn(act_for(request, act, outbox));
+                        tokio::spawn(act_for(claude.clone(), request, act, outbox));
                     }
                     Effect::Refuse { key, failure } => {
                         tell(&outbox, FromDaemon::Failed { key, failure }).await;

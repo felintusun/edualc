@@ -14,8 +14,8 @@ use zeroize::Zeroizing;
 
 use crate::external::claude_files::{InboxLine, InboxMessage, SessionKey, SessionRecord};
 use crate::external::wire::UserContent;
-use crate::sessions::MessagingName;
-use crate::{process, sessions};
+use crate::process;
+use crate::sessions::{ClaudeHome, MessagingName};
 
 /// A message longer than this isn't posted.
 const MESSAGE_CHARS: usize = 64 * 1024;
@@ -266,14 +266,14 @@ pub(super) struct Places {
 impl Places {
     /// Returns your places: `~/.claude/sessions`, and `$XDG_RUNTIME_DIR/cc-socks` or the folder
     /// in /tmp Claude Code takes when that path is too long for a socket.
-    pub(super) fn of_user() -> Self {
+    pub(super) fn of_user(claude: &ClaudeHome) -> Self {
         let uid = rustix::process::getuid().as_raw();
         let mut inboxes = vec![PathBuf::from(format!("/tmp/cc-socks-{uid}"))];
         if let Some(runtime) = dirs::runtime_dir() {
             inboxes.push(runtime.join("cc-socks"));
         }
         Self {
-            sessions: sessions::config_dir().join("sessions"),
+            sessions: claude.records(),
             inboxes,
         }
     }

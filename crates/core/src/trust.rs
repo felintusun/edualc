@@ -12,7 +12,7 @@ use rustix::fs::{Mode, OFlags};
 
 use crate::external::claude_files::{ClaudeJson, Hook, McpJson, ProjectSettings};
 use crate::ipc::{HookAction, Runs};
-use crate::sessions;
+use crate::sessions::{self, ClaudeHome};
 use crate::settings::Settings;
 
 /// The most of a folder's settings file read: one larger isn't one.
@@ -28,8 +28,8 @@ pub fn trusted_in_edualc(folder: &Path, settings: &Settings) -> bool {
 
 /// Returns whether the terminal's trust dialog was accepted for `folder` or one it is in, as
 /// `~/.claude.json` says now.
-pub fn accepted_in_terminal(folder: &Path) -> bool {
-    within(folder, &accepted_folders())
+pub fn accepted_in_terminal(home: &ClaudeHome, folder: &Path) -> bool {
+    within(folder, &accepted_folders(home))
 }
 
 fn within(folder: &Path, trusted: &[PathBuf]) -> bool {
@@ -39,15 +39,15 @@ fn within(folder: &Path, trusted: &[PathBuf]) -> bool {
 }
 
 /// Lists the folders whose trust dialog was accepted in the terminal.
-fn accepted_folders() -> Vec<PathBuf> {
-    let path = sessions::global_config_path();
-    let small = std::fs::metadata(&path).is_ok_and(|metadata| {
+fn accepted_folders(home: &ClaudeHome) -> Vec<PathBuf> {
+    let path = home.global_config();
+    let small = std::fs::metadata(path).is_ok_and(|metadata| {
         metadata.is_file() && metadata.len() <= sessions::GLOBAL_CONFIG_BYTES
     });
     if !small {
         return Vec::new();
     }
-    let text = match std::fs::read_to_string(&path) {
+    let text = match std::fs::read_to_string(path) {
         Ok(text) => text,
         Err(error) => {
             tracing::warn!(%error, "couldn't read ~/.claude.json; no folder counts as trusted");

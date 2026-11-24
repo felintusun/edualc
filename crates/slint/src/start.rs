@@ -8,6 +8,7 @@ use slint::ComponentHandle;
 use crate::folder::{Folder, FolderError};
 use crate::ids::SessionId;
 use crate::provider::Backend;
+use crate::sessions::ClaudeHome;
 use crate::{app, connect, decode, desktop, generated, sessions, ui};
 
 /// A native desktop window for coding agents: Claude Code, agy and opencode.
@@ -104,33 +105,38 @@ enum WhereError {
     Folder(#[from] FolderError),
     #[error("There is no session {0}")]
     NoSession(SessionId),
+    #[error(
+        "There is no folder of Claude Code's to find a session in: set $CLAUDE_CONFIG_DIR or $HOME"
+    )]
+    NoClaudeHome,
 }
 
-/// Returns the folder to work in:
-///
-/// - the one named;
-/// - else, continuing a session, the one it was started in, or where edualc was started if
-///   its transcript names none; `claude --resume` goes on in whatever folder it is started
-///   from, and its tools work there;
-/// - else, with a first prompt, where edualc was started;
-/// - else none, which opens the start page.
-///
-/// A session to continue that no transcript has is refused.
-fn working_folder(
-    dir: Option<Folder>,
-    resume: Option<&SessionId>,
-    has_prompt: bool,
-) -> Result<Option<Folder>, WhereError> {
-    let saved = resume.map(|id| (id, sessions::saved(id)));
-    Ok(match (dir, saved, has_prompt) {
-        (_, Some((id, sessions::Saved::Nowhere)), _) => {
-            return Err(WhereError::NoSession(id.clone()));
+impl Args {
+    /// Returns the folder to work in: the one named; else, continuing a session, the one it was
+    /// started in, or where edualc was started if its transcript names none; else none, which
+    /// opens the start page. A first prompt always comes after a folder.
+    ///
+    /// `claude --resume` goes on in whatever folder it is started from, and its tools work
+    /// there, so the session's own folder matters.
+    ///
+    /// # Errors
+    ///
+    /// Refuses a session to continue that no transcript in `claude` has, or that can't be
+    /// looked for without a `claude`.
+    fn working_folder(&self, claude: Option<&ClaudeHome>) -> Result<Option<Folder>, WhereError> {
+        let Some(id) = &self.resume else {
+            return Ok(self.dir.clone());
+        };
+        let claude = claude.ok_or(WhereError::NoClaudeHome)?;
+        match sessions::saved(claude, id) {
+            sessions::Saved::Nowhere => Err(WhereError::NoSession(id.clone())),
+            sessions::Saved::StartedIn(_) | sessions::Saved::Unplaced if self.dir.is_some() => {
+                Ok(self.dir.clone())
+            }
+            sessions::Saved::StartedIn(started) => Ok(Some(Folder::at(started)?)),
+            sessions::Saved::Unplaced => Ok(Some(here()?)),
         }
-        (Some(folder), _, _) => Some(folder),
-        (None, Some((_, sessions::Saved::StartedIn(started))), _) => Some(Folder::at(started)?),
-        (None, Some((_, sessions::Saved::Unplaced)), _) | (None, None, true) => Some(here()?),
-        (None, None, false) => None,
-    })
+    }
 }
 
 /// Reads a session's id as Claude Code writes one, refusing anything else before it reaches
@@ -158,21 +164,23 @@ pub(crate) fn main() -> Result<std::process::ExitCode, slint::PlatformError> {
     }
 
     // Help and the version are printed here, and wrong arguments said, before anything starts.
-    let Args {
-        backend,
-        model,
-        mode,
-        resume,
-        dir,
-        prompt,
-    } = clap::Parser::parse();
-    let cwd = match working_folder(dir, resume.as_ref(), prompt.is_some()) {
+    let args: Args = clap::Parser::parse();
+    let claude = ClaudeHome::of_user();
+    let cwd = match args.working_folder(claude.as_ref()) {
         Ok(folder) => folder.map(Folder::into_path),
         Err(error) => {
             eprintln!("edualc: {error}");
             return Ok(std::process::ExitCode::from(2));
         }
     };
+    let Args {
+        backend,
+        model,
+        mode,
+        resume,
+        prompt,
+        ..
+    } = args;
 
     let connected = match connect::connect() {
         Ok(connected) => connected,
@@ -192,7 +200,7 @@ pub(crate) fn main() -> Result<std::process::ExitCode, slint::PlatformError> {
             .unwrap_or_else(|panic| std::panic::resume_unwind(panic));
         (fonts, text_size)
     });
-    let desktop = app::Desktop::of(&greeting, text_size, crate::seat::finds_windows());
+    let desktop = app::Desktop::of(&greeting, text_size, crate::seat::finds_windows(), claude);
     let (events, received) = async_channel::unbounded();
     let link = match connect::run(line, events.clone()) {
         Ok(link) => link,
@@ -356,28 +364,57 @@ mod tests {
         }
     }
 
+    fn folder_for(line: &str, claude: Option<&ClaudeHome>) -> Result<Option<PathBuf>, WhereError> {
+        args(line)
+            .expect("a command line")
+            .working_folder(claude)
+            .map(|folder| folder.map(Folder::into_path))
+    }
+
     #[test]
-    fn no_folder_starts_without_cwd_unless_prompt_or_resume_needs_one() {
+    fn a_folder_is_worked_in_as_named_and_none_opens_the_start_page() {
+        assert_eq!(folder_for("", None).expect("the start page"), None);
         assert_eq!(
-            working_folder(None, None, false)
-                .expect("start page")
-                .map(Folder::into_path),
-            None
-        );
-        let here_path = here().expect("cwd exists").into_path();
-        assert_eq!(
-            working_folder(None, None, true)
-                .expect("prompt uses cwd")
-                .map(Folder::into_path),
-            Some(here_path)
-        );
-        let tmp = Folder::at(PathBuf::from("/tmp")).expect("/tmp exists");
-        assert_eq!(
-            working_folder(Some(tmp), None, false)
-                .expect("explicit dir")
-                .map(Folder::into_path),
+            folder_for("/tmp", None).expect("a folder"),
             PathBuf::from("/tmp").canonicalize().ok()
         );
+    }
+
+    #[test]
+    fn a_session_goes_on_in_the_folder_it_was_started_in_unless_one_is_named() {
+        let scratch = std::env::temp_dir().join(format!("edualc-resume-{}", std::process::id()));
+        let started = scratch.join("work");
+        std::fs::create_dir_all(&started).expect("the session's folder");
+        let claude = ClaudeHome::moved_to(scratch.join("claude"));
+        let id = "5d6e7f80-91a2-4b3c-8d4e-5f60718293a4";
+        let transcript = scratch
+            .join("claude/projects/-work")
+            .join(format!("{id}.jsonl"));
+        std::fs::create_dir_all(transcript.parent().expect("a folder")).expect("a project");
+        let line = serde_json::json!({ "type": "user", "cwd": started, "sessionId": id });
+        std::fs::write(&transcript, format!("{line}\n")).expect("a transcript");
+
+        let resume = format!("--resume {id}");
+        assert_eq!(
+            folder_for(&resume, Some(&claude)).expect("a session"),
+            started.canonicalize().ok()
+        );
+        assert_eq!(
+            folder_for(&format!("{resume} /tmp"), Some(&claude)).expect("a session elsewhere"),
+            PathBuf::from("/tmp").canonicalize().ok()
+        );
+        assert!(matches!(
+            folder_for(
+                "--resume 00000000-1111-4222-8333-444444444444",
+                Some(&claude)
+            ),
+            Err(WhereError::NoSession(_))
+        ));
+        assert!(matches!(
+            folder_for(&resume, None),
+            Err(WhereError::NoClaudeHome)
+        ));
+        std::fs::remove_dir_all(&scratch).expect("the scratch folder goes");
     }
 
     #[test]

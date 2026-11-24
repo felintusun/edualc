@@ -191,16 +191,17 @@ impl<F: Frontend> App<F> {
                     .map(|hosted| hosted.backend)
             })
             .or_else(|| {
-                self.location
-                    .cwd()
-                    .and_then(|cwd| sessions::find_transcript(cwd, id))
-                    .map(|path| sessions::backend_of(&path))
+                let home = self.claude_home.as_ref()?;
+                let cwd = self.location.cwd()?;
+                sessions::find_transcript(home, cwd, id).map(|path| sessions::backend_of(&path))
             })
             .or_else(|| sessions::is_agy_brain_session(id).then_some(provider::Backend::Agy))
             .unwrap_or_else(|| {
-                self.location.cwd().map_or(self.status.backend, |cwd| {
-                    sessions::backend_of(&sessions::locate(cwd, id))
-                })
+                // A session in a folder that nothing lists is Claude Code's, whose transcript is
+                // written as its first turn ends.
+                self.location
+                    .cwd()
+                    .map_or(self.status.backend, |_| provider::Backend::Claude)
             })
     }
 

@@ -29,7 +29,7 @@ use crate::external::agy;
 use crate::external::tool_input::{AgentInput, KnownCall, ListSessionsInput, SendMessageInput};
 use crate::external::wire::{BackgroundTask, Question, QuestionOption, Questions, System};
 use crate::ids::{RequestId, SessionId};
-use crate::sessions::{self, MessagingName};
+use crate::sessions::{self, ClaudeHome, MessagingName};
 use crate::settings::{self, PeerMessages};
 use outbox::{Job, Outcome, Places, SendArguments};
 use translate::{CallId, Effect, Start, ToolServer, Translator};
@@ -244,6 +244,10 @@ enum Error {
     ForkNotSupported(Agent),
     #[error("no runtime folder (XDG_RUNTIME_DIR)")]
     NoRuntime,
+    #[error(
+        "no folder of Claude Code's to publish the session's record in ($CLAUDE_CONFIG_DIR or a home folder)"
+    )]
+    NoClaudeHome,
     #[error("couldn't make the session's folder: {0}")]
     Folder(#[source] std::io::Error),
     #[error("{} isn't on PATH; {}", .0, .0.install_hint())]
@@ -665,7 +669,8 @@ async fn adapt(args: Args) -> Result<(), Error> {
     let name = MessagingName::of(&id, &cwd);
     let own = Own::make(agent)?;
     let tools = UnixListener::bind(own.tool()).map_err(Error::Folder)?;
-    let inbox = inbox::Inbox::open(&id, &cwd, &name)?;
+    let claude = ClaudeHome::of_user().ok_or(Error::NoClaudeHome)?;
+    let inbox = inbox::Inbox::open(&claude, &id, &cwd, &name)?;
     tracing::info!(inbox = %inbox.socket().display(), %name, "the session's inbox is open");
     let mut process = agent.start(&cwd)?;
     let program = std::env::current_exe().map_err(Error::Program)?;
@@ -768,6 +773,7 @@ async fn adapt(args: Args) -> Result<(), Error> {
         agent: agent_in.take(),
         program: agent,
         inbox,
+        places: Places::of_user(&claude),
         cwd,
         calls: HashMap::new(),
         name,
@@ -861,6 +867,8 @@ struct Out {
     program: Agent,
     /// Where other sessions post to this one, under the session's id and name.
     inbox: inbox::Inbox,
+    /// Where the running sessions' records and inboxes are, for the messaging tool.
+    places: Places,
     /// The folder the session works in.
     cwd: PathBuf,
     /// The tool's calls waiting for their answer.
@@ -956,11 +964,11 @@ impl Out {
     /// Carries out a call of edualc's tool (see [`outbox::carry_out`]).
     async fn carried(&self, job: Job) -> tool::Answer {
         let sender = self.name.clone();
-        let carried = tokio::task::spawn_blocking(move || {
-            outbox::carry_out(&Places::of_user(), &sender, &job)
-        })
-        .await
-        .unwrap_or(Outcome::Refused(outbox::Refusal::Failed));
+        let places = self.places.clone();
+        let carried =
+            tokio::task::spawn_blocking(move || outbox::carry_out(&places, &sender, &job))
+                .await
+                .unwrap_or(Outcome::Refused(outbox::Refusal::Failed));
         let (text, error) = carried.told();
         tool::Answer { text, error }
     }

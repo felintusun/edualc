@@ -5,13 +5,19 @@ use std::path::{Path, PathBuf};
 use tokio::sync::mpsc;
 
 use crate::ipc::{self, Act, ActFailure, ActId, CreateProjectError, FromDaemon, ProjectName};
+use crate::sessions::ClaudeHome;
 use crate::{files, trust};
 
 use super::tell;
 
 /// Does what the window asked, on a thread of its own where it may take a while, and tells the
 /// window.
-pub(super) async fn act_for(request: ActId, act: Act, outbox: mpsc::Sender<FromDaemon>) {
+pub(super) async fn act_for(
+    claude: ClaudeHome,
+    request: ActId,
+    act: Act,
+    outbox: mpsc::Sender<FromDaemon>,
+) {
     let keyring_failure = |error: crate::keyring::Error| ActFailure::Keyring(error.to_string());
     match act {
         Act::StoreApiKey(key) => {
@@ -27,8 +33,10 @@ pub(super) async fn act_for(request: ActId, act: Act, outbox: mpsc::Sender<FromD
             tell(&outbox, FromDaemon::ApiKeyStored { request, stored }).await;
         }
         Act::CheckClaudeTrust { folder } => {
-            let read =
-                tokio::task::spawn_blocking(move || files::trusted_for_claude_code(&folder)).await;
+            let read = tokio::task::spawn_blocking(move || {
+                files::trusted_for_claude_code(&claude, &folder)
+            })
+            .await;
             let trusted = match read {
                 Ok(read) => read.map_err(|error| claude_trust_failure(&error)),
                 Err(error) => {
@@ -41,7 +49,8 @@ pub(super) async fn act_for(request: ActId, act: Act, outbox: mpsc::Sender<FromD
         // It may wait a moment for Claude Code's lock (see `files::trust_for_claude_code`).
         Act::TrustForClaudeCode { folder } => {
             let recorded =
-                tokio::task::spawn_blocking(move || files::trust_for_claude_code(&folder)).await;
+                tokio::task::spawn_blocking(move || files::trust_for_claude_code(&claude, &folder))
+                    .await;
             let result = match recorded {
                 Ok(recorded) => recorded
                     .map(|_| ())
@@ -65,7 +74,7 @@ pub(super) async fn act_for(request: ActId, act: Act, outbox: mpsc::Sender<FromD
             // We read what the folder would run only for one that isn't trusted: it is asked
             // about.
             let read = tokio::task::spawn_blocking(move || {
-                if trust::accepted_in_terminal(&folder) {
+                if trust::accepted_in_terminal(&claude, &folder) {
                     ipc::FolderTrust::Accepted
                 } else {
                     ipc::FolderTrust::Untrusted(trust::what_runs(&folder))

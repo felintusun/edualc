@@ -17,6 +17,7 @@ use crate::changes::{
 };
 use crate::external::wire::{ContentBlock, ToolKind};
 use crate::ids::SessionId;
+use crate::sessions::{self, ClaudeHome};
 use crate::tools;
 
 /// A session whose changes nobody looked at for this long is forgotten.
@@ -622,7 +623,7 @@ pub enum Mark {
 
 /// Writes the changes for every session, a job at a time, until the jobs end. First it forgets
 /// sessions nobody looked at for long, and contents no session keeps.
-pub async fn keep(home: PathBuf, mut jobs: mpsc::Receiver<Job>) {
+pub async fn keep(home: PathBuf, claude: ClaudeHome, mut jobs: mpsc::Receiver<Job>) {
     let pruning = home.clone();
     if let Err(error) =
         tokio::task::spawn_blocking(move || prune(&pruning, SystemTime::now())).await
@@ -630,14 +631,14 @@ pub async fn keep(home: PathBuf, mut jobs: mpsc::Receiver<Job>) {
         tracing::error!(%error, "pruning the changes failed");
     }
     while let Some(job) = jobs.recv().await {
-        let home = home.clone();
-        if let Err(error) = tokio::task::spawn_blocking(move || apply(&home, job)).await {
+        let (home, claude) = (home.clone(), claude.clone());
+        if let Err(error) = tokio::task::spawn_blocking(move || apply(&home, &claude, job)).await {
             tracing::error!(%error, "keeping a session's changes failed");
         }
     }
 }
 
-fn apply(home: &Path, job: Job) {
+fn apply(home: &Path, claude: &ClaudeHome, job: Job) {
     let session = match &job {
         Job::TurnStarted { session, .. }
         | Job::TurnEnded { session, .. }
@@ -647,8 +648,8 @@ fn apply(home: &Path, job: Job) {
     let done = match Store::open(home, &session) {
         Ok(mut store) => match job {
             Job::TurnStarted { cwd, .. } => {
-                let worktree =
-                    crate::sessions::worktree_of(&crate::sessions::locate(&cwd, &session));
+                let worktree = sessions::find_transcript(claude, &cwd, &session)
+                    .and_then(|transcript| sessions::worktree_of(&transcript));
                 store.turn_started(&worktree.map_or(cwd, |worktree| worktree.path))
             }
             Job::TurnEnded { touched, done, .. } => store.turn_ended(touched).map(|summary| {
