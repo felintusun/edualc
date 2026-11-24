@@ -15,18 +15,19 @@ pub struct Settings {
     pub zoom_percent: u16,
     /// Trusted here (see [`crate::trust`]), with what is under them.
     pub trusted_folders: Vec<PathBuf>,
-    /// The composer's height as dragged, in logical pixels; fitted to its text if none.
+    /// The composer's height as dragged, in logical pixels; `None` fits it to its text.
     pub composer_height_px: Option<u16>,
-    /// Where new projects are made; `~/code` if it exists, else `~`, if none.
+    /// Where new projects are made; `None` for `~/code` if it exists, else `~`.
     pub new_projects_in: Option<PathBuf>,
-    /// Folders trusted here that you chose not to trust for Claude Code too: not asked again.
+    /// Folders trusted here that you chose not to trust for Claude Code, so it isn't asked
+    /// again.
     pub not_for_claude_code: Vec<PathBuf>,
     /// The window's colours (dark or light as the desktop asks).
     pub look: Look,
     /// The key that sends what is written in the composer.
     pub send_with: SendKey,
-    /// The language of text with Han characters alone (see [`crate::cjk`]); none for the desktop's,
-    /// or Japanese if that isn't a CJK one.
+    /// The language of text with Han characters alone (see [`crate::cjk`]); `None` for the
+    /// desktop's, or Japanese if that isn't a CJK one.
     pub han_text: Option<CjkLanguage>,
     /// Whether a message from another session comes in at once, or only once you let its
     /// sender in. Messages edualc doesn't carry follow the receiving program's own rules.
@@ -84,8 +85,8 @@ pub enum PeerMessages {
     LetAllIn,
 }
 
-/// What sends the draft: Enter (Shift+Enter or Ctrl+Enter start a new line), or Ctrl+Enter
-/// (Enter starts a new line, so a stray Enter never sends), as many chat apps let one choose.
+/// The key that sends the draft: Enter, with Shift+Enter or Ctrl+Enter for a new line; or
+/// Ctrl+Enter, with Enter for a new line, so that a stray Enter never sends.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SendKey {
@@ -163,7 +164,8 @@ impl Settings {
         f32::from(self.zoom_percent) / 100.0
     }
 
-    /// The default folder for new projects: what you set, else `~/code` if it exists, else `~`.
+    /// Returns the folder for new projects: the one you set, else `~/code` if it exists, else
+    /// `~`.
     pub fn effective_projects_dir(&self) -> Option<PathBuf> {
         if let Some(dir) = &self.new_projects_in {
             return Some(dir.clone());
@@ -173,8 +175,8 @@ impl Settings {
         Some(if code.is_dir() { code } else { home })
     }
 
-    /// The language text with Han characters alone is taken to be in: the one chosen, else
-    /// the desktop's if CJK, else Japanese.
+    /// Returns the language of text with Han characters alone: the one chosen, else the
+    /// desktop's if CJK, else Japanese.
     pub fn han_language(&self) -> CjkLanguage {
         self.han_text
             .or_else(CjkLanguage::of_desktop)
@@ -199,8 +201,8 @@ impl Settings {
     }
 }
 
-/// One thing the user changed. A window sends the change, not its whole copy of the settings,
-/// so what another window changed meanwhile is kept.
+/// One thing you changed. A window sends the change, not its whole copy of the settings, so
+/// that what another window changed meanwhile is kept.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub enum Change {
@@ -209,11 +211,11 @@ pub enum Change {
     SendWith(SendKey),
     HanText(CjkLanguage),
     ComposerHeight(Option<u16>),
-    /// The folder New project makes projects in; the default if none.
+    /// The folder New project makes projects in; `None` for the default.
     NewProjectsIn(Option<PathBuf>),
     /// A folder trusted here, with what is under it.
     Trust(PathBuf),
-    /// A folder trusted here that isn't to be trusted for Claude Code too, nor asked about.
+    /// A folder trusted here that you don't want trusted for Claude Code, nor asked about.
     NotForClaudeCode(PathBuf),
     PeerMessages(PeerMessages),
     TogglePinProject(PathBuf),
@@ -380,7 +382,7 @@ impl Settings {
 
 #[cfg(not(target_arch = "wasm32"))]
 impl Change {
-    /// The key of `config.toml` this changes; none for what `state.json` keeps.
+    /// Returns the key of `config.toml` this changes; `None` for what `state.json` keeps.
     fn config_key(&self) -> Option<ConfigKey> {
         match self {
             Self::ZoomPercent(_) => Some(ConfigKey::ZoomPercent),
@@ -621,16 +623,20 @@ fn load_at(paths: &Paths) -> Result<Kept, Error> {
     })
 }
 
-/// The kept settings; the defaults if none were kept yet.
+/// Reads the kept settings; the defaults if none were kept yet.
 #[cfg(not(target_arch = "wasm32"))]
 pub fn load() -> Result<Settings, Error> {
     Ok(load_at(&Paths::of_user()?)?.into_settings())
 }
 
-/// Makes `change` to the kept settings and writes back the file it is in, unless a file
-/// doesn't parse: what it holds (a hand edit with a typo, a later version's keys) would be
-/// lost, and it stays until it is put right. Changes are made one at a time, by one owner
-/// (edualcd).
+/// Makes `change` to the kept settings and writes back the file it is in. Only edualcd calls
+/// this, one change at a time.
+///
+/// # Errors
+///
+/// Fails if a file doesn't parse, as writing it would lose what it holds (a hand edit with a
+/// typo, a later version's keys); it stays as it is until put right. Fails too if there is no
+/// configuration or state folder, or a file can't be read or written.
 #[cfg(not(target_arch = "wasm32"))]
 pub fn change(change: Change) -> Result<Settings, Error> {
     change_at(&Paths::of_user()?, change)
@@ -719,7 +725,7 @@ fn write_atomically(path: &Path, bytes: &[u8]) -> Result<(), Error> {
     })
 }
 
-/// `dir` and the folders above it that aren't there yet, made readable by the user alone.
+/// Makes `dir` and the folders above it that aren't there yet, readable by you alone.
 #[cfg(not(target_arch = "wasm32"))]
 fn private_folder(dir: &Path) -> std::io::Result<()> {
     let mut builder = std::fs::DirBuilder::new();
@@ -729,7 +735,7 @@ fn private_folder(dir: &Path) -> std::io::Result<()> {
     builder.create(dir)
 }
 
-/// `path` written anew with `bytes`, readable by the user alone.
+/// Writes `path` anew with `bytes`, readable by you alone.
 #[cfg(not(target_arch = "wasm32"))]
 fn private_file(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     let mut options = std::fs::OpenOptions::new();
