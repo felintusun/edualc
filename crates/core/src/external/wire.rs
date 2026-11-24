@@ -52,9 +52,8 @@ pub struct ProgramModes {
     pub current: Option<ModeId>,
 }
 
-/// How Claude Code 2.1.316 begins the result of a tool call the user denied, with or without
-/// saying what to do instead (as read in saved transcripts); the window shows such a call as
-/// denied, and edualcd's ACP adapter writes it for an agent's call that was denied.
+/// How Claude Code 2.1.316 begins a denied call's result, as saved transcripts show. The window
+/// shows such a call as denied, and the ACP adapter writes it for an agent's denied call.
 pub const DENIED: &str = "The user doesn't want to proceed with this tool use.";
 
 /// A tool Claude calls, as the CLI names it; an MCP tool (`mcp__<server>__<tool>`) or one this
@@ -150,7 +149,8 @@ impl ToolName {
         }
     }
 
-    /// Calls whose card opens without a click: what changes, and plans to approve.
+    /// Returns whether the call's card opens without a click: it changes files, or is a plan
+    /// to approve.
     pub fn opens_expanded(&self) -> bool {
         match self {
             Self::Write
@@ -329,7 +329,7 @@ pub struct Usage {
 }
 
 impl Usage {
-    /// The context the request took: everything sent, and what came back.
+    /// Returns the context the request took: everything sent and what came back.
     pub fn context(self) -> u64 {
         self.input_tokens
             + self.cache_creation_input_tokens
@@ -367,7 +367,7 @@ pub struct UserLine {
 }
 
 impl UserLine {
-    /// A line of the session's own: a tool's result.
+    /// Makes a line of the session's own, such as a tool's result.
     pub fn of_session(content: UserContent) -> Self {
         Self {
             message: UserMessage { content },
@@ -376,7 +376,7 @@ impl UserLine {
         }
     }
 
-    /// A line echoed as Claude Code echoes what it took in, as a `!` command's rows are.
+    /// Makes a line echoed as Claude Code echoes what it took in, as it does a `!` command's rows.
     pub fn replayed(content: UserContent) -> Self {
         Self {
             message: UserMessage { content },
@@ -385,8 +385,8 @@ impl UserLine {
         }
     }
 
-    /// Another session's message, in its envelope (`content`), with the sender's name and the
-    /// message without the envelope.
+    /// Makes another session's message: `content` in its envelope, the sender's `name`, and
+    /// the `body` without the envelope.
     pub fn from_peer(content: String, name: Option<String>, body: Option<String>) -> Self {
         Self {
             message: UserMessage {
@@ -444,7 +444,8 @@ impl UserLine {
         }
     }
 
-    /// A `!` command's echo or what it printed, as Claude Code 2.1.316 writes them.
+    /// Returns whether this is a `!` command's echo or output, as Claude Code 2.1.316 writes
+    /// them.
     fn is_shell_row(&self) -> bool {
         matches!(&self.message.content, UserContent::Text(text) if text.starts_with("<bash-"))
     }
@@ -626,7 +627,6 @@ pub enum TaskStatus {
 }
 
 impl TaskStatus {
-    /// Whether the task has ended.
     pub fn ended(self) -> bool {
         matches!(self, Self::Completed | Self::Failed | Self::Killed)
     }
@@ -710,7 +710,7 @@ pub enum TaskKind {
 }
 
 impl TaskKind {
-    /// A subagent of some kind: on this machine, in the cloud, or an agent team's member.
+    /// Returns whether this is a subagent: on this machine, in the cloud, or in an agent team.
     pub fn is_agent(self) -> bool {
         matches!(
             self,
@@ -770,14 +770,14 @@ pub struct TurnResult {
 }
 
 impl TurnResult {
-    /// Whether the turn failed because the API refused the session's sign-in (401), after
-    /// Claude Code's retries.
+    /// Returns whether the turn failed because the API refused the sign-in (401), after Claude
+    /// Code's retries.
     pub fn sign_in_refused(&self) -> bool {
         self.is_error && self.api_error_status == Some(401)
     }
 
-    /// Whether the turn was answered by a model, unlike a command Claude Code answers itself,
-    /// which says nothing about the sign-in.
+    /// Returns whether a model answered the turn. A command Claude Code answers itself says
+    /// nothing about the sign-in.
     pub fn reached_a_model(&self) -> bool {
         !self.is_error && !self.model_usage.is_empty()
     }
@@ -847,9 +847,9 @@ pub enum IncomingRequest {
 }
 
 impl IncomingRequest {
-    /// edualc's question whether another session's message may come in: from the sender of
-    /// that name (none if it gave none), the message without its envelope. A named sender is
-    /// offered to be let in for the session (see [`sender_let_in`]).
+    /// Makes edualc's question whether another session's message may come in, `from` the
+    /// sender of that name, with the message without its envelope. A named sender is offered
+    /// to be let in for the session (see [`sender_let_in`]).
     pub fn incoming_message(from: Option<&str>, message: String) -> serde_json::Result<Self> {
         let offered = from
             .map(|from| {
@@ -877,8 +877,8 @@ impl IncomingRequest {
     }
 }
 
-/// The sender the user let in for the session, in answering an
-/// [`IncomingRequest::incoming_message`]: the offer they took, if they took it.
+/// Returns the sender you let in for the session when answering an
+/// [`IncomingRequest::incoming_message`], if you took that offer.
 pub fn sender_let_in(updates: &[PermissionUpdate]) -> Option<String> {
     let incoming = ToolName::EdualcIncomingMessage.to_string();
     updates.iter().find_map(|update| match update {
@@ -1348,8 +1348,8 @@ pub struct TranscriptCwd {
     pub cwd: PathBuf,
 }
 
-/// Just enough of a line the process writes, or is sent, to tell its `init` and its permission
-/// requests and their answers apart; the daemon passes the line itself on as it is.
+/// Enough of a line to or from the process to tell its `init`, permission requests and their
+/// answers apart. The daemon passes the line itself on unchanged.
 #[derive(Debug, Deserialize, Serialize)]
 pub struct ControlPeek {
     #[serde(rename = "type")]
@@ -1375,8 +1375,8 @@ pub enum PeekedKind {
     User,
     /// From the process, a turn's end.
     Result,
-    /// From the process, what Claude says, whole or as it streams: with no prompt of the
-    /// window's under way, a turn it started itself (for another session's message).
+    /// From the process, what Claude says, whole or streamed. With no prompt of ours under
+    /// way, it is a turn the session started itself, for another session's message.
     Assistant,
     StreamEvent,
     #[serde(other)]
@@ -1402,8 +1402,7 @@ pub struct PeekedResponse {
     pub request_id: Option<String>,
 }
 
-/// A line to the CLI's input. Also read back, by edualcd's adapter, which stands in for the CLI
-/// to an agent program.
+/// A line to the CLI's input. The ACP adapter reads it too, standing in for the CLI.
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Input {
@@ -1432,9 +1431,9 @@ pub enum Input {
 }
 
 impl Input {
-    /// A prompt as the user sent it. First what they ran with `!` since the last: those rows,
-    /// as the terminal gives them to the model, ahead of the prompt. Then the images, as the
-    /// Messages API takes them, then the text. A prompt of text alone stays a plain string.
+    /// Makes a prompt: the `!` command rows since the last prompt, as the terminal gives them
+    /// to the model, then the images, then the text. A prompt of text alone stays a plain
+    /// string.
     pub fn prompt_with(shell: &[String], images: Vec<ImageBlock>, text: &str) -> Self {
         if shell.is_empty() && images.is_empty() {
             return Self::user(Content::Text(text.to_owned()));
@@ -1477,8 +1476,8 @@ pub struct Prompt {
     pub content: Content,
 }
 
-/// A prompt's content: its text alone, or blocks of images and text. Read untagged, which can't
-/// mistake one for the other: one is a string, the other an array.
+/// A prompt's content: its text alone, or blocks of images and text. Untagged is safe here, as
+/// one is a string and the other an array.
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(untagged)]
 pub enum Content {
@@ -1493,8 +1492,7 @@ pub enum Block {
     Text { text: String },
 }
 
-/// The prompt as a transcript keeps it: an image without its media type (see
-/// [`ReceivedImage`]).
+// A transcript keeps an image without its media type (see `ReceivedImage`).
 impl From<Content> for UserContent {
     fn from(content: Content) -> Self {
         match content {
@@ -1592,9 +1590,9 @@ enum Role {
 #[serde(tag = "subtype", rename_all = "snake_case")]
 pub enum ControlRequest {
     Initialize {
-        /// This window stops tasks one by one (`StopTask`), so an interrupt ends only the turn:
-        /// background agents, commands and monitors run on. Taken from the first window to
-        /// initialize a process.
+        /// Set when the window stops tasks one by one (`StopTask`), so an interrupt ends only
+        /// the turn and background tasks run on. The first window to initialize a process
+        /// decides it.
         #[serde(rename = "perTaskStopAffordance")]
         per_task_stop_affordance: bool,
     },
@@ -1603,8 +1601,8 @@ pub enum ControlRequest {
     StopTask {
         task_id: TaskId,
     },
-    /// The end of what a background command printed (its last 8 KiB), as the terminal's
-    /// `/tasks` shows it; asked while it runs, and once after.
+    /// Asks for the last 8 KiB a background command printed, as the terminal's `/tasks`
+    /// shows it.
     GetTaskOutput {
         task_id: TaskId,
     },
@@ -1667,8 +1665,8 @@ pub enum PermissionResult {
     },
 }
 
-/// What an allowed tool runs with: as Claude asked, or with the user's part in it. Read back as
-/// it was written, [`ToolInput::AsAsked`]: what the user's part was isn't told by the JSON.
+/// What an allowed tool runs with: as Claude asked, or with your part in it. It reads back as
+/// [`ToolInput::AsAsked`], since the JSON doesn't say which part was yours.
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(untagged, from = "Value")]
 pub enum ToolInput {
