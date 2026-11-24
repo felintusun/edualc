@@ -1,37 +1,39 @@
 //! The ACP adapter (`edualcd --agy-adapter`): runs agy or opencode over the Agent Client
 //! Protocol for the daemon, in place of `claude`, with the session's inbox for other sessions.
 
+mod agents;
 pub(crate) mod brain;
 mod inbox;
+mod listing;
 mod outbox;
+mod quotas;
 mod tool;
 pub(crate) mod translate;
 
-use std::collections::{HashMap, HashSet};
+pub(crate) use agents::Agent;
+pub(crate) use listing::{ExternalSession, list_sessions};
+pub(crate) use quotas::{QuotaError, agy_quotas};
+
+use std::collections::HashMap;
 use std::os::unix::fs::DirBuilderExt as _;
-use std::path::{Path, PathBuf};
-use std::process::Stdio;
+use std::path::PathBuf;
 
 use tokio::io::{AsyncBufReadExt as _, AsyncWriteExt as _, BufReader};
 use tokio::net::UnixListener;
 use tokio::net::unix::OwnedWriteHalf;
-use tokio::process::{Child, ChildStdin, ChildStdout, Command};
+use tokio::process::ChildStdin;
 use tokio::signal::unix::{Signal, SignalKind, signal};
 use tokio::sync::mpsc;
 
 use crate::agent;
-use crate::external::acp::{
-    AgyArguments, AgyQuestion, ClientCall, ClientCapabilities, ClientInfo, ElicitationCapabilities,
-    FileCapabilities, FormCapabilities, Incoming, InitializeParams, JsonRpc, ListSessionsParams,
-    ListSessionsResult, Request as AcpRequest, RpcError, SwarmAction, ToolCall,
-};
 use crate::external::agy;
-use crate::external::tool_input::{AgentInput, KnownCall, ListSessionsInput, SendMessageInput};
-use crate::external::wire::{BackgroundTask, Question, QuestionOption, Questions, System};
+use crate::external::wire::{BackgroundTask, System};
 use crate::ids::{RequestId, SessionId};
-use crate::sessions::{self, ClaudeHome, MessagingName};
+use crate::sessions::{ClaudeHome, MessagingName};
 use crate::settings::{self, PeerMessages};
+use listing::resolve_conversation;
 use outbox::{Job, Outcome, Places, SendArguments};
+use quotas::quotas;
 use translate::{CallId, Effect, Start, ToolServer, Translator};
 
 /// The first argument that makes this program an ACP session's adapter.
@@ -42,168 +44,6 @@ pub const TOOL_FLAG: &str = "--agy-tool";
 const QUEUE: usize = 256;
 /// How long the agent gets to end once its input closed, before it is killed.
 const GRACE: std::time::Duration = std::time::Duration::from_secs(3);
-/// How long the agent gets to say its plan's quotas.
-const QUOTAS_WAIT: std::time::Duration = std::time::Duration::from_secs(15);
-/// How long a `session/list` or `session/fork` asked of a program outside a session may take.
-const PROBE_WAIT: std::time::Duration = std::time::Duration::from_secs(5);
-/// The most pages of `session/list` read.
-const MAX_LIST_PAGES: usize = 10;
-
-/// The tool agy sees edualc's messaging tool as, by the MCP server's name and the tool's.
-const AGY_SEND: &str = "mcp_edualc_send_message";
-/// edualc's tool listing the sessions, as agy names it.
-const AGY_LIST: &str = "mcp_edualc_list_sessions";
-
-/// The agents edualc runs through the Agent Client Protocol, and what each does its own way.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum, strum::Display)]
-#[strum(serialize_all = "snake_case")]
-pub(crate) enum Agent {
-    Agy,
-    Opencode,
-}
-
-impl Agent {
-    /// Returns the program that speaks ACP.
-    fn program(self) -> &'static str {
-        match self {
-            Self::Agy => "agy",
-            Self::Opencode => "opencode",
-        }
-    }
-
-    /// Returns the arguments that make it speak ACP on stdio.
-    fn arguments(self) -> &'static [&'static str] {
-        match self {
-            Self::Agy => &["acp", "--disable-telemetry"],
-            Self::Opencode => &["acp"],
-        }
-    }
-
-    /// Returns how to get it, told when it isn't on PATH.
-    fn install_hint(self) -> &'static str {
-        match self {
-            Self::Agy => "install it from antigravity.google",
-            Self::Opencode => "install it from opencode.ai",
-        }
-    }
-
-    /// Returns whether the agent loads a session of its own again (`session/load`), so that
-    /// edualc can continue it.
-    fn loads_sessions(self) -> bool {
-        match self {
-            Self::Agy | Self::Opencode => true,
-        }
-    }
-
-    /// Returns whether the agent takes `session/fork`.
-    fn can_fork(self) -> bool {
-        self.backend().can_fork()
-    }
-
-    fn backend(self) -> crate::provider::Backend {
-        match self {
-            Self::Agy => crate::provider::Backend::Agy,
-            Self::Opencode => crate::provider::Backend::Opencode,
-        }
-    }
-
-    /// Returns whether it keeps records of the subagents and swarms it starts, which edualc
-    /// shows as the session's background tasks (see [`brain`]).
-    fn keeps_subagents(self) -> bool {
-        match self {
-            Self::Agy => true,
-            Self::Opencode => false,
-        }
-    }
-
-    /// Returns the arguments that make it print its plan's quotas (see [`quotas`]); `None` for
-    /// an agent with no quotas to say.
-    fn quotas_arguments(self) -> Option<&'static [&'static str]> {
-        match self {
-            Self::Agy => Some(&["-p", "/usage", "--output-format", "json"]),
-            Self::Opencode => None,
-        }
-    }
-
-    /// Returns whether it reports its plan's quotas, which the window shows as the plan's
-    /// limits.
-    fn reports_quotas(self) -> bool {
-        self.quotas_arguments().is_some()
-    }
-
-    /// Returns the arguments it sends with a tool call before the call's own, as opencode
-    /// sends the working folder first.
-    fn early_arguments(self) -> &'static [&'static str] {
-        match self {
-            Self::Agy => &[],
-            Self::Opencode => &["cwd"],
-        }
-    }
-
-    /// Starts the agent in `cwd`, with ACP on its stdio.
-    fn start(self, cwd: &Path) -> Result<Child, Error> {
-        let program = on_path(self.program()).ok_or(Error::NotOnPath(self))?;
-        Command::new(&program)
-            .args(self.arguments())
-            .current_dir(cwd)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .kill_on_drop(true)
-            .spawn()
-            .map_err(|source| Error::Start(self, source))
-    }
-
-    /// Returns a tool call named `name` that edualc acts on, as the window knows it: a message,
-    /// a list of the sessions, a swarm's new member, a question. `None` for any other, which
-    /// the window shows as the agent gives it.
-    fn tool(self, name: &str, call: &ToolCall) -> Option<KnownCall> {
-        match self {
-            Self::Agy => {
-                let given: AgyArguments = arguments(name, call);
-                match name {
-                    AGY_SEND => Some(KnownCall::SendMessage(SendMessageInput {
-                        to: given.to.unwrap_or_default(),
-                        message: given.message.unwrap_or_default(),
-                    })),
-                    AGY_LIST => Some(KnownCall::ListSessions(ListSessionsInput {})),
-                    // A swarm's board, read as a message to it.
-                    "post_message" => Some(KnownCall::SendMessage(SendMessageInput {
-                        to: "the board".to_owned(),
-                        message: given.text.unwrap_or_default(),
-                    })),
-                    "swarm" if given.action == Some(SwarmAction::Add) => {
-                        Some(KnownCall::Agent(AgentInput {
-                            description: "Joins the swarm".to_owned(),
-                            prompt: given.brief.unwrap_or_default(),
-                            subagent_type: given.name,
-                        }))
-                    }
-                    "ask_question" => Some(KnownCall::Questions(questions(given.questions))),
-                    _ => None,
-                }
-            }
-            // Its question, to-do list and subagents are read by the translator's names.
-            Self::Opencode => None,
-        }
-    }
-
-    /// Returns whether the agent refused a prompt for want of a valid sign-in: by ACP's code,
-    /// or in its own words for a token Google's API refused (`UNAUTHENTICATED`, HTTP 401) or
-    /// for no sign-in at all.
-    fn sign_in_refused(self, error: &RpcError) -> bool {
-        error.sign_in_refused()
-            || match self {
-                Self::Agy => {
-                    error.message.contains("UNAUTHENTICATED")
-                        || error.message.contains("not logged into Antigravity")
-                        || error.message.contains("Authentication required")
-                }
-                Self::Opencode => false,
-            }
-    }
-}
-
 /// The adapter's command line, as `spawn` writes it.
 #[derive(Debug, clap::Parser)]
 #[command(name = "edualcd --agy-adapter", disable_help_flag = true)]
@@ -317,298 +157,6 @@ impl Drop for Own {
             tracing::debug!(%error, "the session's folder stays");
         }
     }
-}
-
-/// A session started outside edualc, as `session/list` gives it.
-#[derive(Debug, Clone)]
-pub(crate) struct ExternalSession {
-    pub backend: crate::provider::Backend,
-    pub raw_id: String,
-    pub id: SessionId,
-    pub cwd: PathBuf,
-    pub title: String,
-    /// When it last changed; `None` where `session/list` gives no `updatedAt` that reads as a
-    /// time.
-    pub modified: Option<std::time::SystemTime>,
-}
-
-fn parse_rfc3339(text: Option<&str>) -> Option<std::time::SystemTime> {
-    let text = text?;
-    match text.parse::<jiff::Timestamp>() {
-        Ok(timestamp) => Some(timestamp.into()),
-        Err(error) => {
-            tracing::debug!(%error, text, "a session's updatedAt that isn't a time");
-            None
-        }
-    }
-}
-
-async fn send_and_wait_response(
-    stdin: &mut ChildStdin,
-    lines: &mut tokio::io::Lines<BufReader<ChildStdout>>,
-    request_line: &str,
-    expected_id: u64,
-) -> Option<Result<serde_json::Value, RpcError>> {
-    if write_line(stdin, &request_line).await.is_err() {
-        return None;
-    }
-    while let Ok(Some(line)) = lines.next_line().await {
-        let Ok(Incoming::Response { id, result, error }) = serde_json::from_str(&line) else {
-            continue;
-        };
-        if id.as_u64() != Some(expected_id) {
-            continue;
-        }
-        if let Some(error) = error {
-            return Some(Err(error));
-        }
-        return Some(Ok(result.unwrap_or(serde_json::Value::Null)));
-    }
-    None
-}
-
-async fn start_initialized_acp(
-    agent: Agent,
-    cwd: &Path,
-) -> Option<(Child, ChildStdin, tokio::io::Lines<BufReader<ChildStdout>>)> {
-    on_path(agent.program())?;
-    let mut process = agent.start(cwd).ok()?;
-    let mut stdin = process.stdin.take()?;
-    let stdout = process.stdout.take()?;
-    let mut lines = BufReader::new(stdout).lines();
-    let init = AcpRequest {
-        jsonrpc: JsonRpc::TwoPointZero,
-        id: 1,
-        call: ClientCall::Initialize(InitializeParams {
-            protocol_version: 1,
-            client_capabilities: ClientCapabilities {
-                fs: FileCapabilities {
-                    read_text_file: false,
-                    write_text_file: false,
-                },
-                terminal: false,
-                elicitation: ElicitationCapabilities {
-                    form: FormCapabilities {},
-                },
-            },
-            client_info: ClientInfo {
-                name: "edualc".to_owned(),
-                version: env!("CARGO_PKG_VERSION").to_owned(),
-            },
-        }),
-    };
-    let init_line = serde_json::to_string(&init).ok()?;
-    match send_and_wait_response(&mut stdin, &mut lines, &init_line, 1).await {
-        Some(Ok(_)) => Some((process, stdin, lines)),
-        Some(Err(error)) => {
-            tracing::debug!(%agent, %error.message, "acp initialize refused");
-            None
-        }
-        None => None,
-    }
-}
-
-/// Lists the sessions `agent` keeps, with `session/list`.
-pub(crate) async fn list_sessions(agent: Agent) -> Vec<ExternalSession> {
-    // The agent is started in the home folder to list its sessions; without one we don't guess.
-    let Some(cwd) = dirs::home_dir() else {
-        tracing::warn!(%agent, "no home folder ($HOME) to list the sessions from");
-        return Vec::new();
-    };
-    let result = tokio::time::timeout(PROBE_WAIT, list_sessions_inner(agent, &cwd)).await;
-    match result {
-        Ok(sessions) => sessions,
-        Err(_late) => {
-            tracing::debug!(%agent, "acp session/list timed out");
-            Vec::new()
-        }
-    }
-}
-
-async fn list_sessions_inner(agent: Agent, cwd: &Path) -> Vec<ExternalSession> {
-    let Some((mut process, mut stdin, mut lines)) = start_initialized_acp(agent, cwd).await else {
-        return Vec::new();
-    };
-    let mut collected = Vec::new();
-    let mut seen_raw = HashSet::new();
-    let mut cursor: Option<String> = None;
-    let backend = agent.backend();
-    for page in 0..MAX_LIST_PAGES {
-        let req_id = 2 + page as u64;
-        let request = AcpRequest {
-            jsonrpc: JsonRpc::TwoPointZero,
-            id: req_id,
-            call: ClientCall::ListSessions(ListSessionsParams {
-                cwd: None,
-                cursor: cursor.clone(),
-            }),
-        };
-        let Ok(line) = serde_json::to_string(&request) else {
-            break;
-        };
-        let Some(Ok(value)) = send_and_wait_response(&mut stdin, &mut lines, &line, req_id).await
-        else {
-            break;
-        };
-        let Ok(list) = serde_json::from_value::<ListSessionsResult>(value) else {
-            break;
-        };
-        if list.sessions.is_empty() {
-            break;
-        }
-        let mut added = 0_usize;
-        for session in list.sessions {
-            if !seen_raw.insert(session.session_id.clone()) {
-                continue;
-            }
-            added += 1;
-            let id = SessionId::for_external(backend, &session.session_id);
-            let title = session
-                .title
-                .as_deref()
-                .map(str::trim)
-                .filter(|title| !title.is_empty())
-                .map_or_else(|| sessions::PetName::of(&id).to_string(), str::to_owned);
-            collected.push(ExternalSession {
-                backend,
-                raw_id: session.session_id,
-                id,
-                cwd: session.cwd,
-                title,
-                modified: parse_rfc3339(session.updated_at.as_deref()),
-            });
-        }
-        if added == 0 || list.next_cursor.is_none() || list.next_cursor == cursor {
-            break;
-        }
-        cursor = list.next_cursor;
-    }
-    if let Err(error) = process.start_kill() {
-        tracing::debug!(%error, %agent, "couldn't stop acp session/list child");
-    }
-    if let Err(error) = process.wait().await {
-        tracing::debug!(%error, %agent, "acp session/list child wait failed");
-    }
-    collected
-}
-
-/// Returns the agent's id for session `id`'s conversation. agy's is the same id, which its
-/// records are kept under; opencode's is the one `session/list` gives for that window id.
-async fn resolve_conversation(agent: Agent, id: &SessionId) -> Option<String> {
-    match agent {
-        Agent::Agy => agy::brain()?
-            .join(id.as_str())
-            .is_dir()
-            .then(|| id.as_str().to_owned()),
-        Agent::Opencode => list_sessions(agent)
-            .await
-            .into_iter()
-            .find(|session| &session.id == id)
-            .map(|session| session.raw_id),
-    }
-}
-
-/// Finds `program` on PATH.
-fn on_path(program: &str) -> Option<PathBuf> {
-    std::env::var_os("PATH").and_then(|path| {
-        std::env::split_paths(&path)
-            .map(|folder| folder.join(program))
-            .find(|candidate| candidate.is_file())
-    })
-}
-
-/// Reads the arguments of tool call `name`, as far as the agent has given them. None yet, or
-/// ones edualc can't read (which are logged), read as none.
-fn arguments<Arguments>(name: &str, call: &ToolCall) -> Arguments
-where
-    Arguments: serde::de::DeserializeOwned + Default,
-{
-    let Some(input) = call.raw_input.clone() else {
-        return Arguments::default();
-    };
-    match serde_json::from_value::<Option<Arguments>>(input) {
-        Ok(given) => given.unwrap_or_default(),
-        Err(error) => {
-            tracing::warn!(%error, tool = name, "a tool's arguments edualc can't read");
-            Arguments::default()
-        }
-    }
-}
-
-/// Returns agy's questions as Claude Code's AskUserQuestion asks them.
-fn questions(asked: Vec<AgyQuestion>) -> Questions {
-    Questions {
-        questions: asked
-            .into_iter()
-            .map(|asked| Question {
-                question: asked.question,
-                header: String::new(),
-                options: asked
-                    .options
-                    .into_iter()
-                    .map(|label| QuestionOption {
-                        label,
-                        description: String::new(),
-                        preview: String::new(),
-                        rest: serde_json::Map::new(),
-                    })
-                    .collect(),
-                multi_select: asked.is_multi_select,
-                rest: serde_json::Map::new(),
-            })
-            .collect(),
-        answers: std::collections::BTreeMap::new(),
-        annotations: std::collections::BTreeMap::new(),
-        rest: serde_json::Map::new(),
-    }
-}
-
-/// Why the plan's quotas couldn't be read.
-#[derive(Debug, thiserror::Error)]
-pub(crate) enum QuotaError {
-    #[error("{0} has no quotas to say")]
-    NoQuotas(Agent),
-    #[error("{0} isn't on PATH")]
-    NotOnPath(Agent),
-    #[error("couldn't run it: {0}")]
-    Run(#[source] std::io::Error),
-    #[error("it didn't answer in time")]
-    TimedOut,
-    #[error("it failed ({0})")]
-    Failed(std::process::ExitStatus),
-    #[error("its answer can't be read: {0}")]
-    Read(#[source] serde_json::Error),
-}
-
-/// Asks agy for its plan's quotas outside a session.
-pub(crate) async fn agy_quotas(cwd: PathBuf) -> Result<agy::Quotas, QuotaError> {
-    quotas(Agent::Agy, cwd).await
-}
-
-/// Asks `agent` for its plan's quotas in `cwd`, where agy reads its settings.
-async fn quotas(agent: Agent, cwd: PathBuf) -> Result<agy::Quotas, QuotaError> {
-    let arguments = agent
-        .quotas_arguments()
-        .ok_or(QuotaError::NoQuotas(agent))?;
-    let program = on_path(agent.program()).ok_or(QuotaError::NotOnPath(agent))?;
-    let run = Command::new(program)
-        .args(arguments)
-        .current_dir(cwd)
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .kill_on_drop(true)
-        .output();
-    let output = tokio::time::timeout(QUOTAS_WAIT, run)
-        .await
-        .map_err(|_late| QuotaError::TimedOut)?
-        .map_err(QuotaError::Run)?;
-    if !output.status.success() {
-        return Err(QuotaError::Failed(output.status));
-    }
-    serde_json::from_slice::<agy::UsageAnswer>(&output.stdout)
-        .map(|answer| answer.command.data)
-        .map_err(QuotaError::Read)
 }
 
 /// Returns how you want other sessions' messages let in, as the settings say now. Settings
