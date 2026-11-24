@@ -435,7 +435,7 @@ fn reached(
     let (resume, cwd) = match last {
         Some(id) => match connected.saved(&id) {
             Ok(Saved::StartedIn(folder)) => (Some(id), Some(folder)),
-            Ok(Saved::Unplaced) => (Some(id), Some(home)),
+            Ok(Saved::Unplaced) => (Some(id), home),
             Ok(Saved::Nowhere) => (None, None),
             Err(error) => {
                 tracing::info!(%error, "the session shown last wasn't found");

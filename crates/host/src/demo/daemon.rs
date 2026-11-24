@@ -71,7 +71,7 @@ fn greet(outbox: &Sender<FromDaemon>) {
             protocol: PROTOCOL,
             settings: Ok(settings),
             live: demo::running(),
-            home: demo::Folder::Trailhead.path().to_path_buf(),
+            home: Some(demo::Folder::Trailhead.path().to_path_buf()),
             backends: vec![crate::provider::Backend::Claude],
         },
     );

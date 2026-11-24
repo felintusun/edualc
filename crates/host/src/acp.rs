@@ -400,7 +400,11 @@ async fn start_initialized_acp(
 
 /// Lists external sessions known to `agent` via ACP `session/list`.
 pub(crate) async fn list_sessions(agent: Agent) -> Vec<ExternalSession> {
-    let cwd = dirs::home_dir().unwrap_or_else(|| PathBuf::from("/tmp"));
+    // The agent is started in the home folder to list its sessions; without one we don't guess.
+    let Some(cwd) = dirs::home_dir() else {
+        tracing::warn!(%agent, "no home folder ($HOME) to list the sessions from");
+        return Vec::new();
+    };
     let result = tokio::time::timeout(PROBE_WAIT, list_sessions_inner(agent, &cwd)).await;
     match result {
         Ok(sessions) => sessions,

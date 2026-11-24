@@ -168,12 +168,18 @@ impl<F: Frontend> App<F> {
                 return;
             }
         };
-        self.view.set_new_project_error("");
         let parent_path = if parent.trim().is_empty() {
-            self.settings.effective_projects_dir().unwrap_or_default()
+            let Some(dir) = self.settings.effective_projects_dir() else {
+                self.view.set_new_project_error(
+                    "Say which folder to make it in: there is no projects folder or home folder.",
+                );
+                return;
+            };
+            dir
         } else {
             PathBuf::from(parent.trim())
         };
+        self.view.set_new_project_error("");
         self.ask_daemon(
             Act::CreateProject {
                 parent: parent_path,

@@ -82,7 +82,7 @@ pub(super) async fn window_over(
                 protocol: ipc::PROTOCOL,
                 settings,
                 live,
-                home: dirs::home_dir().unwrap_or_else(|| std::path::PathBuf::from("/")),
+                home: dirs::home_dir(),
                 backends,
             };
             if outbox.send(answer).await.is_err() {

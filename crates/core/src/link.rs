@@ -59,8 +59,8 @@ pub struct Greeting {
     pub live: Vec<LiveSession>,
     /// The settings, or why they can't be read.
     pub settings: Result<Settings, String>,
-    /// The daemon's user's home folder.
-    pub home: std::path::PathBuf,
+    /// The daemon's user's home folder, if it has one.
+    pub home: Option<std::path::PathBuf>,
     /// Coding agent backends available on PATH when the window connected.
     pub backends: Vec<crate::provider::Backend>,
 }
