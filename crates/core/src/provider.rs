@@ -4,37 +4,37 @@ use std::path::PathBuf;
 
 use crate::ids::SessionId;
 
-/// What a coding agent provider supports beyond a basic prompt-and-reply turn.
+/// What a program does beyond a turn of prompt and reply.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Capabilities {
-    /// Persists and lists past sessions so you can read and continue them.
+    /// Keeps and lists past sessions, so you can read and continue them.
     pub transcripts: bool,
-    /// Supports cloning a session into an independent copy.
+    /// Forks a session into a copy of its own.
     pub fork: bool,
-    /// Supports ephemeral side questions (`/btw`) beside the main conversation.
+    /// Answers side questions (`/btw`) beside the conversation.
     pub side_questions: bool,
-    /// Supports `!` inline shell execution beside the composer.
+    /// Runs `!` commands beside the conversation.
     pub inline_shell: bool,
-    /// Reports five-hour and weekly plan quota limits for the signed-in account.
+    /// Reports the plan's five-hour and weekly limits.
     pub plan_limits: bool,
-    /// Reads folder-level settings/hooks/MCP configuration and needs a pre-start trust gate.
+    /// Reads the folder's own settings, hooks and MCP servers, so the folder is trusted first.
     pub folder_trust: bool,
-    /// Offers an optional stored Anthropic API key alongside terminal sign-in.
+    /// Signs in with an Anthropic API key from the keyring, as well as in the terminal.
     pub api_key_sign_in: bool,
-    /// Signs in by a command you run in a terminal, which `/login` shows you: behind a pipe the
+    /// Signs in by a command you run in a terminal, which `/login` shows you. Behind a pipe the
     /// program offers no sign-in of its own.
     pub terminal_sign_in: bool,
-    /// Supports interactive block-level plan comments returned alongside approval.
+    /// Takes comments on a plan's blocks along with its approval.
     pub plan_comments: bool,
-    /// The mode menu is a fixed set of permission modes, not the modes the program offers as it
-    /// starts.
+    /// Has a fixed set of permission modes for the mode menu, rather than modes the program
+    /// offers as it starts.
     pub fixed_modes: bool,
-    /// Applies a mid-turn mode switch only from the next prompt onward.
+    /// Applies a mode picked during a turn from the next prompt on.
     pub deferred_mode_switch: bool,
 }
 
-/// The program a session talks to: Claude Code, Google's Antigravity CLI, or opencode.
-/// edualcd's ACP adapter speaks to the ACP backends and translates for the window.
+/// The program a session runs: Claude Code, Google's Antigravity CLI, or opencode. edualcd's
+/// ACP adapter runs the last two.
 #[derive(
     Debug,
     Clone,
@@ -59,10 +59,10 @@ pub enum Backend {
 }
 
 impl Backend {
-    /// Every coding agent backend edualc supports, in tab order.
+    /// Every program edualc runs, in tab order.
     pub const ALL: [Self; 3] = [Self::Claude, Self::Agy, Self::Opencode];
 
-    /// Who answers and asks, as the window names it.
+    /// Returns who answers and asks, as the window names it.
     pub fn agent(self) -> &'static str {
         match self {
             Self::Claude => "Claude",
@@ -71,7 +71,7 @@ impl Backend {
         }
     }
 
-    /// The program the session runs as.
+    /// Returns the program's name.
     pub fn program(self) -> &'static str {
         match self {
             Self::Claude => "Claude Code",
@@ -80,7 +80,7 @@ impl Backend {
         }
     }
 
-    /// Whether edualcd's ACP adapter runs it.
+    /// Returns whether edualcd's ACP adapter runs it.
     pub fn is_acp(self) -> bool {
         match self {
             Self::Claude => false,
@@ -88,7 +88,7 @@ impl Backend {
         }
     }
 
-    /// What this provider supports, refined by how the session signs in.
+    /// Returns what the program does, signed in with `sign_in`.
     pub fn capabilities(self, sign_in: SignInWith) -> Capabilities {
         match self {
             Self::Claude => Capabilities {
@@ -133,13 +133,13 @@ impl Backend {
         }
     }
 
-    /// Whether a session of this backend can be forked into a copy (`--fork-session` / ACP
-    /// `session/fork`).
+    /// Returns whether its sessions can be forked (`--fork-session`, `session/fork`).
     pub fn can_fork(self) -> bool {
         self.capabilities(SignInWith::Account).fork
     }
 
-    /// What the window shows when sign-in is refused: instructions and the terminal command.
+    /// Returns what the window shows when sign-in is refused: what to do, and the command to
+    /// run in a terminal.
     pub fn sign_in_help(self) -> (&'static str, &'static str) {
         match self {
             Self::Claude => (
@@ -162,7 +162,7 @@ impl Backend {
         }
     }
 
-    /// Short explanation where usage limits aren't reported (for the usage bar and popover).
+    /// Returns the usage bar's and panel's words where usage limits aren't reported.
     pub fn limits_note(self, sign_in: SignInWith) -> &'static str {
         match (self, sign_in) {
             (Self::Opencode, _) => "opencode reports no usage limits",
@@ -197,7 +197,7 @@ impl Program {
 /// What a session signs in with.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum SignInWith {
-    /// The user's own sign-in, as in their terminal.
+    /// Your own sign-in, as in your terminal.
     #[default]
     Account,
     /// The Anthropic API key in the desktop's keyring, billed by the token.
@@ -210,8 +210,8 @@ pub enum FolderConfiguration {
     /// As for a trusted folder: its hooks, environment, helpers and MCP servers apply.
     #[default]
     Read,
-    /// Not trusted, and started anyway without it: only the user's own settings apply, and no
-    /// MCP servers from configuration at all.
+    /// Not trusted, and started without it: only your own settings apply, and no MCP servers
+    /// from configuration at all.
     Skipped,
 }
 
@@ -222,11 +222,10 @@ pub struct Launch {
     pub backend: Backend,
     pub cwd: PathBuf,
     pub conversation: Conversation,
-    /// A model or alias, as the backend takes it; the backend's default if none.
+    /// A model or alias, as the program takes it; `None` for the program's default.
     pub model: Option<String>,
-    /// Whether the folder's own configuration is read.
     pub folder_configuration: FolderConfiguration,
-    /// How Claude Code signs in; ACP backends sign in themselves.
+    /// How Claude Code signs in; the others sign in themselves.
     pub sign_in: SignInWith,
 }
 
@@ -240,8 +239,8 @@ pub enum Resume {
 }
 
 impl Resume {
-    /// The conversation a process runs for `resume` (none: a new one), the ids of new
-    /// sessions chosen here.
+    /// Returns the conversation a process runs for `resume`, or a new one for `None`. New
+    /// sessions get their ids here.
     pub fn conversation(resume: Option<Self>) -> Conversation {
         match resume {
             None => Conversation::New(SessionId::new_random()),

@@ -1,5 +1,5 @@
-//! The socket the window and the daemon speak over, and its frames (see the parent module):
-//! Linux only, as the browser demo's daemon is in the page.
+//! The Unix socket between the windows and the daemon. Linux only: the browser demo's daemon
+//! runs in the page.
 
 use std::io::{Read, Write};
 use std::os::fd::{AsFd, OwnedFd};
@@ -21,7 +21,7 @@ const FOLDER: &str = "edualc";
 const SOCKET: &str = "edualcd.sock";
 const LOCK: &str = "edualcd.lock";
 
-/// The private folder, open: what is done in it is done through this descriptor.
+/// The private folder, opened; everything done in it goes through this descriptor.
 #[derive(Debug)]
 pub struct Folder {
     fd: OwnedFd,
@@ -29,8 +29,8 @@ pub struct Folder {
 }
 
 impl Folder {
-    /// `$XDG_RUNTIME_DIR/edualc/protocol-<PROTOCOL>`, made if it isn't there, and checked to be
-    /// the user's alone. Each protocol has a folder of its own, so a daemon of an earlier build
+    /// Opens `$XDG_RUNTIME_DIR/edualc/protocol-<PROTOCOL>`, made if it isn't there and checked
+    /// to be yours alone. Each protocol has a folder of its own, so a daemon of an earlier build
     /// runs on beside this build's until its sessions end, instead of keeping its windows out.
     pub fn open() -> Result<Self, Error> {
         let runtime = dirs::runtime_dir().ok_or(Error::NoRuntimeDir)?;
@@ -43,7 +43,7 @@ impl Folder {
         Ok(Self { fd, path })
     }
 
-    /// The daemon's log, begun anew, the user's alone.
+    /// Opens the daemon's log anew, readable by you alone.
     pub fn log_file(&self) -> Result<std::fs::File, Error> {
         let flags =
             OFlags::CREATE | OFlags::TRUNC | OFlags::WRONLY | OFlags::NOFOLLOW | OFlags::CLOEXEC;
@@ -55,8 +55,8 @@ impl Folder {
         Ok(std::fs::File::from(fd))
     }
 
-    /// A name in the folder as a socket address that resolves through the folder's descriptor,
-    /// not through the path it was found at.
+    /// Returns a socket address for `name` in the folder, which resolves through the folder's
+    /// descriptor rather than the path it was found at.
     fn address(&self, name: &str) -> Result<SocketAddrUnix, Error> {
         use std::os::fd::AsRawFd;
         let through = format!("/proc/self/fd/{}/{name}", self.fd.as_raw_fd());
@@ -64,8 +64,8 @@ impl Folder {
     }
 }
 
-/// The folder `name` in `at` (found at `path`), made if it isn't there, then opened as
-/// [`open_folder`] opens one.
+/// Makes the folder `name` in `at`, found at `path`, if it isn't there, and opens it as
+/// [`open_folder`] does.
 fn made_folder(at: impl AsFd, name: &str, path: &Path) -> Result<OwnedFd, Error> {
     match rustix::fs::mkdirat(&at, name, Mode::RWXU) {
         Ok(()) | Err(Errno::EXIST) => {}
@@ -79,8 +79,8 @@ fn made_folder(at: impl AsFd, name: &str, path: &Path) -> Result<OwnedFd, Error>
     open_folder(at, Path::new(name), path)
 }
 
-/// Opens a folder without following a link to it, and checks it is the user's alone; one of
-/// theirs with looser permissions is closed to others first.
+/// Opens a folder without following a link to it, and checks it is yours alone. One of yours
+/// with looser permissions is closed to others first.
 fn open_folder(at: impl AsFd, name: &Path, path: &Path) -> Result<OwnedFd, Error> {
     let flags = OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC | OFlags::RDONLY;
     let fd = rustix::fs::openat(at, name, flags, Mode::empty()).map_err(|source| Error::Open {
@@ -112,7 +112,7 @@ pub struct Listener {
 }
 
 impl Listener {
-    /// Becomes the daemon: `None` if another one is.
+    /// Makes this process the daemon; `None` if another one is.
     pub fn bind(folder: &Folder) -> Result<Option<Self>, Error> {
         let flags = OFlags::CREATE | OFlags::RDWR | OFlags::NOFOLLOW | OFlags::CLOEXEC;
         let lock = rustix::fs::openat(&folder.fd, LOCK, flags, Mode::RUSR | Mode::WUSR).map_err(
@@ -158,7 +158,7 @@ impl Listener {
         }))
     }
 
-    /// For tokio: the socket, and the lock to hold as long as it is listened on.
+    /// Returns the socket for tokio, and the lock to hold as long as it is listened on.
     pub fn into_tokio(self) -> Result<(tokio::net::UnixListener, OwnedFd), Error> {
         self.socket.set_nonblocking(true).map_err(Error::Io)?;
         let socket = tokio::net::UnixListener::from_std(self.socket).map_err(Error::Io)?;
@@ -166,9 +166,11 @@ impl Listener {
     }
 }
 
-/// The daemon a window reached is this user's. Its program isn't compared: the daemon makes
-/// itself non-dumpable, which closes its `/proc` entries to the window; that it is the daemon
-/// the socket's place says, a folder of the user's alone that only the lock's holder binds in.
+/// Checks that the daemon a window reached is yours.
+///
+/// Its program isn't compared: the daemon makes itself non-dumpable, which closes its `/proc`
+/// entries to the window. The socket's place says it is the daemon, as only the lock's holder
+/// binds in that folder of yours alone.
 fn check_daemon(fd: impl AsFd) -> Result<(), Error> {
     let (uid, pid) = peer(fd)?;
     if uid == rustix::process::getuid().as_raw() {
@@ -178,9 +180,9 @@ fn check_daemon(fd: impl AsFd) -> Result<(), Error> {
     }
 }
 
-/// A window is this user's, running one of the programs installed beside the daemon: a build
-/// that replaced the window's on disk counts too, and the hello's protocol says whether the two
-/// agree.
+/// Checks that a window is yours and runs one of the programs installed beside the daemon. A
+/// build that replaced the window's program on disk counts too; the hello's protocol says
+/// whether the two agree.
 fn check_window(fd: impl AsFd) -> Result<(), Error> {
     let (uid, pid) = peer(fd)?;
     let stranger = Error::Stranger { uid, pid };
@@ -203,10 +205,9 @@ fn peer(fd: impl AsFd) -> Result<(u32, i32), Error> {
 /// The programs that are windows, by their names, beside the daemon they talk to.
 const WINDOWS: &[&str] = &["edualc"];
 
-/// `theirs` is a window of the daemon that is `ours`: one of the programs installed beside it
-/// (the window and the daemon are separate programs, a package's or a build's `target/`), or
-/// the daemon's own. The
-/// kernel's " (deleted)" aside: it names a program so once a new build replaced it on disk.
+/// Returns whether `theirs` is a window of the daemon that is `ours`: one of the programs
+/// installed beside it, in a package or a build's `target/`, or the daemon's own. The kernel's
+/// " (deleted)" suffix, which it adds once a new build replaced a program on disk, is ignored.
 fn is_window_of(theirs: &Path, ours: &Path) -> bool {
     use std::os::unix::ffi::OsStrExt;
     let path = |program: &Path| {
@@ -225,7 +226,7 @@ fn is_window_of(theirs: &Path, ours: &Path) -> bool {
             .any(|name| theirs == beside.join(name).as_os_str().as_bytes())
 }
 
-/// One end of a connection, sending and taking whole messages (the window's: it waits).
+/// The window's end of a connection, which sends and blocks to take whole messages.
 #[derive(Debug)]
 pub struct Channel {
     stream: UnixStream,
@@ -248,7 +249,8 @@ impl Channel {
         })
     }
 
-    /// A second end for the same connection: one thread sends, another takes.
+    /// Returns a second end of the same connection, so that one thread sends while another
+    /// takes.
     pub fn try_clone(&self) -> Result<Self, Error> {
         Ok(Self {
             stream: self.stream.try_clone().map_err(Error::Io)?,
@@ -260,7 +262,7 @@ impl Channel {
         self.stream.write_all(&frame).map_err(closed_or)
     }
 
-    /// The next message; waits for it.
+    /// Waits for the next message.
     pub fn recv<T: DeserializeOwned>(&mut self, deframer: &mut Deframer<T>) -> Result<T, Error> {
         let mut bytes = [0u8; READ];
         loop {
@@ -284,7 +286,7 @@ pub type Reading = tokio::net::unix::OwnedReadHalf;
 pub type Writing = tokio::net::unix::OwnedWriteHalf;
 
 impl AsyncChannel {
-    /// The next peer of `listener`, once it is checked to be this user's edualc.
+    /// Accepts the next peer of `listener` and checks that it is your edualc.
     pub async fn accept(listener: &tokio::net::UnixListener) -> Result<Self, Error> {
         let (stream, _) = listener.accept().await.map_err(Error::Io)?;
         check_window(&stream)?;
