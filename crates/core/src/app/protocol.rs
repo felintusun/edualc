@@ -457,8 +457,8 @@ impl<F: Frontend> App<F> {
             return;
         };
         if is_acp {
-            // ACP adapters always report the active model's complete quota windows together, so
-            // switching to a weekly-only model clears any stale 5h reading from an earlier model.
+            // The adapter reports both windows of the model in use at once, so a model with a
+            // weekly limit alone clears the five hours another model left.
             kept.five_hour = used(&windows.five_hour);
             kept.seven_day = used(&windows.seven_day);
         } else {

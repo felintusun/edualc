@@ -144,9 +144,8 @@ impl<F: Frontend> App<F> {
             return;
         }
         let backend = self.backend_of(&id);
-        // With a key kept, you pick what a provider supporting API keys continues with; switch to
-        // the session view right away so `SignInChoiceBar` is shown immediately instead of staying
-        // hidden on the project page.
+        // With a key kept, you pick what the session signs in with. We go to the session at once,
+        // as the choice is asked there, not on the project page.
         if backend
             .capabilities(provider::SignInWith::Account)
             .api_key_sign_in
@@ -391,7 +390,6 @@ impl<F: Frontend> App<F> {
             .title
             .clone()
             .unwrap_or_else(|| session.name.clone());
-        // Preserve the watched session's own backend (`Claude`, `Agy`, `Opencode`).
         self.reset_session(Some(session.id.clone()), Some(title), session.backend);
         self.status.sign_in_with = provider::SignInWith::Account;
         self.load_session(session.id.clone(), session.cwd.clone());
