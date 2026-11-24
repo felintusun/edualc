@@ -31,8 +31,8 @@ impl Styled {
     }
 }
 
-/// An image the window shows: one of the conversation's, by its key (its pixels come apart,
-/// through [`Frontend::show_image`]), or pixels at hand (a thumbnail).
+/// An image the window shows: one of the conversation's by its key, whose pixels come later
+/// through [`Frontend::show_image`], or pixels at hand such as a thumbnail.
 #[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum Image {
     #[default]
@@ -44,20 +44,20 @@ pub enum Image {
 /// The window's look, as the settings keep it.
 pub use crate::settings::Look;
 
-/// A change to the transcript's rows: they change one by one as the conversation goes, so they
+/// A change to the transcript's rows. They change one by one as the conversation goes, so they
 /// aren't part of a global's state.
 #[derive(Debug, Clone, PartialEq)]
 pub enum EntriesChange {
-    /// All rows anew (another session, say).
+    /// Replaces every row, as for another session.
     Reset(Vec<model::Entry>),
     Push(model::Entry),
-    /// Row `index` anew: a frontend keeps what of it stays (its blocks' selection).
+    /// Replaces row `index`; a frontend keeps what of it stays, such as its blocks' selection.
     Set(usize, model::Entry),
 }
 
-/// What the window does on the desktop it is on, which is the user's; edualcd may run where no
-/// one sits. A failure comes back as `Event::SeatFailed`, but a notification's doesn't: a
-/// desktop without a notification service would show an error for each.
+/// What the window does on its own desktop, which is yours; edualcd may run where nobody sits.
+/// A failure comes back as `Event::SeatFailed`, except a notification's: a desktop without a
+/// notification service would show an error for each.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Seat {
     /// Opens a web page or mail in the desktop's browser; anything else is refused (see
@@ -73,61 +73,58 @@ pub enum Seat {
     FocusWindowOf { pid: u32 },
 }
 
-/// What the window is told to do, rather than to show: its own state the app sets now and
-/// then (the draft, a menu's choice), focus, and moving about.
+/// What the window is told to do rather than show: state the app sets now and then (the
+/// draft, a menu's choice), focus, and moving about.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Command {
     Copy(String),
     SetDraft(String),
-    /// Adds text to the end of the draft, after what is there.
+    /// Adds text to the end of the draft.
     AppendDraft(String),
     FocusComposer,
     FocusSide,
-    /// Clears any active transcript text selection on navigation.
+    /// Clears the transcript's text selection, on moving elsewhere.
     ClearSelection,
-    /// Goes to the transcript's end.
     ScrollToEnd,
-    /// A session's transcript was loaded: shown at its end once the list has measured its way
-    /// there, not on the way.
+    /// Shows a loaded transcript at its end, once the list has measured its way there.
     OpenAtEnd,
     /// Opens the list of what runs.
     ShowTasks,
-    /// The folder typed in the list of folders opened: the list closes.
+    /// Closes the folder list, as the folder typed in it opened.
     ProjectsOpened,
-    /// A new project folder was created: close the New project dialog.
+    /// Closes the New project dialog, as the folder was made.
     NewProjectCreated,
-    /// Focus the active start or project page.
+    /// Focuses the start page or the project page shown.
     FocusPage,
-    /// Open or toggle the quick session switcher inside a session.
+    /// Opens or closes the session switcher inside a session.
     ToggleSwitcher,
-    /// Open the New project dialog from the start page.
+    /// Opens the New project dialog from the start page.
     OpenNewProject,
-    /// Which model and mode the menus have chosen.
+    /// Sets the model the menu has chosen.
     ModelIndex(i32),
+    /// Sets the mode the menu has chosen.
     ModeIndex(i32),
-    /// Whether the plan shown is being reviewed.
+    /// Sets whether the plan shown is being reviewed.
     Reviewing(bool),
-    /// The composer's kept height in logical pixels, if it was dragged to one; fitted to its
-    /// text if not.
+    /// Sets the composer's height in logical pixels; `None` fits it to its text.
     ComposerHeight(Option<u16>),
-    /// The base text size, in logical pixels; everything else is sized from it.
+    /// Sets the base text size in logical pixels, which everything else is sized from.
     TextSize(f32),
     Look(Look),
-    /// Code's colours changed (the look, or the desktop's dark or light): code shown is coloured
-    /// again in them, by a window that colours it.
+    /// Colours the code shown again, after the look or the desktop's dark or light changed.
+    /// Only a window that colours code acts on it.
     RecolourCode,
-    /// The window's own thread coloured code (`Event::CodeColoured`): it is to draw it. A
-    /// window that doesn't colour code is never told.
+    /// Draws the code the window's own thread coloured (`Event::CodeColoured`). A window that
+    /// doesn't colour code is never told.
     DrawColouredCode,
-    /// The window closes.
     Quit,
-    /// The session the window shows now, by its id; none for a new one not started yet. A
-    /// frontend that is ended and started again by its system (an app) opens it again.
+    /// Tells which session the window shows; `None` for a new one not started yet. A frontend
+    /// that its system ends and starts again, such as an app, opens it again.
     SessionShown(Option<crate::ids::SessionId>),
 }
 
-/// What draws the window: told the state of each of its parts as it changes (with what it was
-/// told before, if anything), and what to do.
+/// Draws the window. It is told the state of each part as it changes, with what it was told
+/// before, and what to do.
 pub trait Frontend {
     fn nav(&mut self, old: Option<&model::Nav>, nav: &model::Nav);
     fn session(&mut self, old: Option<&model::Session>, session: &model::Session);
@@ -140,15 +137,15 @@ pub trait Frontend {
     fn side(&mut self, old: Option<&model::Side>, side: &model::Side);
     fn preferences(&mut self, old: Option<&model::Preferences>, preferences: &model::Preferences);
     fn usage(&mut self, old: Option<&model::Usage>, usage: &model::Usage);
-    /// The newest prompt, pinned above the conversation.
+    /// Shows the newest prompt, pinned above the conversation.
     fn transcript(&mut self, old: Option<&model::Transcript>, transcript: &model::Transcript);
-    /// Image `key`'s pixels, or why it can't be shown.
+    /// Shows image `key`'s pixels, or why it can't be shown.
     fn show_image(&mut self, key: ImageKey, shown: Result<&Pixels, String>);
-    /// Lets go of the images but those `shown` holds: the conversation was replaced.
+    /// Lets go of every image but those in `shown`, after the conversation was replaced.
     fn keep_images(&mut self, shown: &HashSet<ImageKey>);
     fn command(&mut self, command: Command);
     /// Does something on the desktop the frontend is on (see [`Seat`]).
     fn seat(&mut self, _seat: Seat) {}
-    /// What the composer holds now.
+    /// Returns what the composer holds now.
     fn draft(&self) -> String;
 }
