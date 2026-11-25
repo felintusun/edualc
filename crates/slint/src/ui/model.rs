@@ -46,6 +46,7 @@ impl ToSlint for present::EntryKind {
             Self::Image => slint_ui::EntryKind::Image,
             Self::Peer => slint_ui::EntryKind::Peer,
             Self::Info => slint_ui::EntryKind::Info,
+            Self::Compacted => slint_ui::EntryKind::Compacted,
             Self::Error => slint_ui::EntryKind::Error,
             Self::TurnEnd => slint_ui::EntryKind::TurnEnd,
         }

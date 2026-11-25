@@ -99,6 +99,7 @@ pub(super) fn summary(path: &Path) -> Option<Summary> {
             Ok(TranscriptLine::User {
                 message,
                 is_meta: false,
+                is_compact_summary: false,
                 is_sidechain: false,
                 ..
             }) => prompt_text(&message.content),

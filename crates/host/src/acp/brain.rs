@@ -128,6 +128,7 @@ pub(crate) fn step_lines(lines: &[String]) -> Vec<TranscriptLine> {
                         },
                         is_meta: false,
                         is_sidechain: false,
+                        is_compact_summary: false,
                         origin: None,
                     });
                 }
@@ -175,6 +176,7 @@ pub(crate) fn step_line(line: &str) -> Option<TranscriptLine> {
                 },
                 is_meta: false,
                 is_sidechain: false,
+                is_compact_summary: false,
                 origin: None,
             })
         }

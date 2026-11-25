@@ -35,6 +35,7 @@ pub enum EntryKind {
     Image,
     Peer,
     Info,
+    Compacted,
     Error,
     TurnEnd,
 }

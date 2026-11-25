@@ -332,6 +332,15 @@ impl<F: Frontend> Presenter<F> {
                 row.body = Styled::markdown(text);
                 row.cjk = cjk(text, han);
             }
+            Body::Compacted { summary, expanded } => {
+                row.kind = EntryKind::Compacted;
+                row.has_detail = !summary.is_empty();
+                if *expanded {
+                    row.blocks = blocks(summary, han);
+                }
+                row.expanded = *expanded;
+                row.cjk = cjk(summary, han);
+            }
             Body::TurnEnd(turn) => {
                 row.kind = EntryKind::TurnEnd;
                 row.body = Styled::plain(&turn_facts(turn));

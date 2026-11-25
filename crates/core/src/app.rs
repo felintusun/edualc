@@ -2691,6 +2691,37 @@ mod tests {
     }
 
     #[test]
+    fn a_compactions_summary_folds_under_its_note() {
+        let (mut driven, generation) = started();
+        // As Claude Code 2.1.329 sends them after `/compact`, the boundary first.
+        for line in [
+            r#"{"type":"system","subtype":"compact_boundary","session_id":"s","uuid":"u1","compact_metadata":{"trigger":"manual","pre_tokens":260162}}"#,
+            r#"{"type":"user","message":{"role":"user","content":"This session is being continued…"},"session_id":"s","parent_tool_use_id":null,"uuid":"u2","isReplay":false,"isSynthetic":true}"#,
+            r#"{"type":"user","message":{"role":"user","content":"Instructions for the model"},"session_id":"s","parent_tool_use_id":null,"uuid":"u3","isSynthetic":true}"#,
+        ] {
+            driven.take(Event::Agent {
+                generation,
+                output: crate::claude::output_of_line(line.to_owned()),
+            });
+        }
+        let shown: Vec<_> = driven
+            .app
+            .chat
+            .entries
+            .iter()
+            .map(|entry| &entry.body)
+            .collect();
+        assert!(
+            matches!(
+                shown.as_slice(),
+                [crate::chat::Body::Compacted { summary, expanded: false }]
+                    if summary == "This session is being continued…"
+            ),
+            "{shown:?}"
+        );
+    }
+
+    #[test]
     fn a_pasted_key_isnt_written_out() {
         let action = Action::StoreApiKey(PastedKey::new("sk-ant-abc_DEF"));
         assert!(!format!("{action:?}").contains("abc_DEF"));

@@ -411,6 +411,7 @@ fn steps(line: &TranscriptLine, cwd: &Path) -> Vec<Step> {
         TranscriptLine::User {
             message,
             is_meta: false,
+            is_compact_summary: false,
             ..
         } => match &message.content {
             UserContent::Text(text) if !text.trim().is_empty() => vec![Step {

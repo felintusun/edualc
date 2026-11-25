@@ -178,6 +178,7 @@ impl<F: Frontend> App<F> {
             agent::Event::User(line) => match line.sender() {
                 Sender::Peer { name, body } => self.chat.peer_message(&line.message, name, body),
                 Sender::Replayed => {}
+                Sender::Synthetic(text) => self.chat.synthetic(text),
                 Sender::Session => {
                     if let UserContent::Text(text) = &line.message.content
                         && matches!(
@@ -297,7 +298,7 @@ impl<F: Frontend> App<F> {
                     cause: error,
                 });
             }
-            System::CompactBoundary => self.chat.info("Conversation compacted"),
+            System::CompactBoundary => self.chat.compacted(),
             System::BackgroundTasksChanged { tasks } => {
                 self.redraw.tasks |= self.status.tasks.list(tasks);
             }

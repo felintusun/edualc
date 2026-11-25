@@ -203,6 +203,18 @@
     width: min(100%, 160px); height: 90px; border-radius: var(--radius-m); background: var(--surface);
     display: flex; align-items: center; justify-content: center;
 }
+
+/* Where /compact replaced the conversation, and the summary it left. */
+.compacted { display: flex; flex-direction: column; align-items: center; gap: var(--space-xs); }
+.compacted > .thinking-body { align-self: stretch; }
+.compacted-head {
+    display: inline-flex; align-items: center; gap: var(--space-xs); padding: var(--space-xs);
+    border: none; border-radius: var(--radius-s); background: transparent;
+    color: var(--text-tertiary);
+}
+.compacted-head:enabled { cursor: pointer; }
+.compacted-head:enabled:hover { background: var(--hover); }
+.compacted-head:enabled:active { background: var(--pressed); }
 .image-failed { color: var(--text-tertiary); overflow-wrap: anywhere; }
 
 /* Notes and errors. */

@@ -389,6 +389,10 @@ pub struct UserLine {
     pub message: UserMessage,
     #[serde(default, rename = "isReplay")]
     is_replay: bool,
+    /// Set on text Claude Code wrote in the user's place, which its own app doesn't show as
+    /// theirs.
+    #[serde(default, rename = "isSynthetic")]
+    is_synthetic: bool,
     #[serde(default)]
     origin: Option<MessageOrigin>,
 }
@@ -399,6 +403,7 @@ impl UserLine {
         Self {
             message: UserMessage { content },
             is_replay: false,
+            is_synthetic: false,
             origin: None,
         }
     }
@@ -408,6 +413,7 @@ impl UserLine {
         Self {
             message: UserMessage { content },
             is_replay: true,
+            is_synthetic: false,
             origin: None,
         }
     }
@@ -420,6 +426,7 @@ impl UserLine {
                 content: UserContent::Text(content),
             },
             is_replay: true,
+            is_synthetic: false,
             origin: Some(MessageOrigin::Peer { name, body }),
         }
     }
@@ -454,6 +461,9 @@ pub enum Sender<'a> {
     /// A message Claude Code took in, echoed: the window's own, shown as it was sent, or a
     /// background task's notice, which the task list shows.
     Replayed,
+    /// Text Claude Code wrote in the user's place and sent unechoed: a compaction's summary
+    /// (2.1.329 marks nothing else about it on the stream), or instructions for the model.
+    Synthetic(&'a str),
     /// Claude Code itself: tool results, what commands print.
     Session,
 }
@@ -467,6 +477,12 @@ impl UserLine {
             },
             // A `!` command's rows come marked as replays, but nothing else shows them.
             (Some(MessageOrigin::Other) | None, true) if !self.is_shell_row() => Sender::Replayed,
+            (Some(MessageOrigin::Other) | None, false) if self.is_synthetic => {
+                match &self.message.content {
+                    UserContent::Text(text) if !self.is_shell_row() => Sender::Synthetic(text),
+                    UserContent::Text(_) | UserContent::Blocks(_) => Sender::Session,
+                }
+            }
             (Some(MessageOrigin::Other) | None, _) => Sender::Session,
         }
     }
@@ -1335,6 +1351,9 @@ pub enum TranscriptLine {
         is_meta: bool,
         #[serde(default, rename = "isSidechain")]
         is_sidechain: bool,
+        /// Set on the summary of the conversation that `/compact` left in its place.
+        #[serde(default, rename = "isCompactSummary")]
+        is_compact_summary: bool,
         /// Set on a message another session sent (which is also `isMeta`).
         #[serde(default)]
         origin: Option<MessageOrigin>,
@@ -1989,6 +2008,18 @@ mod tests {
             ] },
         }));
         assert_eq!(result.sender(), Sender::Session);
+        // As Claude Code 2.1.329 sends the summary `/compact` leaves.
+        let summary = user_line(json!({
+            "type": "user",
+            "message": { "role": "user", "content": "This session is being continued…" },
+            "parent_tool_use_id": null,
+            "isReplay": false,
+            "isSynthetic": true,
+        }));
+        assert_eq!(
+            summary.sender(),
+            Sender::Synthetic("This session is being continued…")
+        );
     }
 
     #[test]

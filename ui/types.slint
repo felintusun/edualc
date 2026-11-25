@@ -38,7 +38,7 @@ export struct MdBlock {
     column-stretch: [float],
 }
 
-export enum EntryKind { user, assistant, thinking, tool, image, peer, info, error, turn-end }
+export enum EntryKind { user, assistant, thinking, tool, image, peer, info, compacted, error, turn-end }
 
 // How far an image in the conversation is: decoded and shown, still being decoded, or not to
 // be shown.
@@ -79,14 +79,15 @@ export struct Entry {
     sender: string,
     // The CJK characters of its prose.
     cjk: CjkChars,
-    // Assistant text; a plan to approve.
+    // Assistant text; a plan to approve; the summary a compaction left, unfolded.
     blocks: [MdBlock],
     tool-title: string,
     tool-summary: string,
     // The summary is words (a question, an agent's task), not code: set as prose.
     tool-summary-prose: bool,
     tool-state: ToolState,
-    // A tool call's input worth showing (the full command, a subagent's prompt).
+    // A tool call's input worth showing (the full command, a subagent's prompt). A compaction
+    // has a detail when it left a summary to unfold.
     detail: styled-text,
     has-detail: bool,
     output: styled-text,

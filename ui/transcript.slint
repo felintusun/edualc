@@ -533,6 +533,47 @@ component Thinking inherits VerticalLayout {
     }
 }
 
+// Where `/compact` replaced the conversation before: a note, as Claude Code shows it, that
+// unfolds the summary it left.
+component Compacted inherits VerticalLayout {
+    in property <Entry> entry;
+    in property <int> index;
+    spacing: Theme.space-xs;
+    HorizontalLayout {
+        alignment: center;
+        Pressable {
+            enabled: root.entry.has-detail;
+            clicked => { Transcript.toggle(root.index); }
+            HorizontalLayout {
+                padding: Theme.space-xs;
+                spacing: Theme.space-xs;
+                Small {
+                    text: "Conversation compacted";
+                    vertical-alignment: center;
+                }
+                if root.entry.has-detail: Icon {
+                    source: root.entry.expanded ? @image-url("@lucide/chevron-down.svg") : @image-url("@lucide/chevron-right.svg");
+                    width: Theme.icon-small;
+                    tint: Theme.text-tertiary;
+                    y: (parent.height - self.height) / 2;
+                }
+            }
+        }
+    }
+    if root.entry.expanded: HorizontalLayout {
+        padding-left: Theme.space-s;
+        spacing: Theme.space-m;
+        Rectangle {
+            width: 2px;
+            background: Theme.divider;
+        }
+        MarkdownView {
+            blocks: root.entry.blocks;
+            index: root.index;
+        }
+    }
+}
+
 export component EntryView inherits VerticalLayout {
     in property <Entry> entry;
     in property <int> index;
@@ -591,6 +632,10 @@ export component EntryView inherits VerticalLayout {
         default-font-size: 1rem * Theme.small;
         cjk: root.entry.cjk;
         line-height-factor: Theme.line-factor(root.entry.cjk);
+    }
+    if root.entry.kind == EntryKind.compacted: Compacted {
+        entry: root.entry;
+        index: root.index;
     }
     // Under a turn: its facts, and what it changed, which opens the Changes view.
     if root.entry.kind == EntryKind.turn-end: HorizontalLayout {

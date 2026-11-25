@@ -106,6 +106,11 @@ pub enum Body {
         text: String,
     },
     Info(String),
+    /// Where `/compact` replaced the conversation before with its summary, which unfolds here.
+    Compacted {
+        summary: String,
+        expanded: bool,
+    },
     Error(String),
     /// The end of a turn of the conversation shown.
     TurnEnd(TurnEnd),
@@ -139,7 +144,8 @@ impl Entry {
             | Body::Info(text)
             | Body::Error(text)
             | Body::Thinking { text, .. }
-            | Body::Peer { text, .. } => text,
+            | Body::Peer { text, .. }
+            | Body::Compacted { summary: text, .. } => text,
             Body::Tool { tool, .. } => &tool.output,
             Body::Shell { shell, .. } => &shell.output,
             Body::Image(_) | Body::TurnEnd(_) => "",
@@ -314,6 +320,49 @@ impl Chat {
         self.push(Body::Info(text.into()), false);
     }
 
+    /// Marks where `/compact` replaced the conversation before; its summary comes next.
+    pub fn compacted(&mut self) {
+        self.push(
+            Body::Compacted {
+                summary: String::new(),
+                expanded: false,
+            },
+            false,
+        );
+    }
+
+    /// Adds the summary `/compact` left, under its mark, or on its own if no mark came first.
+    pub fn compact_summary(&mut self, text: &str) {
+        if !self.summarise_compaction(text) {
+            self.push(
+                Body::Compacted {
+                    summary: text.to_owned(),
+                    expanded: false,
+                },
+                false,
+            );
+        }
+    }
+
+    /// Takes text Claude Code wrote in your place as the summary of a compaction just marked;
+    /// any other such text isn't shown, as Claude Code's own app doesn't show it.
+    pub fn synthetic(&mut self, text: &str) {
+        self.summarise_compaction(text);
+    }
+
+    /// Fills the summary of a compaction marked last, if it has none yet.
+    fn summarise_compaction(&mut self, text: &str) -> bool {
+        let last = self.entries.len().saturating_sub(1);
+        match self.entries.last_mut().map(|entry| &mut entry.body) {
+            Some(Body::Compacted { summary, .. }) if summary.is_empty() => {
+                text.clone_into(summary);
+                self.changes.push(Change::Updated(last));
+                true
+            }
+            Some(_) | None => false,
+        }
+    }
+
     pub fn error(&mut self, text: impl Into<String>) {
         self.push(Body::Error(text.into()), false);
     }
@@ -402,6 +451,7 @@ impl Chat {
             | Body::Image(_)
             | Body::Peer { .. }
             | Body::Info(_)
+            | Body::Compacted { .. }
             | Body::Error(_)
             | Body::TurnEnd(_) => None,
         }
@@ -434,6 +484,7 @@ impl Chat {
                 | Body::Shell { .. }
                 | Body::Peer { .. }
                 | Body::Info(_)
+                | Body::Compacted { .. }
                 | Body::Error(_)
                 | Body::TurnEnd(_) => false,
             };
@@ -456,6 +507,7 @@ impl Chat {
                 | Body::Shell { .. }
                 | Body::Peer { .. }
                 | Body::Info(_)
+                | Body::Compacted { .. }
                 | Body::Error(_)
                 | Body::TurnEnd(_) => &[],
             })
@@ -515,6 +567,7 @@ impl Chat {
                 | Body::Image(_)
                 | Body::Peer { .. }
                 | Body::Info(_)
+                | Body::Compacted { .. }
                 | Body::Error(_)
                 | Body::TurnEnd(_) => None,
             });
@@ -614,6 +667,7 @@ impl Chat {
                 | Body::Image(_)
                 | Body::Peer { .. }
                 | Body::Info(_)
+                | Body::Compacted { .. }
                 | Body::Error(_) => None,
             });
         if let Some((index, turn)) = last {
@@ -629,7 +683,8 @@ impl Chat {
         match &mut entry.body {
             Body::Thinking { expanded, .. }
             | Body::Tool { expanded, .. }
-            | Body::Shell { expanded, .. } => *expanded = !*expanded,
+            | Body::Shell { expanded, .. }
+            | Body::Compacted { expanded, .. } => *expanded = !*expanded,
             Body::User(_)
             | Body::Assistant(_)
             | Body::Image(_)
@@ -969,6 +1024,12 @@ impl Chat {
                 } => self.peer_message(message, name.as_deref(), body.as_deref()),
                 TranscriptLine::User {
                     message,
+                    is_sidechain: false,
+                    is_compact_summary: true,
+                    ..
+                } => self.compact_summary(&tools::result_text(Some(&message.content))),
+                TranscriptLine::User {
+                    message,
                     is_meta: false,
                     is_sidechain: false,
                     ..
@@ -977,9 +1038,7 @@ impl Chat {
                     message,
                     is_sidechain: false,
                 } => self.assistant_message(message, None, Origin::Transcript),
-                TranscriptLine::System(System::CompactBoundary) => {
-                    self.info("Conversation compacted");
-                }
+                TranscriptLine::System(System::CompactBoundary) => self.compacted(),
                 TranscriptLine::User { .. }
                 | TranscriptLine::Assistant { .. }
                 | TranscriptLine::System(_)
@@ -1279,6 +1338,7 @@ mod tests {
                 | Body::Image(_)
                 | Body::Peer { .. }
                 | Body::Info(_)
+                | Body::Compacted { .. }
                 | Body::Error(_)
                 | Body::TurnEnd(_)) => panic!("not shown here: {other:?}"),
             })
@@ -1316,6 +1376,7 @@ mod tests {
                 | Body::Image(_)
                 | Body::Peer { .. }
                 | Body::Info(_)
+                | Body::Compacted { .. }
                 | Body::Error(_)
                 | Body::TurnEnd(_) => None,
             })
@@ -1450,6 +1511,56 @@ mod tests {
     }
 
     #[test]
+    fn a_saved_compaction_folds_its_summary_under_its_note() {
+        fn shown(chat: &Chat) -> Vec<(&str, bool)> {
+            chat.entries
+                .iter()
+                .map(|entry| {
+                    let expanded = matches!(entry.body, Body::Compacted { expanded: true, .. });
+                    (entry.copy_text(), expanded)
+                })
+                .collect()
+        }
+        // As Claude Code 2.1.329 writes them.
+        let lines: Vec<TranscriptLine> = [
+            json!({ "type": "user", "message": { "role": "user", "content": "Hi" } }),
+            json!({ "type": "system", "subtype": "compact_boundary", "content": "Conversation compacted" }),
+            json!({
+                "type": "user",
+                "message": { "role": "user", "content": "This session is being continued…" },
+                "isVisibleInTranscriptOnly": true,
+                "isCompactSummary": true,
+            }),
+        ]
+        .into_iter()
+        .map(|line| serde_json::from_value(line).expect("a transcript line"))
+        .collect();
+        let mut chat = Chat::from_transcript(&lines);
+        assert!(matches!(
+            chat.entries.as_slice(),
+            [
+                Entry {
+                    body: Body::User(_),
+                    ..
+                },
+                Entry {
+                    body: Body::Compacted { .. },
+                    ..
+                },
+            ]
+        ));
+        assert_eq!(
+            shown(&chat),
+            [("Hi", false), ("This session is being continued…", false)]
+        );
+        chat.toggle(1);
+        assert_eq!(
+            shown(&chat),
+            [("Hi", false), ("This session is being continued…", true)]
+        );
+    }
+
+    #[test]
     fn a_saved_denied_call_shows_denied() {
         let call = |id: &str| {
             json!({ "type": "assistant", "message": { "id": format!("m{id}"), "content": [
@@ -1491,6 +1602,7 @@ mod tests {
                 | Body::Image(_)
                 | Body::Peer { .. }
                 | Body::Info(_)
+                | Body::Compacted { .. }
                 | Body::Error(_)
                 | Body::TurnEnd(_) => None,
             })
@@ -1581,6 +1693,7 @@ mod tests {
                 | Body::Image(_)
                 | Body::Peer { .. }
                 | Body::Info(_)
+                | Body::Compacted { .. }
                 | Body::Error(_)
                 | Body::TurnEnd(_) => format!("{:?}", entry.copy_text()),
             })
@@ -1717,6 +1830,7 @@ mod tests {
                 | Body::Image(_)
                 | Body::Peer { .. }
                 | Body::Info(_)
+                | Body::Compacted { .. }
                 | Body::Error(_) => None,
             })
             .collect();

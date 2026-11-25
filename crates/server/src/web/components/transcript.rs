@@ -331,6 +331,7 @@ fn Row(row: ReadSignal<Entry>) -> Element {
                 Text { text: entry.body }
             }
         },
+        EntryKind::Compacted => rsx! { Compacted { entry } },
         // A turn's end: how long it took and what it used, and what it changed in the folder.
         EntryKind::TurnEnd => rsx! {
             div { class: "lane info",
@@ -485,6 +486,39 @@ fn Thinking(entry: Entry) -> Element {
                         lang: text::lang(&entry.cjk),
                         Text { text: entry.body }
                     }
+                }
+            }
+        }
+    }
+}
+
+/// Where `/compact` replaced the conversation before: a note, as Claude Code shows it, that
+/// unfolds the summary it left.
+#[component]
+fn Compacted(entry: Entry) -> Element {
+    let view = use_context::<View>();
+    let index = entry.index;
+    let chevron = if entry.expanded {
+        Lucide::ChevronDown
+    } else {
+        Lucide::ChevronRight
+    };
+    rsx! {
+        div { class: "lane compacted",
+            button {
+                class: "compacted-head",
+                disabled: !entry.has_detail,
+                "aria-expanded": "{entry.expanded}",
+                onclick: move |_| act_on(view, index, Action::Toggle),
+                span { class: "small", "Conversation compacted" }
+                if entry.has_detail {
+                    Icon { icon: chevron, class: "small" }
+                }
+            }
+            if entry.expanded {
+                div { class: "thinking-body",
+                    span { class: "bar" }
+                    Markdown { blocks: entry.blocks }
                 }
             }
         }
