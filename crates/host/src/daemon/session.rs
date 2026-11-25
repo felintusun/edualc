@@ -49,7 +49,8 @@ impl Doing {
             | agent::Event::ControlRequest { .. }
             | agent::Event::PermissionAsked { .. }
             | agent::Event::ControlAnswered(_)
-            | agent::Event::RequestCancelled { .. } => {}
+            | agent::Event::RequestCancelled { .. }
+            | agent::Event::CommandLifecycle { .. } => {}
         }
     }
 
@@ -277,7 +278,7 @@ impl Session {
                 FromDaemon::Started {
                     key: *key,
                     pid,
-                    turns: 0,
+                    turns: crate::turns::Turns::default(),
                 },
             )
             .await;
@@ -337,7 +338,7 @@ impl Session {
                     }
                     Some(Command::Attach { key, outbox }) => {
                         self.alone_since = None;
-                        let turns = self.pending.turns;
+                        let turns = self.pending.turns.clone();
                         tell(&outbox, FromDaemon::Started { key, pid, turns }).await;
                         // What it asked meanwhile, asked again.
                         for line in self.pending.lines() {

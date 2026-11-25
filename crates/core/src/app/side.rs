@@ -201,7 +201,7 @@ impl<F: Frontend> App<F> {
             return;
         };
         if !self.status.capabilities().side_questions
-            || self.status.turns > 0
+            || self.status.turns.under_way()
             || !self.side.has_answers()
         {
             return;

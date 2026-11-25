@@ -7,10 +7,11 @@ use serde::{Deserialize, Serialize};
 use crate::call::{AcpCall, AcpOption, OptionId};
 use crate::decode::Picture;
 use crate::external::wire::{
-    ApiMessage, AssistantError, ControlRequest, ControlResponse, ImageBlock, IncomingRequest,
-    PermissionResult, RateLimits, Reply, StreamEvent, System, TurnResult, UserLine,
+    ApiMessage, AssistantError, CommandState, ControlRequest, ControlResponse, ImageBlock,
+    IncomingRequest, PermissionResult, RateLimits, Reply, StreamEvent, System, TurnResult,
+    UserLine,
 };
-use crate::ids::{RequestId, SessionId, ToolUseId};
+use crate::ids::{PromptId, RequestId, SessionId, ToolUseId};
 use crate::ipc::{Generation, HostedId, StartFailure, ToDaemon};
 use crate::link::{self, Link};
 use crate::provider::Launch;
@@ -20,6 +21,7 @@ use crate::provider::Launch;
 #[serde(deny_unknown_fields)]
 pub enum Command {
     Prompt {
+        id: PromptId,
         shell: Vec<String>,
         images: Vec<ImageBlock>,
         text: String,
@@ -108,6 +110,11 @@ pub enum Event {
     RequestCancelled {
         request_id: RequestId,
     },
+    /// How far a prompt the window sent got, as Claude Code tells it.
+    CommandLifecycle {
+        prompt: PromptId,
+        state: CommandState,
+    },
 }
 
 /// What the session process says, or the daemon about it.
@@ -117,7 +124,7 @@ pub enum Output {
     Started {
         pid: u32,
         /// Turns under way, as the daemon counted them.
-        turns: usize,
+        turns: crate::turns::Turns,
     },
     /// The daemon couldn't start it, or refused its input.
     Failed(StartFailure),
@@ -239,6 +246,7 @@ impl Agent {
 
     pub fn prompt(
         &mut self,
+        id: PromptId,
         shell: &[String],
         images: &[Picture],
         text: &str,
@@ -249,6 +257,7 @@ impl Agent {
             .collect();
         self.use_ = Use::Used;
         self.send(&Command::Prompt {
+            id,
             shell: shell.to_vec(),
             images: blocks,
             text: text.to_owned(),
@@ -340,7 +349,9 @@ mod tests {
 
         let mut prompted = Agent::start(&link, Generation::default(), launch()).expect("sent");
         assert!(!prompted.used());
-        prompted.prompt(&[], &[], "go on").expect("sent");
+        prompted
+            .prompt(PromptId::new_random(), &[], &[], "go on")
+            .expect("sent");
         assert!(prompted.used());
 
         let mut commanded = Agent::start(&link, Generation::default(), launch()).expect("sent");

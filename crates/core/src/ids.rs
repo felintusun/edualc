@@ -97,3 +97,16 @@ pub struct MessageId(String);
 )]
 #[serde(transparent)]
 pub struct RequestId(String);
+
+/// A prompt the window sent; Claude Code names it in the `command_lifecycle` lines that tell
+/// how far it got.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize, Serialize, derive_more::Display)]
+#[serde(transparent)]
+pub struct PromptId(uuid::Uuid);
+
+impl PromptId {
+    /// Makes an id no other prompt has.
+    pub fn new_random() -> Self {
+        Self(uuid::Uuid::new_v4())
+    }
+}

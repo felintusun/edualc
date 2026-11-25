@@ -68,7 +68,7 @@ impl<F: Frontend> App<F> {
                 }
                 // Attached in the middle of a turn: it runs, doing what isn't told yet. A
                 // process just started counts none; the window's own prompt may be on its way.
-                if turns > self.status.turns {
+                if turns.count() > self.status.turns.count() {
                     self.status.turns = turns;
                     self.status.doing = Doing::Working;
                     self.start_listening();
@@ -106,7 +106,7 @@ impl<F: Frontend> App<F> {
                 parent_tool_use_id,
                 error: Some(AssistantError::AuthenticationFailed),
             } => {
-                if self.status.turns > 0 {
+                if self.status.turns.under_way() {
                     self.turn_refusal = Some(Refusal::SignIn);
                 } else {
                     self.status.sign_in = SignIn::Refused {
@@ -229,6 +229,15 @@ impl<F: Frontend> App<F> {
             },
             agent::Event::ControlAnswered(response) => self.control_response(response),
             agent::Event::RequestCancelled { request_id } => self.cancel(&request_id),
+            agent::Event::CommandLifecycle { prompt, state } => {
+                let under_way = self.status.turns.under_way();
+                self.status.turns.told(prompt, state);
+                // Prompts an interrupt dropped before a turn took them in end without a result.
+                if under_way && !self.status.turns.under_way() {
+                    self.status.doing = Doing::Nothing;
+                    self.chat.end_turn();
+                }
+            }
         }
     }
 
@@ -379,7 +388,7 @@ impl<F: Frontend> App<F> {
     }
 
     fn result(&mut self, result: &TurnResult) {
-        self.status.turns = self.status.turns.saturating_sub(1);
+        self.status.turns.result();
         self.redraw.tasks |= self.status.tasks.end_turn();
         if let Some(cost) = result.total_cost_usd {
             self.status.cost_usd = cost;
@@ -392,7 +401,7 @@ impl<F: Frontend> App<F> {
         {
             self.status.context_window = window;
         }
-        if self.status.turns == 0 {
+        if !self.status.turns.under_way() {
             self.status.doing = Doing::Nothing;
             self.chat.end_turn();
         }
@@ -434,7 +443,7 @@ impl<F: Frontend> App<F> {
         }
         // Under a turn a model answered (not a command Claude Code answers itself): its facts,
         // and later what it changed.
-        if self.status.turns == 0 && !result.model_usage.is_empty() {
+        if !self.status.turns.under_way() && !result.model_usage.is_empty() {
             let usage = &result.usage;
             let tokens_in = usage
                 .input_tokens

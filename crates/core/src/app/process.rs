@@ -178,7 +178,7 @@ impl<F: Frontend> App<F> {
         self.generation = self.generation.next();
         self.asks.clear();
         self.requests.clear();
-        self.status.turns = 0;
+        self.status.turns.clear();
         self.status.stop_asked = false;
         self.status.doing = Doing::Nothing;
         // They ran in the process.
@@ -251,12 +251,12 @@ impl<F: Frontend> App<F> {
 
     /// Stops Claude's turn, and the `!` command running: an interrupt stops both.
     pub(super) fn interrupt(&mut self) {
-        if self.status.limit_wait != LimitWait::Idle && self.status.turns == 0 {
+        if self.status.limit_wait != LimitWait::Idle && !self.status.turns.under_way() {
             self.cancel_limit_wait();
             return;
         }
-        if self.status.turns > 0 || self.chat.shell_running() {
-            self.status.stop_asked = self.status.turns > 0;
+        if self.status.turns.under_way() || self.chat.shell_running() {
+            self.status.stop_asked = self.status.turns.under_way();
             self.request(ControlRequest::Interrupt, Request::Interrupt);
         }
     }

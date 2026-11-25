@@ -1321,6 +1321,7 @@ mod tests {
 
     fn prompt(text: &str) -> String {
         said(&Command::Prompt {
+            id: crate::ids::PromptId::new_random(),
             shell: Vec::new(),
             images: Vec::new(),
             text: text.to_owned(),
@@ -1426,6 +1427,11 @@ mod tests {
             Event::RequestCancelled { request_id } => json!({
                 "type": "control_cancel_request",
                 "request_id": request_id,
+            }),
+            Event::CommandLifecycle { prompt, state } => json!({
+                "type": "command_lifecycle",
+                "command_uuid": prompt,
+                "state": state,
             }),
         }
     }
@@ -1577,7 +1583,8 @@ mod tests {
             Message::Result(_)
             | Message::ControlResponse { .. }
             | Message::RateLimitEvent { .. }
-            | Message::ControlCancelRequest { .. } => {}
+            | Message::ControlCancelRequest { .. }
+            | Message::CommandLifecycle { .. } => {}
             Message::Other => panic!("a line the window doesn't know: {line}"),
         }
     }
@@ -1959,6 +1966,7 @@ mod tests {
         let mut translator = opened();
         let image = wire::ImageBlock::base64(MediaType::Png, "QUJD".to_owned());
         let sent = translator.window_said(&said(&Command::Prompt {
+            id: crate::ids::PromptId::new_random(),
             shell: Vec::new(),
             images: vec![image],
             text: "look".to_owned(),

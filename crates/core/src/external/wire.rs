@@ -8,7 +8,7 @@ use serde_json::{Map, Value};
 
 use crate::app::{Mode, PermissionMode};
 use crate::edualc_tool::EdualcTool;
-use crate::ids::{MessageId, RequestId, SessionId, ToolUseId};
+use crate::ids::{MessageId, PromptId, RequestId, SessionId, ToolUseId};
 
 /// A task Claude Code runs (a subagent, a shell command, a monitor), the same on every event
 /// about it and in its background list.
@@ -240,6 +240,25 @@ pub enum Message {
     ControlCancelRequest {
         request_id: RequestId,
     },
+    /// How far a prompt got that was sent with a `uuid`; others it folds in tell none.
+    CommandLifecycle {
+        #[serde(default)]
+        command_uuid: Option<PromptId>,
+        state: CommandState,
+    },
+    #[serde(other)]
+    Other,
+}
+
+/// How far a prompt got, as Claude Code 2.1.329 tells it: waiting for a turn, taken into one
+/// (its own, or the one under way), done with, or dropped by an interrupt.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CommandState {
+    Queued,
+    Started,
+    Completed,
+    Cancelled,
     #[serde(other)]
     Other,
 }
@@ -1475,6 +1494,8 @@ pub enum Input {
         /// Only a subagent's prompts have one.
         parent_tool_use_id: Option<String>,
         session_id: String,
+        /// What Claude Code's `command_lifecycle` names the prompt by.
+        uuid: PromptId,
     },
     ControlRequest {
         request_id: RequestId,
@@ -1497,9 +1518,14 @@ impl Input {
     /// Makes a prompt: the `!` command rows since the last prompt, as the terminal gives them
     /// to the model, then the images, then the text. A prompt of text alone stays a plain
     /// string.
-    pub fn prompt_with(shell: &[String], images: Vec<ImageBlock>, text: &str) -> Self {
+    pub fn prompt_with(
+        prompt: PromptId,
+        shell: &[String],
+        images: Vec<ImageBlock>,
+        text: &str,
+    ) -> Self {
         if shell.is_empty() && images.is_empty() {
-            return Self::user(Content::Text(text.to_owned()));
+            return Self::user(prompt, Content::Text(text.to_owned()));
         }
         let mut blocks: Vec<Block> = shell
             .iter()
@@ -1511,7 +1537,7 @@ impl Input {
                 text: text.to_owned(),
             });
         }
-        Self::user(Content::Blocks(blocks))
+        Self::user(prompt, Content::Blocks(blocks))
     }
 
     pub fn bash_command(command: &str) -> Self {
@@ -1521,7 +1547,7 @@ impl Input {
         }
     }
 
-    fn user(content: Content) -> Self {
+    fn user(prompt: PromptId, content: Content) -> Self {
         Self::User {
             message: Prompt {
                 role: Role::User,
@@ -1529,6 +1555,7 @@ impl Input {
             },
             parent_tool_use_id: None,
             session_id: "default".to_owned(),
+            uuid: prompt,
         }
     }
 }
@@ -2266,13 +2293,15 @@ mod tests {
     #[test]
     fn input_is_written_as_the_cli_reads_it() {
         let encoded = |input: &Input| serde_json::to_value(input).expect("encodable");
+        let prompt = PromptId::new_random();
         assert_eq!(
-            encoded(&Input::prompt_with(&[], Vec::new(), "Hi")),
+            encoded(&Input::prompt_with(prompt, &[], Vec::new(), "Hi")),
             json!({
                 "type": "user",
                 "message": { "role": "user", "content": "Hi" },
                 "parent_tool_use_id": null,
                 "session_id": "default",
+                "uuid": prompt.to_string(),
             })
         );
         let id = RequestId::from("gui_1".to_owned());
@@ -2381,8 +2410,9 @@ mod tests {
         };
         let task = || TaskId::from("a1b2".to_owned());
         let written = [
-            Input::prompt_with(&[], Vec::new(), "Hi"),
+            Input::prompt_with(PromptId::new_random(), &[], Vec::new(), "Hi"),
             Input::prompt_with(
+                PromptId::new_random(),
                 &["<bash-input>ls</bash-input>".to_owned()],
                 vec![ImageBlock::base64(MediaType::Png, "QUJD".to_owned())],
                 "Describe this image.",
@@ -2469,10 +2499,16 @@ mod tests {
 
     #[test]
     fn a_prompt_with_images_is_written_as_the_vision_docs_show() {
+        let prompt = PromptId::new_random();
         let image = ImageBlock::base64(MediaType::Jpeg, "QUJD".into());
         assert_eq!(
-            serde_json::to_value(Input::prompt_with(&[], vec![image], "Describe this image."))
-                .expect("encodable"),
+            serde_json::to_value(Input::prompt_with(
+                prompt,
+                &[],
+                vec![image],
+                "Describe this image."
+            ))
+            .expect("encodable"),
             json!({
                 "type": "user",
                 "message": { "role": "user", "content": [
@@ -2482,10 +2518,16 @@ mod tests {
                 ] },
                 "parent_tool_use_id": null,
                 "session_id": "default",
+                "uuid": prompt.to_string(),
             })
         );
-        let plain =
-            serde_json::to_value(Input::prompt_with(&[], Vec::new(), "Hi")).expect("encodable");
+        let plain = serde_json::to_value(Input::prompt_with(
+            PromptId::new_random(),
+            &[],
+            Vec::new(),
+            "Hi",
+        ))
+        .expect("encodable");
         assert_eq!(plain.pointer("/message/content"), Some(&json!("Hi")));
     }
 
@@ -2510,9 +2552,14 @@ mod tests {
         ];
         let image = ImageBlock::base64(MediaType::Png, "QUJD".into());
         assert_eq!(
-            serde_json::to_value(Input::prompt_with(&shell, vec![image], "Why two?"))
-                .expect("encodable")
-                .pointer("/message/content"),
+            serde_json::to_value(Input::prompt_with(
+                PromptId::new_random(),
+                &shell,
+                vec![image],
+                "Why two?"
+            ))
+            .expect("encodable")
+            .pointer("/message/content"),
             Some(&json!([
                 { "type": "text", "text": "<bash-input>ls -a</bash-input>" },
                 { "type": "text",

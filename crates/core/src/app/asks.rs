@@ -157,7 +157,7 @@ impl<F: Frontend> App<F> {
             }
         };
         if interrupt {
-            self.status.stop_asked = self.status.turns > 0;
+            self.status.stop_asked = self.status.turns.under_way();
         }
         let response = PermissionResult::Deny { message, interrupt };
         self.answer(&ask, response, ToolState::Denied);
@@ -430,10 +430,10 @@ impl<F: Frontend> App<F> {
     /// Says why the process ended without being asked to, as far as it said.
     pub(super) fn ended(&mut self, code: Option<i32>) {
         self.process = None;
-        let turns = self.status.turns;
+        let under_way = self.status.turns.under_way();
         self.forget_process();
         self.chat.end_turn();
-        if turns > 0 || code != Some(0) {
+        if under_way || code != Some(0) {
             let how = match code {
                 Some(code) => format!(" (exit code {code})"),
                 None => " (killed)".to_owned(),

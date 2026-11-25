@@ -264,7 +264,7 @@ mod tests {
     use crate::agent;
     use crate::driver::{Decoded, Driver};
     use crate::external::wire;
-    use crate::ids::SessionId;
+    use crate::ids::{PromptId, SessionId};
     use crate::ipc::{
         CreateProjectError, Generation, HostedId, HostedState, ProjectName, StartFailure, Stream,
     };
@@ -598,6 +598,7 @@ mod tests {
 
     fn prompt_command(text: &str) -> agent::Command {
         agent::Command::Prompt {
+            id: PromptId::new_random(),
             shell: Vec::new(),
             images: Vec::new(),
             text: text.to_owned(),
@@ -725,6 +726,39 @@ mod tests {
     }
 
     #[test]
+    fn a_prompt_folded_into_a_turn_leaves_the_session_idle_after_it() {
+        let mut pending = Pending::default();
+        let prompt = |id| agent::Command::Prompt {
+            id,
+            shell: Vec::new(),
+            images: Vec::new(),
+            text: "Run the tests".to_owned(),
+        };
+        let (first_id, folded_id) = (PromptId::new_random(), PromptId::new_random());
+        let (first, folded) = (prompt(first_id), prompt(folded_id));
+        let lifecycle = |id: PromptId, state: &str| {
+            format!(
+                r#"{{"type":"command_lifecycle","command_uuid":"{id}","state":"{state}","uuid":"u"}}"#
+            )
+        };
+        pending.sent(&first);
+        claude_saw(&mut pending, &lifecycle(first_id, "queued"));
+        claude_saw(&mut pending, &lifecycle(first_id, "started"));
+        pending.sent(&folded);
+        // As Claude Code 2.1.329 tells it: one result for both.
+        claude_saw(&mut pending, &lifecycle(folded_id, "queued"));
+        claude_saw(&mut pending, &lifecycle(folded_id, "started"));
+        claude_saw(&mut pending, &lifecycle(folded_id, "completed"));
+        claude_saw(
+            &mut pending,
+            r#"{"type":"result","subtype":"success","is_error":false}"#,
+        );
+        claude_saw(&mut pending, &lifecycle(first_id, "completed"));
+        assert!(!pending.in_turn());
+        assert_eq!(pending.state(), HostedState::Idle);
+    }
+
+    #[test]
     fn turns_under_way_are_counted_for_a_window_attaching() {
         let mut pending = Pending::default();
         let prompt = prompt_command("Hi");
@@ -742,12 +776,12 @@ mod tests {
             &mut pending,
             r#"{"type":"user","message":{"role":"user","content":"<bash-input>ls</bash-input>"},"isReplay":true}"#,
         );
-        assert_eq!(pending.turns, 2);
+        assert_eq!(pending.turns.count(), 2);
         claude_saw(&mut pending, result);
-        assert_eq!(pending.turns, 1);
+        assert_eq!(pending.turns.count(), 1);
         claude_saw(&mut pending, result);
         claude_saw(&mut pending, result);
-        assert_eq!(pending.turns, 0, "never below none");
+        assert_eq!(pending.turns.count(), 0, "never below none");
     }
 
     #[test]

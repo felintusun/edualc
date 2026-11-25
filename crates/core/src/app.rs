@@ -481,7 +481,7 @@ pub struct Status {
     /// Claude Code's version, as it told at `initialize`.
     pub version: String,
     /// Prompts sent and not answered yet.
-    pub turns: usize,
+    pub turns: crate::turns::Turns,
     /// Set when you stopped the turn, with Stop or by denying a call without saying why. The
     /// turn then ends as failed, but isn't shown as a failure.
     pub stop_asked: bool,
@@ -505,7 +505,7 @@ impl Status {
     /// Returns whether a turn is under way, prompted here or started by the session itself
     /// (for a message from another session, which only its output shows).
     pub(crate) fn in_turn(&self) -> bool {
-        self.turns > 0 || self.doing != Doing::Nothing
+        self.turns.under_way() || self.doing != Doing::Nothing
     }
 
     /// Returns what the session's program supports with its sign-in.
@@ -1803,7 +1803,7 @@ impl<F: Frontend> App<F> {
         if redraw.side {
             let can_ask = self.watch.is_none() && self.status.capabilities().side_questions;
             let can_branch = can_ask
-                && self.status.turns == 0
+                && !self.status.turns.under_way()
                 && self.status.session_id.is_some()
                 && self.side.has_answers()
                 && !self.side.pending();
@@ -2020,7 +2020,7 @@ impl<F: Frontend> App<F> {
     /// Says how long Claude Code has been quiet while a turn waits on the API, so that a
     /// blocked network doesn't look like "Starting" for ever. Stops once no turn is under way.
     fn listen(&mut self) {
-        if self.status.turns == 0 {
+        if !self.status.turns.under_way() {
             self.listen.stop();
             return;
         }
@@ -2476,7 +2476,10 @@ mod tests {
             .expect("the session starts");
         driven.take(Event::Agent {
             generation,
-            output: Output::Started { pid: 7, turns: 0 },
+            output: Output::Started {
+                pid: 7,
+                turns: crate::turns::Turns::default(),
+            },
         });
         (driven, generation)
     }
@@ -2612,6 +2615,53 @@ mod tests {
     }
 
     #[test]
+    fn a_prompt_sent_during_a_turn_ends_with_it() {
+        let (mut driven, generation) = started();
+        let prompted = |driven: &mut Driven, text: &str| {
+            driven.take(Event::Action(Action::Send(text.to_owned())));
+            driven
+                .sent()
+                .into_iter()
+                .find_map(|message| {
+                    let ToDaemon::Command { text, .. } = message else {
+                        return None;
+                    };
+                    match serde_json::from_str(&text) {
+                        Ok(agent::Command::Prompt { id, .. }) => Some(id),
+                        Ok(_) | Err(_) => None,
+                    }
+                })
+                .expect("a prompt")
+        };
+        let first = prompted(&mut driven, "Run the tests");
+        let folded = prompted(&mut driven, "And say when they're done");
+        let told = |driven: &mut Driven, line: String| {
+            driven.take(Event::Agent {
+                generation,
+                output: crate::claude::output_of_line(line),
+            });
+        };
+        let lifecycle = |prompt, state: &str| {
+            format!(
+                r#"{{"type":"command_lifecycle","command_uuid":"{prompt}","state":"{state}","uuid":"u"}}"#
+            )
+        };
+        // As Claude Code 2.1.329 tells a prompt it folds into the turn under way.
+        told(&mut driven, lifecycle(first, "queued"));
+        told(&mut driven, lifecycle(first, "started"));
+        told(&mut driven, lifecycle(folded, "queued"));
+        told(&mut driven, lifecycle(folded, "started"));
+        told(&mut driven, lifecycle(folded, "completed"));
+        told(
+            &mut driven,
+            r#"{"type":"result","subtype":"success","is_error":false,"result":"Done"}"#.to_owned(),
+        );
+        told(&mut driven, lifecycle(first, "completed"));
+        assert!(!driven.app.status.turns.under_way());
+        assert!(!driven.session().busy, "the turn ended");
+    }
+
+    #[test]
     fn a_message_turned_down_stops_nothing() {
         let (mut driven, generation) = started();
         driven.take(Event::Action(Action::Send("Count the lines".to_owned())));
@@ -2737,7 +2787,7 @@ mod tests {
             "working on a turn the window didn't prompt"
         );
         status.doing = Doing::Nothing;
-        status.turns = 1;
+        status.turns.sent(crate::ids::PromptId::new_random());
         assert!(status.in_turn(), "a turn the window prompted");
     }
 
@@ -3747,7 +3797,10 @@ mod tests {
         }]));
         test.send(Event::Agent {
             generation: attach_key,
-            output: agent::Output::Started { pid: 123, turns: 0 },
+            output: agent::Output::Started {
+                pid: 123,
+                turns: crate::turns::Turns::default(),
+            },
         });
         drop(test.drain_daemon());
 

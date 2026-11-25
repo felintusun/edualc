@@ -75,7 +75,10 @@ impl Sink {
             Self::Events(events) => events
                 .try_send(Event::Agent {
                     generation: key,
-                    output: Output::Started { pid: PID, turns: 0 },
+                    output: Output::Started {
+                        pid: PID,
+                        turns: crate::turns::Turns::default(),
+                    },
                 })
                 .is_ok(),
             #[cfg(not(target_arch = "wasm32"))]
@@ -83,7 +86,7 @@ impl Sink {
                 .try_send(FromDaemon::Started {
                     key,
                     pid: PID,
-                    turns: 0,
+                    turns: crate::turns::Turns::default(),
                 })
                 .is_ok(),
         };

@@ -155,14 +155,15 @@ impl<F: Frontend> App<F> {
     pub(super) fn start_turn(&mut self, images: &[Picture], text: &str) {
         // The user goes on themselves, or the wait is over.
         self.status.limit_wait = LimitWait::Idle;
-        self.status.turns += 1;
+        let prompt = crate::ids::PromptId::new_random();
+        self.status.turns.sent(prompt);
         self.status.doing = Doing::Starting;
         if std::mem::take(&mut self.status.tasks_left_running) {
             self.redraw.tasks = true;
         }
         self.start_listening();
         let shell_rows = std::mem::take(&mut self.shell_rows);
-        self.write(|process| process.prompt(&shell_rows, images, text));
+        self.write(|process| process.prompt(prompt, &shell_rows, images, text));
         self.view.scroll_to_end();
     }
 

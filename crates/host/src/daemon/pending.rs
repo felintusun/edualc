@@ -33,9 +33,8 @@ pub(super) struct Pending {
     /// How far each running task got, as last said; a background one runs on after its turn.
     pub(super) progress: BTreeMap<TaskId, String>,
     pub(super) asked: BTreeMap<String, Asked>,
-    /// Turns under way: prompts written, and not yet ended by a result. Counted as the window
-    /// counts them, for one that attaches meanwhile.
-    pub(super) turns: usize,
+    /// Turns under way, counted as the window counts them, for one that attaches meanwhile.
+    pub(super) turns: crate::turns::Turns,
     /// A turn the session started itself, as for another session's message: no prompt was
     /// written for it, so the model's first words tell it, and its result ends it.
     pub(super) own_turn: bool,
@@ -98,7 +97,7 @@ impl Pending {
                 self.asked.remove(&request_id.to_string());
             }
             agent::Event::Result(_) => {
-                self.turns = self.turns.saturating_sub(1);
+                self.turns.result();
                 self.own_turn = false;
                 // No foreground task outlives its turn, and the list names those that run on.
                 self.open_tasks.clear();
@@ -108,7 +107,7 @@ impl Pending {
             | agent::Event::AgentMessageChunk { .. }
             | agent::Event::AgentThoughtChunk { .. }
             | agent::Event::ToolCall { .. }
-                if self.turns == 0 =>
+                if !self.turns.under_way() =>
             {
                 self.own_turn = true;
             }
@@ -123,6 +122,7 @@ impl Pending {
             | agent::Event::ControlRequest { .. }
             | agent::Event::PermissionAsked { .. }
             | agent::Event::ControlAnswered(_) => {}
+            agent::Event::CommandLifecycle { prompt, state } => self.turns.told(*prompt, *state),
         }
     }
 
@@ -134,7 +134,7 @@ impl Pending {
                     self.asked.remove(&id.to_string());
                 }
             }
-            agent::Command::Prompt { .. } => self.turns = self.turns.saturating_add(1),
+            agent::Command::Prompt { id, .. } => self.turns.sent(*id),
             agent::Command::Shell { .. } | agent::Command::ControlRequest { .. } => {}
         }
     }
@@ -155,7 +155,7 @@ impl Pending {
 
     /// Returns whether a turn is under way, started by a prompt or by the session itself.
     pub(super) fn in_turn(&self) -> bool {
-        self.turns > 0 || self.own_turn
+        self.turns.under_way() || self.own_turn
     }
 
     pub(super) fn lines(&self) -> impl Iterator<Item = &String> {

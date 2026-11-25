@@ -183,6 +183,7 @@ async fn query_claude(cwd: PathBuf) -> ProviderUsage {
                 | Message::ControlRequest { .. }
                 | Message::ControlResponse { .. }
                 | Message::ControlCancelRequest { .. }
+                | Message::CommandLifecycle { .. }
                 | Message::Other => {}
             }
         }

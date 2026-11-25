@@ -45,7 +45,14 @@ pub fn from_message(message: Message) -> Option<agent::Event> {
         Message::ControlCancelRequest { request_id } => {
             agent::Event::RequestCancelled { request_id }
         }
-        Message::Other => return None,
+        Message::CommandLifecycle {
+            command_uuid: Some(prompt),
+            state,
+        } => agent::Event::CommandLifecycle { prompt, state },
+        Message::CommandLifecycle {
+            command_uuid: None, ..
+        }
+        | Message::Other => return None,
     })
 }
 
@@ -54,10 +61,11 @@ pub fn from_message(message: Message) -> Option<agent::Event> {
 pub fn to_input(command: agent::Command) -> Option<Input> {
     Some(match command {
         agent::Command::Prompt {
+            id,
             shell,
             images,
             text,
-        } => Input::prompt_with(&shell, images, &text),
+        } => Input::prompt_with(id, &shell, images, &text),
         agent::Command::Shell { command } => Input::bash_command(&command),
         agent::Command::ControlRequest {
             request_id,
@@ -154,7 +162,9 @@ mod tests {
 
     #[test]
     fn command_encodes_prompt_and_control_to_stream_json() {
+        let id = crate::ids::PromptId::new_random();
         let cmd = agent::Command::Prompt {
+            id,
             shell: vec!["<bash-input>ls</bash-input>".to_owned()],
             images: Vec::new(),
             text: "hi".to_owned(),
@@ -162,5 +172,6 @@ mod tests {
         let encoded = serde_json::to_string(&to_input(cmd).expect("an input")).expect("encodes");
         assert!(encoded.contains("<bash-input>ls</bash-input>"));
         assert!(encoded.contains("hi"));
+        assert!(encoded.contains(&format!(r#""uuid":"{id}""#)), "{encoded}");
     }
 }

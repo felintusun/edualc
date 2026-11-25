@@ -223,7 +223,7 @@ impl<F: Frontend> App<F> {
         }
         // An ACP agent takes a mode as a turn starts: the turn under way keeps the one it began
         // with.
-        if self.status.capabilities().deferred_mode_switch && self.status.turns > 0 {
+        if self.status.capabilities().deferred_mode_switch && self.status.turns.under_way() {
             self.chat.info(format!(
                 "{} switches to “{}” from your next prompt; this turn goes on in the mode it started in.",
                 self.status.backend.agent(),

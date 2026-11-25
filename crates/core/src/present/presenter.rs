@@ -418,8 +418,8 @@ impl<F: Frontend> Presenter<F> {
                 Some(format!("Usage limit reached · continuing at {}", clock(at)))
             }
         };
-        session.busy = status.turns > 0 || shell_running || limit_wait.is_some();
-        session.turn = status.turns > 0;
+        session.busy = status.turns.under_way() || shell_running || limit_wait.is_some();
+        session.turn = status.turns.under_way();
         session.activity = match status.doing {
             Doing::Nothing if shell_running => Activity::Tool,
             Doing::Nothing => Activity::Idle,

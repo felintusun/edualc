@@ -33,3 +33,4 @@ pub mod settings;
 pub mod sidebar;
 pub mod tools;
 pub mod trust;
+pub mod turns;
