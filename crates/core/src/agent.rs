@@ -73,6 +73,14 @@ pub enum Event {
         parent_tool_use_id: Option<ToolUseId>,
         error: Option<AssistantError>,
     },
+    /// A piece of what an ACP agent says, as its `agent_message_chunk` gives it.
+    AgentMessageChunk {
+        text: String,
+    },
+    /// A piece of what an ACP agent thinks, as its `agent_thought_chunk` gives it.
+    AgentThoughtChunk {
+        text: String,
+    },
     /// An ACP agent's tool call, new or changed, as the agent gives it, its status and output
     /// included.
     ToolCall {

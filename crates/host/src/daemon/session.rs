@@ -40,6 +40,8 @@ impl Doing {
             }
             agent::Event::ToolCall { call, .. } => touched.extend(snapshots::edited_by(call)),
             agent::Event::Stream { .. }
+            | agent::Event::AgentMessageChunk { .. }
+            | agent::Event::AgentThoughtChunk { .. }
             | agent::Event::User(_)
             | agent::Event::System(_)
             | agent::Event::Result(_)

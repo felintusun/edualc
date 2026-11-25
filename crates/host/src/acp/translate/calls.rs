@@ -12,10 +12,9 @@ use crate::external::acp::{
 };
 use crate::external::tool_input::{AgentInput, KnownCall};
 use crate::external::wire::{
-    ApiMessage, ContentBlock, DENIED, Question, QuestionOption, Questions, ToolName, Usage,
-    UserContent, UserLine,
+    ContentBlock, DENIED, Question, QuestionOption, Questions, ToolName, UserContent, UserLine,
 };
-use crate::ids::{MessageId, ToolUseId};
+use crate::ids::ToolUseId;
 
 use super::{CallId, Effect, Translator, plan_todos};
 
@@ -120,17 +119,13 @@ impl Translator {
         let id = ToolUseId::from(call.tool_call_id.clone());
         let mut effects = match drawn {
             Call::Named { name, input } => {
-                self.message_done(Some(ContentBlock::ToolUse { id, name, input }))
+                vec![self.tool_use_message(ContentBlock::ToolUse { id, name, input })]
             }
-            Call::Acp(call) => {
-                let mut effects = self.message_done(None);
-                effects.push(Effect::ToWindow(Event::ToolCall {
-                    id,
-                    call,
-                    parent_tool_use_id: None,
-                }));
-                effects
-            }
+            Call::Acp(call) => vec![Effect::ToWindow(Event::ToolCall {
+                id,
+                call,
+                parent_tool_use_id: None,
+            })],
         };
         if is_done(call) {
             effects.extend(self.tool_call_update(call));
@@ -191,16 +186,7 @@ impl Translator {
         let id = ToolUseId::from(call.tool_call_id.clone());
         match updated {
             Some(Call::Named { name, input }) => {
-                let message = ApiMessage {
-                    id: MessageId::from(self.local_id("message")),
-                    content: vec![ContentBlock::ToolUse { id, name, input }],
-                    usage: Usage::default(),
-                };
-                effects.push(Effect::ToWindow(Event::Assistant {
-                    message,
-                    parent_tool_use_id: None,
-                    error: None,
-                }));
+                effects.push(self.tool_use_message(ContentBlock::ToolUse { id, name, input }));
             }
             Some(Call::Acp(call)) => effects.push(Effect::ToWindow(Event::ToolCall {
                 id,

@@ -655,6 +655,44 @@ impl Chat {
         }
     }
 
+    /// Takes a piece of what an ACP agent says: it goes on with the message shown last, or
+    /// starts one.
+    pub fn agent_message_chunk(&mut self, text: &str) {
+        let last = self.entries.len().checked_sub(1);
+        if let Some(Entry {
+            body: Body::Assistant(said),
+            nested: false,
+        }) = self.entries.last_mut()
+            && let Some(last) = last
+        {
+            said.push_str(text);
+            self.changes.push(Change::Grew(last));
+        } else if !text.is_empty() {
+            self.push(Body::Assistant(text.to_owned()), false);
+        }
+    }
+
+    /// Takes a piece of what an ACP agent thinks: it goes on with the thought shown last, or
+    /// starts one.
+    pub fn agent_thought_chunk(&mut self, text: &str) {
+        let last = self.entries.len().checked_sub(1);
+        if let Some(Entry {
+            body: Body::Thinking { text: thought, .. },
+            nested: false,
+        }) = self.entries.last_mut()
+            && let Some(last) = last
+        {
+            thought.push_str(text);
+            self.changes.push(Change::Grew(last));
+        } else if !text.is_empty() {
+            let body = Body::Thinking {
+                text: text.to_owned(),
+                expanded: false,
+            };
+            self.push(body, false);
+        }
+    }
+
     /// Takes a raw API stream event, from `--include-partial-messages`.
     pub fn stream_event(&mut self, event: &StreamEvent, parent: Option<&ToolUseId>) {
         let key = parent.cloned();
@@ -1207,6 +1245,54 @@ mod tests {
         chat.set_tool_state(&id, ToolState::Denied);
         chat.acp_call(&id, &call(AcpStatus::Failed, None), None);
         assert_eq!(first_tool(&chat).state, ToolState::Denied);
+    }
+
+    #[test]
+    fn an_acp_agents_chunks_grow_what_they_continue() {
+        let mut chat = Chat::default();
+        chat.user("Count the lines");
+        chat.agent_thought_chunk("Read");
+        chat.agent_thought_chunk("ing.");
+        chat.agent_message_chunk("");
+        chat.agent_message_chunk("Let me ");
+        chat.agent_message_chunk("count.");
+        let call = AcpCall {
+            title: "wc -l notes.txt".to_owned(),
+            kind: None,
+            locations: Vec::new(),
+            diffs: Vec::new(),
+            input: None,
+            status: AcpStatus::Completed,
+            output: None,
+        };
+        chat.acp_call(&ToolUseId::from("c1".to_owned()), &call, None);
+        chat.agent_message_chunk("Three.");
+        let shown: Vec<(&str, &str)> = chat
+            .entries
+            .iter()
+            .map(|entry| match &entry.body {
+                Body::User(text) => ("user", text.as_str()),
+                Body::Thinking { text, .. } => ("thought", text.as_str()),
+                Body::Assistant(text) => ("said", text.as_str()),
+                Body::Tool { tool, .. } => ("call", tool.output.as_str()),
+                other @ (Body::Shell { .. }
+                | Body::Image(_)
+                | Body::Peer { .. }
+                | Body::Info(_)
+                | Body::Error(_)
+                | Body::TurnEnd(_)) => panic!("not shown here: {other:?}"),
+            })
+            .collect();
+        assert_eq!(
+            shown,
+            [
+                ("user", "Count the lines"),
+                ("thought", "Reading."),
+                ("said", "Let me count."),
+                ("call", ""),
+                ("said", "Three."),
+            ]
+        );
     }
 
     fn said(chat: &mut Chat, content: Value, origin: Origin) {

@@ -105,6 +105,8 @@ impl Pending {
             }
             agent::Event::Assistant { .. }
             | agent::Event::Stream { .. }
+            | agent::Event::AgentMessageChunk { .. }
+            | agent::Event::AgentThoughtChunk { .. }
             | agent::Event::ToolCall { .. }
                 if self.turns == 0 =>
             {
@@ -112,6 +114,8 @@ impl Pending {
             }
             agent::Event::Stream { .. }
             | agent::Event::Assistant { .. }
+            | agent::Event::AgentMessageChunk { .. }
+            | agent::Event::AgentThoughtChunk { .. }
             | agent::Event::ToolCall { .. }
             | agent::Event::User(_)
             | agent::Event::System(_)

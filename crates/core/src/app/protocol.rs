@@ -151,6 +151,14 @@ impl<F: Frontend> App<F> {
                     self.status.doing = Doing::Running(name.clone());
                 }
             }
+            agent::Event::AgentMessageChunk { text } => {
+                self.chat.agent_message_chunk(&text);
+                self.status.doing = Doing::Writing;
+            }
+            agent::Event::AgentThoughtChunk { text } => {
+                self.chat.agent_thought_chunk(&text);
+                self.status.doing = Doing::Thinking;
+            }
             agent::Event::ToolCall {
                 id,
                 call,

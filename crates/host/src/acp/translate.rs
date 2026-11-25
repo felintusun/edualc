@@ -21,10 +21,9 @@ use crate::external::acp::{
 use crate::external::agy;
 use crate::external::tool_input::{Todo, TodoStatus, TodoWriteInput};
 use crate::external::wire::{
-    self, Account, ApiMessage, AssistantError, CommandInfo, ContentBlock, ControlResponse, Delta,
-    IncomingRequest, Initialized, MessageStart, ModeId, ModelInfo, ModelUsage, ProgramMode,
-    ProgramModes, ResultKind, StreamEvent, System, ToolName, TurnResult, Usage, UserContent,
-    UserLine,
+    self, Account, ApiMessage, AssistantError, CommandInfo, ContentBlock, ControlResponse,
+    IncomingRequest, Initialized, ModeId, ModelInfo, ModelUsage, ProgramMode, ProgramModes,
+    ResultKind, System, ToolName, TurnResult, Usage, UserContent, UserLine,
 };
 use crate::ids::{MessageId, RequestId, SessionId, ToolUseId};
 use crate::settings::PeerMessages;
@@ -143,19 +142,6 @@ enum Queued {
     Peer(String),
 }
 
-/// A message being streamed: the id it goes under and its blocks so far, the last one open.
-#[derive(Debug, Default)]
-struct Streaming {
-    id: MessageId,
-    blocks: Vec<Block>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-enum Block {
-    Text(String),
-    Thinking(String),
-}
-
 #[derive(Debug)]
 pub struct Translator {
     agent: Agent,
@@ -191,7 +177,6 @@ pub struct Translator {
     /// A prompt is under way.
     busy: bool,
     queue: VecDeque<Queued>,
-    streaming: Option<Streaming>,
     /// The turn's text, for its result.
     said: String,
     next_local: u64,
@@ -243,7 +228,6 @@ impl Translator {
             initialize: None,
             busy: false,
             queue: VecDeque::new(),
-            streaming: None,
             said: String::new(),
             next_local: 0,
             entries: HashMap::new(),
@@ -480,7 +464,6 @@ impl Translator {
                 let mut effects = Vec::new();
                 if matches!(self.start, Start::ResumeReplay(_)) {
                     effects.extend(self.flush_replay_user());
-                    effects.extend(self.message_done(None));
                 }
                 let named = SessionId::for_external(self.agent.backend(), &session);
                 if named != self.id {
@@ -851,13 +834,6 @@ impl Translator {
         effects
     }
 
-    fn stream_event(event: StreamEvent) -> Effect {
-        Effect::ToWindow(Event::Stream {
-            event,
-            parent_tool_use_id: None,
-        })
-    }
-
     /// Asks for another model, with `session/set_config_option` for an agent that uses
     /// `configOptions`, else with `session/set_model`.
     fn set_model_request(
@@ -1024,9 +1000,8 @@ impl Translator {
             Change::UserMessageChunk {
                 content: Some(Chunk::Text { text }),
             } if replaying => {
-                let effects = self.message_done(None);
                 self.replay_user.push_str(&text);
-                effects
+                Vec::new()
             }
             Change::AgentMessageChunk {
                 content: Chunk::Text { text },
@@ -1037,7 +1012,7 @@ impl Translator {
                     Vec::new()
                 };
                 self.said.push_str(&text);
-                effects.extend(self.streamed(&Block::Text(text)));
+                effects.push(Effect::ToWindow(Event::AgentMessageChunk { text }));
                 effects
             }
             Change::AgentThoughtChunk {
@@ -1048,7 +1023,7 @@ impl Translator {
                 } else {
                     Vec::new()
                 };
-                effects.extend(self.streamed(&Block::Thinking(text)));
+                effects.push(Effect::ToWindow(Event::AgentThoughtChunk { text }));
                 effects
             }
             Change::ToolCall(call) => {
@@ -1091,122 +1066,29 @@ impl Translator {
             name: ToolName::TodoWrite,
             input,
         };
-        let mut effects = self.message_done(Some(tool_use));
+        let mut effects = vec![self.tool_use_message(tool_use)];
         effects.extend(tool_result_effects(id, "Updated.".to_owned(), false));
         effects
     }
 
-    /// Streams a piece of text or thinking into the message under way.
-    fn streamed(&mut self, piece: &Block) -> Vec<Effect> {
-        let mut effects = Vec::new();
-        if self.streaming.is_none() {
-            let id = MessageId::from(self.local_id("message"));
-            effects.push(Self::stream_event(StreamEvent::MessageStart {
-                message: MessageStart { id: id.clone() },
-            }));
-            self.streaming = Some(Streaming {
-                id,
-                blocks: Vec::new(),
-            });
-        }
-        let Some(streaming) = self.streaming.as_mut() else {
-            return effects;
-        };
-        let same_kind = matches!(
-            (streaming.blocks.last(), piece),
-            (Some(Block::Text(_)), Block::Text(_)) | (Some(Block::Thinking(_)), Block::Thinking(_))
-        );
-        let mut events = Vec::new();
-        if !same_kind {
-            if let Some(open) = open_index(&streaming.blocks) {
-                events.push(StreamEvent::ContentBlockStop { index: open });
-            }
-            let (block, content_block) = match piece {
-                Block::Text(_) => (
-                    Block::Text(String::new()),
-                    ContentBlock::Text {
-                        text: String::new(),
-                    },
-                ),
-                Block::Thinking(_) => (
-                    Block::Thinking(String::new()),
-                    ContentBlock::Thinking {
-                        thinking: String::new(),
-                    },
-                ),
-            };
-            streaming.blocks.push(block);
-            if let Some(index) = open_index(&streaming.blocks) {
-                events.push(StreamEvent::ContentBlockStart {
-                    index,
-                    content_block,
-                });
-            }
-        }
-        let Some(index) = open_index(&streaming.blocks) else {
-            return effects;
-        };
-        let delta = match (piece, streaming.blocks.last_mut()) {
-            (Block::Text(text), Some(Block::Text(grown))) => {
-                grown.push_str(text);
-                Delta::Text { text: text.clone() }
-            }
-            (Block::Thinking(text), Some(Block::Thinking(grown))) => {
-                grown.push_str(text);
-                Delta::Thinking {
-                    thinking: text.clone(),
-                }
-            }
-            (Block::Text(_) | Block::Thinking(_), _) => return effects,
-        };
-        events.push(StreamEvent::ContentBlockDelta { index, delta });
-        effects.extend(events.into_iter().map(Self::stream_event));
-        effects
-    }
-
-    /// Ends the message being streamed, as one assistant message of its blocks and then
-    /// `tool_use` if a tool call ends it.
-    fn message_done(&mut self, tool_use: Option<ContentBlock>) -> Vec<Effect> {
-        let streaming = self.streaming.take();
-        let mut effects = Vec::new();
-        let (id, mut content) = match streaming {
-            Some(Streaming { id, blocks }) => {
-                if let Some(open) = open_index(&blocks) {
-                    effects.push(Self::stream_event(StreamEvent::ContentBlockStop {
-                        index: open,
-                    }));
-                }
-                let content: Vec<ContentBlock> = blocks
-                    .into_iter()
-                    .map(|block| match block {
-                        Block::Text(text) => ContentBlock::Text { text },
-                        Block::Thinking(thinking) => ContentBlock::Thinking { thinking },
-                    })
-                    .collect();
-                (id, content)
-            }
-            None if tool_use.is_some() => (MessageId::from(self.local_id("message")), Vec::new()),
-            None => return effects,
-        };
-        content.extend(tool_use);
-        let message = ApiMessage {
-            id,
-            content,
-            usage: Usage::default(),
-        };
-        effects.push(Effect::ToWindow(Event::Assistant {
-            message,
+    /// Returns one of the calls edualc acts on (`Call::Named`) as the message that makes it.
+    fn tool_use_message(&mut self, tool_use: ContentBlock) -> Effect {
+        Effect::ToWindow(Event::Assistant {
+            message: ApiMessage {
+                id: MessageId::from(self.local_id("message")),
+                content: vec![tool_use],
+                usage: Usage::default(),
+            },
             parent_tool_use_id: None,
             error: None,
-        }));
-        effects
+        })
     }
 
     /// Ends the turn on the prompt's answer and sends what waits next. A refused sign-in goes
     /// to the window as an HTTP 401 in the turn's result, so that it offers to sign in again
     /// rather than show the agent's words.
     fn turn_ended(&mut self, prompted: Option<&Prompted>, failure: Option<Failure>) -> Vec<Effect> {
-        let mut effects = self.message_done(None);
+        let mut effects = Vec::new();
         // A turn the agent cut short ends as failed, saying why, so it doesn't read as done.
         let failure = failure.or_else(|| {
             prompted
@@ -1323,11 +1205,6 @@ fn escaped(text: &str) -> String {
     text.replace('&', "&amp;")
         .replace('<', "&lt;")
         .replace('>', "&gt;")
-}
-
-/// Returns the stream's index of the last of `blocks`, the open one.
-fn open_index(blocks: &[Block]) -> Option<u64> {
-    (0_u64..).zip(blocks).last().map(|(index, _)| index)
 }
 
 /// A line from the window that edualc doesn't read. A control request is refused with the
@@ -1477,6 +1354,15 @@ mod tests {
                 "parent_tool_use_id": parent_tool_use_id,
                 "error": error,
             }),
+            // ACP's: Claude Code has no line for these.
+            Event::AgentMessageChunk { text } => json!({
+                "type": "agent_message_chunk",
+                "text": text,
+            }),
+            Event::AgentThoughtChunk { text } => json!({
+                "type": "agent_thought_chunk",
+                "text": text,
+            }),
             // edualc's own: Claude Code has no line for a call as the agent gives it.
             Event::ToolCall {
                 id,
@@ -1621,6 +1507,13 @@ mod tests {
         use crate::external::wire::{
             ContentBlock, Delta, IncomingRequest, Message, StreamEvent, System, UserContent,
         };
+        if [json!("agent_message_chunk"), json!("agent_thought_chunk")]
+            .iter()
+            .any(|kind| line.get("type") == Some(kind))
+        {
+            assert!(line.get("text").is_some_and(Value::is_string), "{line}");
+            return;
+        }
         if line.get("type") == Some(&json!("tool_call")) {
             let call = line.get("call").cloned().expect("a call");
             serde_json::from_value::<AcpCall>(call)
@@ -1749,14 +1642,12 @@ mod tests {
         assert_eq!(
             window,
             expected(&[
+                "agent_message_chunk",
+                "agent_thought_chunk",
                 "assistant",
                 "control_response",
                 "permission_asked",
                 "result",
-                "stream_event:content_block_delta",
-                "stream_event:content_block_start",
-                "stream_event:content_block_stop",
-                "stream_event:message_start",
                 "system",
                 "tool_call",
                 "user",
@@ -1865,7 +1756,7 @@ mod tests {
     }
 
     #[test]
-    fn a_turn_reads_as_claude_codes() {
+    fn a_turn_reads_in_acps_terms() {
         let mut translator = opened();
         let prompted = translator.window_said(&prompt("Count the lines"));
         assert_eq!(kinds(&window_lines(&prompted)), ["system"]);
@@ -1894,23 +1785,17 @@ mod tests {
         assert_eq!(
             kinds(&window),
             [
-                "stream_event:message_start",
-                "stream_event:content_block_start",
-                "stream_event:content_block_delta",
-                "stream_event:content_block_stop",
-                "stream_event:content_block_start",
-                "stream_event:content_block_delta",
-                "stream_event:content_block_stop",
-                "assistant",
+                "agent_thought_chunk",
+                "agent_message_chunk",
                 "tool_call",
                 "tool_call",
-                "stream_event:message_start",
-                "stream_event:content_block_start",
-                "stream_event:content_block_delta",
-                "stream_event:content_block_stop",
-                "assistant",
+                "agent_message_chunk",
                 "result",
             ]
+        );
+        assert_eq!(
+            window.get(1).and_then(|line| line.get("text")),
+            Some(&json!("Let me count."))
         );
         let call = call_of(&window);
         assert_eq!(call.title, "wc -l notes.txt");
@@ -3148,16 +3033,13 @@ mod tests {
         let a = replaying.agent_said(
             r#"{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"ses_ext","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"Hello!"}}}}"#,
         );
-        assert!(
-            a.iter()
-                .any(|effect| matches!(effect, Effect::ToWindow(Event::User(_))))
-        );
-        let loaded = replaying.agent_said(r#"{"jsonrpc":"2.0","result":{},"id":2}"#);
-        assert!(
-            loaded
-                .iter()
-                .any(|effect| matches!(effect, Effect::ToWindow(Event::Assistant { .. })))
-        );
+        assert!(matches!(
+            a.as_slice(),
+            [
+                Effect::ToWindow(Event::User(_)),
+                Effect::ToWindow(Event::AgentMessageChunk { text }),
+            ] if text == "Hello!"
+        ));
     }
 
     #[test]
