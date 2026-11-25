@@ -138,11 +138,6 @@ pub fn TasksChip() -> Element {
                     }
                     // Stopping a turn leaves what runs beside it running, as the user wanted:
                     // they decide here.
-                    if session.tasks_left_running {
-                        div { class: "tasks-note",
-                            "The turn stopped; these go on. Stop them here, or leave them running."
-                        }
-                    }
                     for task in session.tasks.iter() {
                         TaskRow {
                             key: "{task.id}",

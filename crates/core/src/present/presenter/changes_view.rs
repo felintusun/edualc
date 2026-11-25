@@ -175,12 +175,9 @@ impl<F: Frontend> Presenter<F> {
                 }
                 .to_owned(),
                 if view.send_blocked {
-                    "This session runs in another window: continue here as a copy to send your comments."
-                        .to_owned()
+                    "Continue this session here to send comments.".to_owned()
                 } else if view.elsewhere {
-                    "This session runs in another program: edualc keeps the changes only of \
-                     sessions it runs."
-                        .to_owned()
+                    "edualc keeps changes only for sessions it runs.".to_owned()
                 } else {
                     left_out_words(read.left_out)
                 },
@@ -188,8 +185,7 @@ impl<F: Frontend> Presenter<F> {
             Listed::Read(read) => (
                 summary_words(changes::Summary::from(read)),
                 if view.send_blocked {
-                    "This session runs in another window: continue here as a copy to send your comments."
-                        .to_owned()
+                    "Continue this session here to send comments.".to_owned()
                 } else {
                     left_out_words(read.left_out)
                 },
@@ -246,8 +242,7 @@ impl<F: Frontend> Presenter<F> {
                     })
                     .collect(),
                 if diff.cut {
-                    "The diff is long: its end, and the ends of long lines, are left out here."
-                        .to_owned()
+                    "Long diff: cut short.".to_owned()
                 } else {
                     String::new()
                 },

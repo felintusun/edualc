@@ -77,21 +77,16 @@ export component SidePanel inherits Rectangle {
                     font-weight: 600;
                     color: Theme.text;
                 }
-                Caption {
-                    text: "Sees the conversation; doesn't join it or run tools";
-                    wrap: word-wrap;
-                    min-width: 0px;
-                }
             }
             IconButton {
                 icon: @image-url("@lucide/panel-right-close.svg");
-                label: "Fold away (it waits in the header)";
+                label: "Fold away";
                 y: (parent.height - self.height) / 2;
                 clicked => { Side.toggle(); }
             }
             IconButton {
                 icon: @image-url("@lucide/x.svg");
-                label: "Dismiss the side questions";
+                label: "Close";
                 y: (parent.height - self.height) / 2;
                 clicked => { Side.dismiss(); }
             }
@@ -168,13 +163,6 @@ export component SidePanel inherits Rectangle {
                     color: Theme.danger-text;
                     wrap: word-wrap;
                 }
-            }
-        }
-        if Side.exchanges.length == 0: VerticalLayout {
-            padding: Theme.space-l;
-            Small {
-                text: "Ask something on the side while " + Session.agent-name + " works: about the code, the conversation, anything. The conversation goes on undisturbed.";
-                wrap: word-wrap;
             }
         }
         Rectangle {

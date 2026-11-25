@@ -100,22 +100,12 @@ export component UsagePanel inherits Rectangle {
                     width: Theme.icon;
                     y: (parent.height - self.height) / 2;
                 }
-                VerticalLayout {
-                    alignment: center;
+                Title {
+                    text: "Usage";
                     horizontal-stretch: 1;
                     min-width: 0px;
-                    Title {
-                        text: "Usage";
-                        min-width: 0px;
-                        overflow: elide;
-                    }
-                    Caption {
-                        text: root.active-loading ? "Asking " + root.active-label + "…"
-                            : root.active-label != "" ? "As " + root.active-label + " reports it"
-                            : "Provider usage";
-                        min-width: 0px;
-                        overflow: elide;
-                    }
+                    overflow: elide;
+                    vertical-alignment: center;
                 }
                 IconButton {
                     icon: @image-url("@lucide/refresh-cw.svg");
@@ -126,7 +116,7 @@ export component UsagePanel inherits Rectangle {
                 }
                 IconButton {
                     icon: @image-url("@lucide/x.svg");
-                    label: "Close usage (Esc)";
+                    label: "Close (Esc)";
                     y: (parent.height - self.height) / 2;
                     clicked => { Usage.close(); }
                 }
@@ -204,10 +194,8 @@ export component UsagePanel inherits Rectangle {
                     spacing: Theme.space-m;
                     alignment: start;
 
-                    if root.active-loading: Caption {
-                        text: "Asking " + root.active-label + " for usage…";
-                        wrap: word-wrap;
-                        min-width: 0px;
+                    if root.active-loading && root.active-sections.length == 0: Caption {
+                        text: "Loading…";
                     }
                     if root.active-note != "": Small {
                         text: root.active-note;
@@ -216,9 +204,7 @@ export component UsagePanel inherits Rectangle {
                         min-width: 0px;
                     }
                     if !root.active-loading && root.active-sections.length == 0 && root.active-note == "": Small {
-                        text: root.active-label != ""
-                            ? root.active-label + " has no numbers to report yet."
-                            : "No usage numbers to report yet.";
+                        text: "No usage yet.";
                         wrap: word-wrap;
                         min-width: 0px;
                     }

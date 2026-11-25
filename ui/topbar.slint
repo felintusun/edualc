@@ -72,11 +72,6 @@ export component TasksChip inherits Pressable {
                         clicked => { Session.stop-all-tasks(); }
                     }
                 }
-                if Session.tasks-left-running: Small {
-                    text: "The turn stopped; these go on. Stop them here, or leave them running.";
-                    color: Theme.text-secondary;
-                    wrap: word-wrap;
-                }
                 for task in Session.tasks: Pressable {
                     enabled: task.peekable;
                     tab-stop: task.peekable;

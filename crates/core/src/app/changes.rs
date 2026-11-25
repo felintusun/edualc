@@ -342,8 +342,7 @@ impl<F: Frontend> App<F> {
             return;
         }
         if !self.asks.is_empty() {
-            self.chat
-                .info("Answer what is asked above before sending your comments.");
+            self.chat.info("Answer the question above first.");
             return;
         }
         let text = message(&self.line_comments, self.location.cwd());

@@ -142,9 +142,9 @@ pub(super) fn clip(output: &str) -> (String, String) {
         clipped = tools::truncate_chars(&clipped, OUTPUT_CHARS);
     }
     let note = if lines > OUTPUT_LINES {
-        format!("{} more lines; copy for all of it", lines - OUTPUT_LINES)
+        format!("{} more lines", lines - OUTPUT_LINES)
     } else if clipped.len() < output.len() {
-        "Cut short; copy for all of it".to_owned()
+        "Cut short".to_owned()
     } else {
         String::new()
     };

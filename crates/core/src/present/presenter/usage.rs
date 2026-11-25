@@ -1,7 +1,7 @@
 //! The usage panel: each program's limits, and what the session used.
 
 use crate::app::{LimitUse, ProviderUsageState, Status, UsagePanel};
-use crate::external::wire::{self, ContextKind, LimitKind};
+use crate::external::wire::{self, LimitKind};
 use crate::present::Frontend;
 use crate::present::model::{StatRow, StatSection, UsageTab};
 use crate::provider::Backend;
@@ -57,8 +57,8 @@ pub(super) fn usage_tab(backend: Backend, state: &ProviderUsageState, status: &S
     }
     if let Some(report) = &state.report {
         let periods = [
-            ("The last 24 hours", &report.behaviors.day),
-            ("The last 7 days", &report.behaviors.week),
+            ("Last 24 hours", &report.behaviors.day),
+            ("Last 7 days", &report.behaviors.week),
         ];
         sections.extend(
             periods
@@ -100,13 +100,13 @@ pub(super) fn limits_section(
                     .label
                     .clone()
                     .unwrap_or_else(|| match (limit.kind, model) {
-                        (LimitKind::Session, _) => "This session window (5 hours)".to_owned(),
-                        (LimitKind::WeeklyAll, _) => "This week, all models".to_owned(),
+                        (LimitKind::Session, _) => "Current session".to_owned(),
+                        (LimitKind::WeeklyAll, _) => "Current week (all models)".to_owned(),
                         (LimitKind::WeeklyScoped | LimitKind::Other, Some(model)) => {
-                            format!("This week, {model}")
+                            format!("Current week ({model})")
                         }
-                        (LimitKind::WeeklyScoped, None) => "This week, one model".to_owned(),
-                        (LimitKind::Other, None) => "Another limit".to_owned(),
+                        (LimitKind::WeeklyScoped, None) => "Current week (one model)".to_owned(),
+                        (LimitKind::Other, None) => "Other limit".to_owned(),
                     });
                 limit_row(&label, LimitUse::from(limit))
             })
@@ -114,8 +114,8 @@ pub(super) fn limits_section(
         Some(_) | None => {
             let limits = status.limits.for_backend(backend).unwrap_or_default();
             [
-                ("This session window (5 hours)", limits.five_hour),
-                ("This week", limits.seven_day),
+                ("Current session", limits.five_hour),
+                ("Current week", limits.seven_day),
             ]
             .into_iter()
             .filter_map(|(label, limit)| Some(limit_row(label, limit?)))
@@ -140,13 +140,13 @@ pub(super) fn session_section(session: &wire::SessionUsage) -> StatSection {
         stat(
             "Cost at API prices",
             format!("${:.2}", session.total_cost_usd),
-            "What the same use would cost on the API; a plan covers it".to_owned(),
+            String::new(),
             -1.0,
         ),
         stat(
-            "Time with the model",
+            "API time",
             duration_text(session.total_api_duration_ms),
-            format!("of {} open", duration_text(session.total_duration_ms)),
+            format!("of {}", duration_text(session.total_duration_ms)),
             -1.0,
         ),
         stat(
@@ -166,7 +166,7 @@ pub(super) fn session_section(session: &wire::SessionUsage) -> StatSection {
             model,
             format!("${:.2}", tokens.cost_usd),
             format!(
-                "{} in · {} out · {} read from cache · {} written to it",
+                "{} in · {} out · {} cache read · {} cache write",
                 short_count(tokens.input_tokens),
                 short_count(tokens.output_tokens),
                 short_count(tokens.cache_read_input_tokens),
@@ -183,21 +183,16 @@ pub(super) fn context_section(context: &wire::ContextReport) -> StatSection {
         .categories
         .iter()
         .map(|category| {
-            let detail = match category.kind {
-                ContextKind::Deferred => "Loaded only when needed; not in use now",
-                ContextKind::Buffer => "Kept free so the conversation can be compacted",
-                ContextKind::Used | ContextKind::Free | ContextKind::Other => "",
-            };
             stat(
                 &category.name,
                 short_count(category.tokens),
-                detail.to_owned(),
+                String::new(),
                 fraction_of(category.tokens, context.max_tokens),
             )
         })
         .collect();
     let note = format!(
-        "{} of {} tokens in use",
+        "{} / {}",
         short_count(context.total_tokens),
         short_count(context.max_tokens)
     );

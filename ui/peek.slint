@@ -36,7 +36,7 @@ component Conversation inherits VerticalLayout {
         }
     }
     if Peek.steps.length == 0: Empty {
-        text: "Nothing of its conversation is saved yet. It shows here as it goes.";
+        text: "Nothing yet.";
     }
     steps := ListView {
         vertical-stretch: 1;
@@ -112,7 +112,7 @@ component Output inherits VerticalLayout {
         }
     }
     if Peek.output.length == 0 && Peek.note == "": Empty {
-        text: Peek.running ? "Nothing printed yet. It shows here as it goes." : "It printed nothing.";
+        text: Peek.running ? "No output yet." : "No output.";
     }
     lines := ListView {
         vertical-stretch: 1;

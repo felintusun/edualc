@@ -81,7 +81,7 @@ component SessionSwitcher inherits Rectangle {
                 }
                 query-field := Field {
                     width: 100%;
-                    placeholder: "Switch session… (type project or title)";
+                    placeholder: "Switch session";
                     init => { self.focus(); }
                     edited(text) => {
                         root.query = text;
@@ -104,7 +104,7 @@ component SessionSwitcher inherits Rectangle {
         if root.shown.length == 0: HorizontalLayout {
             padding: Theme.space-l;
             Small {
-                text: root.query != "" ? "No sessions match the filter." : "No sessions available yet.";
+                text: root.query != "" ? "No matches." : "No sessions.";
                 wrap: word-wrap;
             }
         }
@@ -594,7 +594,7 @@ component PromptBar inherits Rectangle {
                             edited(text) => { Prompt.set-other(q, text); }
                         }
                         Field {
-                            placeholder: "Notes for " + Session.agent-name + ", with the answer (optional)";
+                            placeholder: "Notes (optional)";
                             edited(text) => { Prompt.set-notes(q, text); }
                         }
                     }
@@ -631,11 +631,11 @@ component PromptBar inherits Rectangle {
         if Prompt.kind == PromptKind.plan: VerticalLayout {
             spacing: Theme.space-s;
             if Prompt.comment-count > 0: Small {
-                text: Prompt.comment-count == 1 ? "1 comment on the plan goes with your answer." : "\{Prompt.comment-count} comments on the plan go with your answer.";
+                text: Prompt.comment-count == 1 ? "Sends 1 comment with your answer." : "Sends \{Prompt.comment-count} comments with your answer.";
             }
             overall := Field {
                 property <int> grab: root.grab-serial;
-                placeholder: "A comment on the whole plan (optional)";
+                placeholder: "Comment on the plan (optional)";
                 init => { self.take(); }
                 changed grab => { self.take(); }
                 function take() {
@@ -969,9 +969,7 @@ component EditArea inherits Rectangle {
                 y: (parent.height - self.height) / 2;
             }
             Small {
-                text: !Session.can-shell ? "Shell command: " + Session.agent-name + " sessions don't run these. Ask " + Session.agent-name + " to run it, or use a terminal."
-                    : "Shell command: Enter runs it beside the conversation."
-                    + " " + Session.agent-name + " sees it, and what it printed, with your next message.";
+                text: Session.can-shell ? "Shell command" : Session.agent-name + " doesn't run shell commands.";
                 color: Theme.text-secondary;
                 wrap: word-wrap;
                 horizontal-stretch: 1;
@@ -994,9 +992,7 @@ component EditArea inherits Rectangle {
                 x: 0;
                 y: 0;
                 width: scroll.width;
-                text: Session.turn ? "Write the next message; it waits until " + Session.agent-name + " is done"
-                    : Preferences.send-key == SendKey.ctrl-enter ? "Message " + Session.agent-name + "  ·  / for commands" + (Session.can-shell ? "  ·  ! for a shell command" : "") + "  ·  Ctrl+Enter to send"
-                    : "Message " + Session.agent-name + "  ·  / for commands" + (Session.can-shell ? "  ·  ! for a shell command" : "") + "  ·  Shift+Enter for a new line";
+                text: "Message";
                 overflow: elide;
                 color: Theme.text-faint;
                 // Only drawn: the entry itself tells assistive technology.
@@ -1029,9 +1025,7 @@ component EditArea inherits Rectangle {
                 selection-background-color: Theme.selection;
                 selection-foreground-color: Theme.selection-text;
                 accessible-label: "Message to " + Session.agent-name;
-                accessible-placeholder-text: Session.can-shell
-                    ? "Message " + Session.agent-name + ", or start with ! for a shell command"
-                    : "Message " + Session.agent-name;
+                accessible-placeholder-text: "Message";
                 edited => {
                     Composer.command-index = 0;
                     root.hint-dismissed = false;
@@ -1179,20 +1173,20 @@ component EditArea inherits Rectangle {
             }
             if Session.can-shell: IconButton {
                 icon: @image-url("@lucide/square-terminal.svg");
-                label: Composer.shell ? "Make it a message again" : "Run a shell command (start with !)";
+                label: Composer.shell ? "Message" : "Shell command (!)";
                 tint: Composer.shell ? Theme.info : Theme.text-secondary;
                 y: (parent.height - self.height) / 2;
                 clicked => { Composer.toggle-shell(); }
             }
             IconButton {
                 icon: Composer.size == ComposerSize.tall ? @image-url("@lucide/minimize-2.svg") : @image-url("@lucide/maximize-2.svg");
-                label: Composer.size == ComposerSize.tall ? "Make the message box small again" : "Make the message box taller";
+                label: Composer.size == ComposerSize.tall ? "Smaller" : "Taller";
                 tint: Theme.text-faint;
                 clicked => { root.toggle(ComposerSize.tall); }
             }
             IconButton {
                 icon: Composer.size == ComposerSize.full ? @image-url("@lucide/shrink.svg") : @image-url("@lucide/expand.svg");
-                label: Composer.size == ComposerSize.full ? "Show the conversation again" : "Give the message the whole column, to see all of a long paste";
+                label: Composer.size == ComposerSize.full ? "Show the conversation" : "Full height";
                 tint: Theme.text-faint;
                 clicked => { root.toggle(ComposerSize.full); }
             }
@@ -1258,7 +1252,7 @@ component TrustBar inherits Rectangle {
                 y: (parent.height - self.height) / 2;
             }
             Text {
-                text: "Do you trust the files in " + Session.project + "? Claude Code runs this folder's hooks and settings as soon as it starts here, before you send anything.";
+                text: "Do you trust the files in " + Session.project + "? Claude Code runs its hooks and settings on start.";
                 color: Theme.text;
                 wrap: word-wrap;
                 vertical-alignment: center;
@@ -1269,8 +1263,8 @@ component TrustBar inherits Rectangle {
         // there); a long list scrolls.
         Small {
             text: Session.trust-runs.length == 0
-                ? "Its .claude/settings.json, settings.local.json and .mcp.json set nothing that runs or allows more."
-                : "Its .claude/settings.json, settings.local.json and .mcp.json would have Claude Code run or set:";
+                ? "Its settings run nothing and allow nothing more."
+                : "Its settings run or set:";
             wrap: word-wrap;
         }
         if Session.trust-runs.length > 0: Rectangle {
@@ -1294,11 +1288,7 @@ component TrustBar inherits Rectangle {
         }
         // As the terminal's dialog lets one go on without them; asked again at the next start.
         Small {
-            text: "Without its settings, Claude Code starts with only your own: none of this runs, and neither do any MCP servers or claude.ai connectors, yours included. You're asked again next time.";
-            wrap: word-wrap;
-        }
-        Small {
-            text: "Trusting it here trusts it for Claude Code in the terminal too (in ~/.claude.json), so its permission rules apply.";
+            text: "Without its settings, no MCP servers or claude.ai connectors run either, yours included. Trusting it also trusts it for Claude Code in the terminal.";
             wrap: word-wrap;
         }
         FlexboxLayout {
@@ -1344,7 +1334,7 @@ component ClaudeTrustBar inherits Rectangle {
                 y: (parent.height - self.height) / 2;
             }
             Text {
-                text: "Claude Code doesn't count " + Session.project + " as trusted, so it ignores the folder's own permission rules. Trust it for Claude Code too (in ~/.claude.json)?";
+                text: "Claude Code ignores this folder's permission rules until you trust it.";
                 color: Theme.text;
                 wrap: word-wrap;
                 vertical-alignment: center;
@@ -1376,10 +1366,10 @@ component ClaudeTrustBar inherits Rectangle {
 component ApiKeySessionDialog inherits Rectangle {
     // The models offered: an alias Claude Code takes, or empty for the model menu's.
     property <[{title: string, detail: string, model: string}]> models: [
-        { title: "As the model menu says", detail: "The model this window uses for Claude Code", model: "" },
-        { title: "Opus", detail: "The most capable, and the most expensive per token", model: "opus" },
-        { title: "Sonnet", detail: "Capable, at a lower price per token", model: "sonnet" },
-        { title: "Haiku", detail: "The fastest and cheapest", model: "haiku" },
+        { title: "Default", detail: "", model: "" },
+        { title: "Opus", detail: "", model: "opus" },
+        { title: "Sonnet", detail: "", model: "sonnet" },
+        { title: "Haiku", detail: "", model: "haiku" },
     ];
     property <int> picked: 0;
     function start() {
@@ -1453,7 +1443,7 @@ component ApiKeySessionDialog inherits Rectangle {
                 width: parent.width;
                 spacing: Theme.space-s;
                 Small {
-                    text: "It signs in with the Anthropic API key kept in your keyring. Anthropic bills each token it uses to the key's account, not to your plan. Your other sessions keep your own sign-in.";
+                    text: "Billed per token to the API key's account, not to your plan.";
                     wrap: word-wrap;
                 }
                 Small {
@@ -1504,14 +1494,14 @@ component ApiKeySessionDialog inherits Rectangle {
 // Enter or Start launches the picked program (or opens the API key model picker).
 component NewSessionDialog inherits Rectangle {
     property <[{program: Program, title: string, detail: string}]> programs: Sessions.api-key-kept ? [
-        { program: Program.claude, title: "Claude Code", detail: "Claude Code with your own sign-in" },
-        { program: Program.claude-api-key, title: "Claude Code with the API key…", detail: "Claude Code billed by the token with your stored Anthropic API key" },
-        { program: Program.agy, title: "agy", detail: "Google's Antigravity CLI" },
-        { program: Program.opencode, title: "opencode", detail: "opencode in this folder" },
+        { program: Program.claude, title: "Claude Code", detail: "" },
+        { program: Program.claude-api-key, title: "Claude Code with the API key…", detail: "Billed per token" },
+        { program: Program.agy, title: "agy", detail: "" },
+        { program: Program.opencode, title: "opencode", detail: "" },
     ] : [
-        { program: Program.claude, title: "Claude Code", detail: "Claude Code with your own sign-in" },
-        { program: Program.agy, title: "agy", detail: "Google's Antigravity CLI" },
-        { program: Program.opencode, title: "opencode", detail: "opencode in this folder" },
+        { program: Program.claude, title: "Claude Code", detail: "" },
+        { program: Program.agy, title: "agy", detail: "" },
+        { program: Program.opencode, title: "opencode", detail: "" },
     ];
     property <int> picked: Sessions.program == Program.agy ? (Sessions.api-key-kept ? 2 : 1)
         : Sessions.program == Program.opencode ? (Sessions.api-key-kept ? 3 : 2)
@@ -1797,7 +1787,7 @@ component WatchBar inherits Rectangle {
                 text: "Continue here as a copy";
                 enabled: Session.can-fork;
                 primary: Session.can-fork;
-                label: Session.can-fork ? "Continue here as a copy" : "Forking a watched session isn't supported for " + Session.agent-name;
+                label: Session.can-fork ? "Continue here as a copy" : Session.agent-name + " sessions can't be copied";
                 has-icon: true;
                 icon: @image-url("@lucide/copy.svg");
                 clicked => {

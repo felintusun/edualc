@@ -49,14 +49,14 @@ impl<F: Frontend> App<F> {
                     let at = at.max(Timestamp::now() + AFTER_RESET);
                     self.status.limit_wait = LimitWait::Until(at);
                     self.chat.info(format!(
-                        "Continuing automatically when the limit resets ({}). Esc or Stop cancels that.",
+                        "Continues when the limit resets ({}). Esc cancels.",
                         crate::present::clock(at)
                     ));
                 }
                 None => {
                     self.status.limit_wait = LimitWait::Idle;
                     self.chat.info(format!(
-                        "{} didn't say when the limit resets: send a prompt to go on once it has.",
+                        "{} didn't say when the limit resets.",
                         self.status.backend.program()
                     ));
                 }
@@ -69,8 +69,7 @@ impl<F: Frontend> App<F> {
     /// Stops waiting for the limit to reset, as you don't want the turn to go on by itself.
     pub(super) fn cancel_limit_wait(&mut self) {
         self.status.limit_wait = LimitWait::Idle;
-        self.chat
-            .info("Not continuing automatically. Send a prompt to go on.");
+        self.chat.info("Won't continue on its own.");
         self.view.scroll_to_end();
         self.set_limit_reset();
     }
@@ -122,7 +121,7 @@ impl<F: Frontend> App<F> {
         if self.watch.is_some() || !self.ensure_process() {
             return;
         }
-        self.chat.info("The usage limit has reset: continuing.");
+        self.chat.info("Limit reset. Continuing.");
         self.start_turn(&[], CONTINUE_PROMPT);
     }
 }

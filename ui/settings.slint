@@ -40,7 +40,7 @@ export component Choice inherits Pressable {
                 min-width: 0px;
                 accessible-role: none;
             }
-            Small {
+            if root.detail != "": Small {
                 text: root.detail;
                 wrap: word-wrap;
                 min-width: 0px;
@@ -117,11 +117,6 @@ export component SettingsPanel inherits Rectangle {
                     min-width: 0px;
                     overflow: elide;
                 }
-                Caption {
-                    text: "Kept in edualc's config.toml; each takes effect at once";
-                    min-width: 0px;
-                    wrap: word-wrap;
-                }
             }
             IconButton {
                 icon: @image-url("@lucide/x.svg");
@@ -189,13 +184,11 @@ export component SettingsPanel inherits Rectangle {
                     }
                     Choice {
                         title: "Enter sends";
-                        detail: "Shift+Enter or Ctrl+Enter start a new line.";
                         chosen: Preferences.send-key == SendKey.enter;
                         clicked => { Preferences.choose-send-key(SendKey.enter); }
                     }
                     Choice {
                         title: "Ctrl+Enter sends";
-                        detail: "Enter starts a new line, so a stray Enter never sends half a message.";
                         chosen: Preferences.send-key == SendKey.ctrl-enter;
                         clicked => { Preferences.choose-send-key(SendKey.ctrl-enter); }
                     }
@@ -207,7 +200,7 @@ export component SettingsPanel inherits Rectangle {
                         text: "Text in Han characters alone";
                     }
                     Explanation {
-                        text: "Chinese, Japanese and Korean draw many Han characters differently. A message with kana is set as Japanese and one with Hangul as Korean; one in Han characters alone as chosen here.";
+                        text: "Text with kana is set as Japanese, with Hangul as Korean.";
                     }
                     Choice {
                         title: "Japanese";
@@ -240,17 +233,15 @@ export component SettingsPanel inherits Rectangle {
                         text: "Messages from other sessions";
                     }
                     Explanation {
-                        text: "For messages to agy and opencode sessions. Messages to Claude Code follow its crossSessionInbound setting.";
+                        text: "For agy and opencode. Claude Code uses its crossSessionInbound setting.";
                     }
                     Choice {
-                        title: "Ask before letting a new sender in";
-                        detail: "The first message from each sender waits until you let it in. Its later messages in that session come in at once.";
+                        title: "Ask once per sender";
                         chosen: Preferences.peer-messages == PeerMessages.ask-each-sender;
                         clicked => { Preferences.choose-peer-messages(PeerMessages.ask-each-sender); }
                     }
                     Choice {
                         title: "Let every message in";
-                        detail: "Sessions message each other without asking you.";
                         chosen: Preferences.peer-messages == PeerMessages.let-all-in;
                         clicked => { Preferences.choose-peer-messages(PeerMessages.let-all-in); }
                     }
@@ -259,9 +250,6 @@ export component SettingsPanel inherits Rectangle {
                     }
                     Heading {
                         text: "New projects";
-                    }
-                    Explanation {
-                        text: "The folder New project makes new projects in, unless you choose another.";
                     }
                     HorizontalLayout {
                         spacing: Theme.space-s;
@@ -329,9 +317,7 @@ export component SettingsPanel inherits Rectangle {
                         text: "Anthropic API key";
                     }
                     Explanation {
-                        text: Preferences.api-key-kept
-                            ? "Kept in your desktop's keyring. New session offers Claude Code with it, billed by the token, and continuing a Claude Code session asks which sign-in to use."
-                            : "Paste a key from the Anthropic Console to start Claude Code sessions with it, billed by the token. It is kept in your desktop's keyring, not in a file.";
+                        text: "For Claude Code sessions billed per token. Kept in your keyring.";
                     }
                     HorizontalLayout {
                         spacing: Theme.space-s;
@@ -339,7 +325,7 @@ export component SettingsPanel inherits Rectangle {
                             secret: true;
                             horizontal-stretch: 1;
                             min-width: 80px;
-                            placeholder: Preferences.api-key-kept ? "Paste a new key to replace it" : "sk-ant-api…";
+                            placeholder: Preferences.api-key-kept ? "New key" : "sk-ant-api…";
                             accepted(text) => {
                                 if text != "" {
                                     Preferences.store-api-key(text);
@@ -377,7 +363,7 @@ export component SettingsPanel inherits Rectangle {
                         text: "edualc's daemon";
                     }
                     Explanation {
-                        text: "It runs the sessions of every window, and goes on while one runs, so a newly installed edualc takes over only once it is shut down. Shutting down ends every session, in every window; the start page lets you continue them in the next window you open.";
+                        text: "Runs every window's sessions. A new edualc version takes over after a shutdown, which ends all sessions.";
                     }
                     FlexboxLayout {
                         flex-direction: FlexboxLayoutDirection.row;

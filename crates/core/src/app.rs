@@ -1436,7 +1436,7 @@ impl<F: Frontend> App<F> {
                 match self.daemon {
                     Daemon::Running => {
                         self.chat
-                            .error("Lost the edualc daemon. Open edualc again to go on.");
+                            .error("Lost the edualc daemon. Restart edualc to go on.");
                     }
                     // Said as it began.
                     Daemon::ShuttingDown => {}
@@ -1452,15 +1452,13 @@ impl<F: Frontend> App<F> {
                 self.acting.clear();
                 self.listing_live = Refresh::Idle;
                 self.chat
-                    .error("Lost the line to edualcd; reaching it again.");
+                    .error("Lost the connection to edualcd. Reconnecting…");
             }
             Event::Reconnected { hosted, live } => self.reconnected(hosted, live),
             Event::DaemonShuttingDown => {
                 self.daemon = Daemon::ShuttingDown;
-                self.chat.info(
-                    "edualc is shutting down, as asked in a window: every session ends. Open \
-                     edualc again to go on and continue this session from its project.",
-                );
+                self.chat
+                    .info("edualc is shutting down. Every session ends.");
             }
             Event::Hosted(hosted) => {
                 self.view.set_running_sessions(hosted.len());

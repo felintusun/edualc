@@ -37,8 +37,7 @@ impl<F: Frontend> App<F> {
     /// Keeps the pasted key in the keyring, through the daemon.
     pub(super) fn store_api_key(&mut self, text: &str) {
         let Some(key) = ApiKey::parse(text) else {
-            self.api_key_note =
-                "That isn't an API key: paste the key alone, without spaces in it.".to_owned();
+            self.api_key_note = "Not an API key.".to_owned();
             return;
         };
         self.ask_daemon(Act::StoreApiKey(key), Acting::ApiKey);

@@ -551,8 +551,8 @@ impl<F: Frontend> Presenter<F> {
         let items: Vec<SessionRow> = rows.iter().map(session_row).collect();
         let empty = match (items.is_empty(), filtered) {
             (false, _) => "",
-            (true, true) => "No session matches the filter.",
-            (true, false) => "None yet: what you start here is listed here.",
+            (true, true) => "No matches.",
+            (true, false) => "No sessions yet.",
         };
         let sessions = &mut self.sessions;
         sessions.empty = empty.into();
@@ -818,7 +818,7 @@ mod tests {
         assert!(
             items
                 .first()
-                .is_some_and(|(_, description)| description.contains("agy says"))
+                .is_some_and(|(_, description)| description.contains("once agy runs"))
         );
         assert_eq!(ticked, 0);
     }

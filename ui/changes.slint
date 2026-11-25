@@ -223,7 +223,7 @@ component DiffPane inherits VerticalLayout {
             text: Changes.file-review == ChangeReview.reviewed ? "Reviewed"
                 : Changes.file-review == ChangeReview.changed-since ? "Changed since: mark again"
                 : "Mark reviewed";
-            label: Changes.file-review == ChangeReview.reviewed ? "Reviewed: press to take the mark off" : self.text;
+            label: Changes.file-review == ChangeReview.reviewed ? "Unmark reviewed" : self.text;
             may-shorten: true;
             has-icon: Changes.file-review == ChangeReview.reviewed;
             icon: @image-url("@lucide/check.svg");
@@ -392,10 +392,8 @@ export component ChangesPanel inherits Rectangle {
             padding-left: Theme.space-xl;
             spacing: Theme.space-m;
             Caption {
-                text: !Changes.can-send
-                    ? "Watching another window — continue this session here to send your comments."
-                    : "Each goes with its file, line and the line's text.";
-                color: !Changes.can-send ? Theme.warning-text : Theme.text-tertiary;
+                text: !Changes.can-send ? "Continue this session here to send comments." : "";
+                color: Theme.warning-text;
                 vertical-alignment: center;
                 horizontal-stretch: 1;
                 min-width: 0px;
@@ -420,11 +418,9 @@ export component ChangesPanel inherits Rectangle {
         if Changes.comments > 0 && root.narrow: VerticalLayout {
             padding: Theme.space-m;
             spacing: Theme.space-xs;
-            Caption {
-                text: !Changes.can-send
-                    ? "Watching another window — continue this session here to send your comments."
-                    : "Each goes with its file, line and the line's text.";
-                color: !Changes.can-send ? Theme.warning-text : Theme.text-tertiary;
+            if !Changes.can-send: Caption {
+                text: "Continue this session here to send comments.";
+                color: Theme.warning-text;
                 wrap: word-wrap;
                 min-width: 0px;
             }

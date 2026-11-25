@@ -110,18 +110,15 @@ pub fn SidePanel() -> Element {
                 Icon { icon: Lucide::MessageCircleQuestionMark, class: "agent" }
                 div { class: "panel-heading",
                     h2 { id: "side-title", class: "panel-title", "By the way" }
-                    div { class: "caption elide",
-                        "Sees the conversation; doesn't join it or run tools"
-                    }
                 }
                 IconButton {
                     icon: Lucide::PanelRightClose,
-                    label: "Fold away (it waits in the header)",
+                    label: "Fold away",
                     onclick: move |_| view.act(Action::ToggleSide),
                 }
                 IconButton {
                     icon: Lucide::X,
-                    label: "Dismiss the side questions",
+                    label: "Close",
                     onclick: move |_| view.act(Action::DismissSide),
                 }
             }
@@ -134,11 +131,6 @@ pub fn SidePanel() -> Element {
                 div {
                     class: "panel-rows",
                     onresize: move |_| scroll_to_end(list.read().clone()),
-                    if side.exchanges.is_empty() {
-                        p { class: "small panel-empty",
-                            "Ask something on the side while Claude works: about the code, the conversation, anything. The conversation goes on undisturbed."
-                        }
-                    }
                     for (index, exchange) in side.exchanges.iter().enumerate() {
                         Exchange { key: "{index}", index, exchange: exchange.clone() }
                     }
@@ -271,7 +263,7 @@ pub fn PeekPanel() -> Element {
                     if conversation {
                         if peek.steps.is_empty() {
                             p { class: "small panel-empty secondary",
-                                "Nothing of its conversation is saved yet. It shows here as it goes."
+                                "Nothing yet."
                             }
                         }
                         for (index, step) in peek.steps.iter().enumerate() {
@@ -280,11 +272,7 @@ pub fn PeekPanel() -> Element {
                     } else {
                         if peek.output.is_empty() && peek.note.is_empty() {
                             p { class: "small panel-empty secondary",
-                                if peek.running {
-                                    "Nothing printed yet. It shows here as it goes."
-                                } else {
-                                    "It printed nothing."
-                                }
+                                if peek.running { "No output yet." } else { "No output." }
                             }
                         }
                         for (index, line) in peek.output.iter().enumerate() {
@@ -367,13 +355,6 @@ fn UsagePanel() -> Element {
                     Icon { icon: Lucide::Gauge, class: "agent large" }
                     div { class: "panel-heading",
                         h2 { id: "usage-title", class: "overlay-title", "Usage" }
-                        div { class: "caption",
-                            if usage.loading {
-                                "Asking {usage.program}"
-                            } else {
-                                "As {usage.program} reports it"
-                            }
-                        }
                     }
                     IconButton {
                         icon: Lucide::RefreshCw,
@@ -438,8 +419,10 @@ fn UsagePanel() -> Element {
                 match usage.sections.get(shown) {
                     None => rsx! {
                         div { class: "usage-empty small",
-                            if !usage.loading {
-                                "{usage.program} has no numbers to report yet."
+                            if usage.loading {
+                                "Loading…"
+                            } else {
+                                "No usage yet."
                             }
                         }
                     },
@@ -539,9 +522,6 @@ fn SettingsPanel() -> Element {
                     Icon { icon: Lucide::Settings, class: "agent large" }
                     div { class: "panel-heading",
                         h2 { id: "settings-title", class: "overlay-title", "Settings" }
-                        div { class: "caption",
-                            "Kept in edualc's config.toml; each takes effect at once"
-                        }
                     }
                     button {
                         class: "icon-button",
@@ -682,14 +662,14 @@ fn InputSettings(send_key: SendKey, han: HanLanguage) -> Element {
             Choice {
                 id: "send-enter",
                 title: "Enter sends",
-                detail: "Shift+Enter or Ctrl+Enter start a new line.",
+                detail: "",
                 chosen: send_key == SendKey::Enter,
                 onclick: move |()| view.act(Action::SendWith(settings::SendKey::Enter)),
             }
             Choice {
                 id: "send-ctrl-enter",
                 title: "Ctrl+Enter sends",
-                detail: "Enter starts a new line, so a stray Enter never sends half a message.",
+                detail: "",
                 chosen: send_key == SendKey::CtrlEnter,
                 onclick: move |()| view.act(Action::SendWith(settings::SendKey::CtrlEnter)),
             }
@@ -697,7 +677,7 @@ fn InputSettings(send_key: SendKey, han: HanLanguage) -> Element {
         // Kana and Hangul tell a text's language themselves; Han characters alone don't.
         h3 { id: "han-language", class: "settings-heading spaced", "Text in Han characters alone" }
         p { class: "small",
-            "Chinese, Japanese and Korean draw many Han characters differently. A message with kana is set as Japanese and one with Hangul as Korean; one in Han characters alone as chosen here."
+            "Text with kana is set as Japanese, with Hangul as Korean."
         }
         div { class: "choices", role: "radiogroup", "aria-labelledby": "han-language",
             Choice {
@@ -752,7 +732,7 @@ pub(super) fn Choice(
             class: if chosen { "setting choice selected" } else { "setting choice" },
             role: "radio",
             "aria-checked": "{chosen}",
-            "aria-describedby": "{id}-detail",
+            "aria-describedby": (!detail.is_empty()).then(|| format!("{id}-detail")),
             onmounted: move |event| {
                 if let Some(onmounted) = onmounted {
                     onmounted.call(event);
@@ -762,7 +742,9 @@ pub(super) fn Choice(
             Icon { icon, class: "small mark" }
             span { class: "setting-text",
                 span { class: "setting-title", "{title}" }
-                span { id: "{id}-detail", class: "small", "{detail}" }
+                if !detail.is_empty() {
+                    span { id: "{id}-detail", class: "small", "{detail}" }
+                }
             }
         }
     }
@@ -818,7 +800,7 @@ fn DaemonSettings(running: i32) -> Element {
     rsx! {
         h3 { class: "settings-heading spaced", "edualc's daemon" }
         p { class: "small",
-            "It runs the sessions of every window, and goes on while one runs, so a newly installed edualc takes over only once it is shut down. Shutting down ends every session, in every window; the start page lets you continue them in the next window you open."
+            "Runs every window's sessions. A new edualc version takes over after a shutdown, which ends all sessions."
         }
         div { class: "daemon-shutdown",
             Button {

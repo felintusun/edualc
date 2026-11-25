@@ -48,16 +48,16 @@ pub fn TrustBar() -> Element {
             div { class: "dock-bar-heading",
                 Icon { icon: Lucide::ShieldExclamationPoint, class: "warning" }
                 div { class: "dock-bar-text",
-                    "Do you trust the files in {session.project}? Claude Code runs this folder's hooks and settings as soon as it starts here, before you send anything."
+                    "Do you trust the files in {session.project}? Claude Code runs its hooks and settings on start."
                 }
             }
             // What it would run, as read from its settings and .mcp.json (plain text, as
             // written there); a long list scrolls.
             div { class: "dock-bar-note",
                 if runs {
-                    "Its .claude/settings.json, settings.local.json and .mcp.json would have Claude Code run or set:"
+                    "Its settings run or set:"
                 } else {
-                    "Its .claude/settings.json, settings.local.json and .mcp.json run nothing and set no environment."
+                    "Its settings run nothing and allow nothing more."
                 }
             }
             if runs {
@@ -69,7 +69,7 @@ pub fn TrustBar() -> Element {
             }
             // As the terminal's dialog lets one go on without them; asked again at the next start.
             div { class: "dock-bar-note",
-                "Without its settings, Claude Code starts with only your own: none of this runs, and neither do any MCP servers or claude.ai connectors, yours included. You're asked again next time."
+                "Without its settings, no MCP servers or claude.ai connectors run either, yours included. Trusting it also trusts it for Claude Code in the terminal."
             }
             div { class: "dock-bar-actions",
                 // The dialog of folders, over the question, which stays if none is chosen.
@@ -104,7 +104,7 @@ pub fn SignInBar() -> Element {
                 div { class: "dock-bar-text strong", "Sign in to Claude Code" }
             }
             div { class: "dock-bar-note",
-                "Run this in a terminal and follow its steps, then try again. Claude Code starts again with your sign-in, and a message that failed is sent again."
+                "Run this in a terminal, then try again."
             }
             div { class: "dock-bar-command",
                 code { "{SIGN_IN_COMMAND}" }

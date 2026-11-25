@@ -367,7 +367,6 @@ fn QuestionEntry(
     grab: Grab,
 ) -> Element {
     let view = use_context::<View>();
-    let agent = view.session.read().agent_name.clone();
     // The option the arrow keys are on.
     let mut at = use_signal(|| 0_usize);
     // The option last pointed at, and last picked: the preview shows the one pointed at, else
@@ -510,8 +509,8 @@ fn QuestionEntry(
             input {
                 class: "field prompt-field",
                 r#type: "text",
-                placeholder: "Notes for {agent}, with the answer (optional)",
-                "aria-label": "Notes for {agent}, with the answer (optional)",
+                placeholder: "Notes (optional)",
+                "aria-label": "Notes (optional)",
                 oninput: move |event| {
                     view.act(Action::SetNotes {
                         question: q,
@@ -580,16 +579,16 @@ fn PlanPrompt(armed: bool, grab: Grab) -> Element {
     rsx! {
         div { class: "prompt-part",
             if count == 1 {
-                div { class: "prompt-note", "1 comment on the plan goes with your answer." }
+                div { class: "prompt-note", "Sends 1 comment with your answer." }
             } else if count > 1 {
-                div { class: "prompt-note", "{count} comments on the plan go with your answer." }
+                div { class: "prompt-note", "Sends {count} comments with your answer." }
             }
             input {
                 id: "prompt-overall",
                 class: "field prompt-field",
                 r#type: "text",
-                placeholder: "A comment on the whole plan (optional)",
-                "aria-label": "A comment on the whole plan (optional)",
+                placeholder: "Comment on the plan (optional)",
+                "aria-label": "Comment on the plan (optional)",
                 value: "{overall}",
                 oninput: move |event| overall.set(event.value()),
             }
@@ -649,9 +648,6 @@ fn PlanReview() -> Element {
                 Icon { icon: Lucide::ListChecks, class: "plan-review-icon" }
                 div { class: "plan-review-titles",
                     h2 { id: "plan-review-title", class: "plan-review-title", "{agent}'s plan" }
-                    div { class: "caption plan-review-caption",
-                        "Comment on any part with the button beside it. Your comments go back with what you choose below."
-                    }
                 }
                 IconButton {
                     icon: Lucide::X,

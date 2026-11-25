@@ -45,15 +45,15 @@ The permission mode to start in
 \fIPossible values:\fR
 .RS 14
 .IP \(bu 2
-default: Claude asks before it edits files or runs commands
+default: Asks before edits and commands
 .IP \(bu 2
-acceptEdits: File edits go through; commands still ask
+acceptEdits: Edits without asking
 .IP \(bu 2
-plan: Claude only reads and plans, then asks you to approve the plan
+plan: Reads and plans, edits nothing
 .IP \(bu 2
-auto: A classifier lets the safe through and asks about the rest
+auto: A classifier approves safe actions
 .IP \(bu 2
-bypassPermissions: Nothing asks. Only for sandboxes you can throw away
+bypassPermissions: Never asks. For throwaway sandboxes
 .RE
 .TP
 \fB\-r\fR, \fB\-\-resume\fR \fI<SESSION>\fR

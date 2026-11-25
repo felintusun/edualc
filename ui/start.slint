@@ -366,7 +366,7 @@ component ProjectCardView inherits Rectangle {
         }
 
         if !root.card.has-sessions: Caption {
-            text: "No sessions yet — open to start one";
+            text: "No sessions yet";
             wrap: word-wrap;
             min-width: 0px;
         }
@@ -696,11 +696,9 @@ export component StartPage inherits Rectangle {
                     }
 
                     if root.shown-cards.length == 0: Small {
-                        text: root.filter != ""
-                            ? "No project matches the filter."
-                            : Nav.hidden-projects-count > 0 && !Nav.show-hidden-projects
-                            ? "All projects are hidden. Turn on Show hidden above to see them."
-                            : "No recent projects yet. Create a new project or open a folder to begin.";
+                        text: root.filter != "" ? "No matches."
+                            : Nav.hidden-projects-count > 0 && !Nav.show-hidden-projects ? "All projects are hidden."
+                            : "No projects yet.";
                         wrap: word-wrap;
                     }
                 }

@@ -83,7 +83,6 @@ pub fn ChangesPanel() -> Element {
             }
             if changes.comments > 0 {
                 div { class: "changes-foot",
-                    span { class: "caption", "Each goes with its file, line and the line's text." }
                     Button {
                         primary: true,
                         onclick: move |_| view.act(Action::SendLineComments),
@@ -183,7 +182,7 @@ fn DiffPane() -> Element {
     let view = use_context::<View>();
     let changes = view.changes.read();
     let (mark, mark_label) = match changes.file_review {
-        ChangeReview::Reviewed => ("Reviewed", "Reviewed: press to take the mark off"),
+        ChangeReview::Reviewed => ("Reviewed", "Unmark reviewed"),
         ChangeReview::ChangedSince => ("Changed since: mark again", "Changed since: mark again"),
         ChangeReview::NotReviewed => ("Mark reviewed", "Mark reviewed"),
     };

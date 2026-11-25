@@ -34,7 +34,7 @@ pub(super) fn mode_menu(
         Modes::Program { offered, .. } if offered.is_empty() => (
             vec![(
                 "Default mode".to_owned(),
-                format!("{} says which modes it has once it runs", backend.program()),
+                format!("Modes show once {} runs", backend.program()),
             )],
             0,
         ),

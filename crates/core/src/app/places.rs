@@ -170,9 +170,8 @@ impl<F: Frontend> App<F> {
         };
         let parent_path = if parent.trim().is_empty() {
             let Some(dir) = self.settings.effective_projects_dir() else {
-                self.view.set_new_project_error(
-                    "Say which folder to make it in: there is no projects folder or home folder.",
-                );
+                self.view
+                    .set_new_project_error("Choose a folder to create it in.");
                 return;
             };
             dir

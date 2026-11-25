@@ -105,10 +105,7 @@ impl<F: Frontend> App<F> {
         if self.watch.is_some() {
             self.side.exchanges.push(Exchange {
                 question: question.to_owned(),
-                answer: Answer::Failed(
-                    "This session runs in another window. Continue it here as a copy to ask on the side."
-                        .into(),
-                ),
+                answer: Answer::Failed("Continue this session here to ask on the side.".into()),
             });
             return;
         }
@@ -196,8 +193,7 @@ impl<F: Frontend> App<F> {
     /// terminal's `/btw` does: the session so far stays as it was.
     pub(super) fn branch_side(&mut self) {
         let Some(id) = self.status.session_id.clone() else {
-            self.chat
-                .error("There is no conversation to branch yet; send a first message.");
+            self.chat.error("Nothing to branch yet.");
             return;
         };
         if !self.status.capabilities().side_questions

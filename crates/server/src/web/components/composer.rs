@@ -265,30 +265,6 @@ pub fn Composer() -> Element {
     } else {
         session.agent_name.as_str()
     };
-    let shell_tip = if session.can_shell {
-        "  ·  ! for a shell command"
-    } else {
-        ""
-    };
-    let placeholder = if session.turn {
-        format!("Write the next message; it waits until {agent} is done")
-    } else {
-        match send_key {
-            SendKey::CtrlEnter => {
-                format!("Message {agent}  ·  / for commands{shell_tip}  ·  Ctrl+Enter to send")
-            }
-            SendKey::Enter => {
-                format!(
-                    "Message {agent}  ·  / for commands{shell_tip}  ·  Shift+Enter for a new line"
-                )
-            }
-        }
-    };
-    let aria_placeholder = if session.can_shell {
-        format!("Message {agent}, or start with ! for a shell command")
-    } else {
-        format!("Message {agent}")
-    };
     let send_title = if stop {
         "Stop (Esc)"
     } else {
@@ -299,22 +275,19 @@ pub fn Composer() -> Element {
     };
     let (mode_icon, mode_tint) = mode_look(session.mode);
     let (shell_label, shell_tint) = if composer.shell {
-        ("Make it a message again", "tint-info")
+        ("Message", "tint-info")
     } else {
-        ("Run a shell command (start with !)", "")
+        ("Shell command (!)", "")
     };
     let (tall_icon, tall_label) = if size_now == ComposerSize::Tall {
-        (Lucide::Minimize2, "Make the message box small again")
+        (Lucide::Minimize2, "Smaller")
     } else {
-        (Lucide::Maximize2, "Make the message box taller")
+        (Lucide::Maximize2, "Taller")
     };
     let (full_icon, full_label) = if size_now == ComposerSize::Full {
-        (Lucide::Shrink, "Show the conversation again")
+        (Lucide::Shrink, "Show the conversation")
     } else {
-        (
-            Lucide::Expand,
-            "Give the message the whole column, to see all of a long paste",
-        )
+        (Lucide::Expand, "Full height")
     };
     let send_icon = if stop {
         Lucide::Square
@@ -528,9 +501,9 @@ pub fn Composer() -> Element {
                         Icon { icon: Lucide::SquareTerminal, class: "small" }
                         span {
                             if session.shell_commands {
-                                "Shell command: Enter runs it beside the conversation. {session.agent} sees it, and what it printed, with your next message."
+                                "Shell command"
                             } else {
-                                "Shell command: {session.agent} sessions don't run these. Ask {session.agent} to run it, or use a terminal."
+                                "{session.agent} doesn't run shell commands."
                             }
                         }
                     }
@@ -550,7 +523,7 @@ pub fn Composer() -> Element {
                     }
                     // Only drawn: the text box itself tells assistive technology.
                     if text.is_empty() {
-                        div { class: "composer-placeholder", "aria-hidden": "true", "{placeholder}" }
+                        div { class: "composer-placeholder", "aria-hidden": "true", "Message" }
                     }
                     // What the command in the draft takes, after it (the draft is one line then).
                     if hint_shown {
@@ -565,7 +538,7 @@ pub fn Composer() -> Element {
                         class: "composer-input",
                         rows: "1",
                         "aria-label": "Message to {agent}",
-                        "aria-placeholder": "{aria_placeholder}",
+                        "aria-placeholder": "Message",
                         "aria-autocomplete": "list",
                         "aria-controls": (commands > 0).then_some(COMMANDS),
                         "aria-activedescendant": active_command,

@@ -55,11 +55,11 @@ impl PermissionMode {
     /// Returns what the mode lets through, for its menu.
     pub fn description(self) -> &'static str {
         match self {
-            Self::Default => "Claude asks before it edits files or runs commands",
-            Self::AcceptEdits => "File edits go through; commands still ask",
-            Self::Plan => "Claude only reads and plans, then asks you to approve the plan",
-            Self::Auto => "A classifier lets the safe through and asks about the rest",
-            Self::BypassPermissions => "Nothing asks. Only for sandboxes you can throw away",
+            Self::Default => "Asks before edits and commands",
+            Self::AcceptEdits => "Edits without asking",
+            Self::Plan => "Reads and plans, edits nothing",
+            Self::Auto => "A classifier approves safe actions",
+            Self::BypassPermissions => "Never asks. For throwaway sandboxes",
         }
     }
 }
@@ -225,7 +225,7 @@ impl<F: Frontend> App<F> {
         // with.
         if self.status.capabilities().deferred_mode_switch && self.status.turns.under_way() {
             self.chat.info(format!(
-                "{} switches to “{}” from your next prompt; this turn goes on in the mode it started in.",
+                "{} switches to “{}” after this turn.",
                 self.status.backend.agent(),
                 self.status.modes.label(&mode)
             ));

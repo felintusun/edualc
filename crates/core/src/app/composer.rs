@@ -100,16 +100,14 @@ impl<F: Frontend> App<F> {
             return;
         }
         if !self.asks.is_empty() {
-            self.chat
-                .info("Answer what is asked above before sending a new message.");
+            self.chat.info("Answer the question above first.");
             self.view.scroll_to_end();
             return;
         }
         if let Some(command) = shell_command(text) {
             if !self.status.capabilities().inline_shell {
                 self.chat.info(format!(
-                    "{} sessions don't run ! commands. Ask {} to run it, or run it in a terminal.",
-                    self.status.backend.agent(),
+                    "{} doesn't run shell commands.",
                     self.status.backend.agent()
                 ));
                 self.view.scroll_to_end();
@@ -177,8 +175,7 @@ impl<F: Frontend> App<F> {
         // Claude Code runs one at a time and would refuse this; it waits in the composer.
         if self.chat.shell_running() {
             self.put_draft(written);
-            self.chat
-                .info("A `!` command still runs: wait for it, or stop it (Stop), then send this.");
+            self.chat.info("A shell command is still running.");
             self.view.scroll_to_end();
             return;
         }

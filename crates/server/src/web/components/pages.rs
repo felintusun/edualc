@@ -202,11 +202,9 @@ pub fn StartPage() -> Element {
                         }
                     }
                 } else if filtered {
-                    p { class: "page-empty", "No project matches the filter." }
+                    p { class: "page-empty", "No matches." }
                 } else if reached {
-                    p { class: "page-empty",
-                        "No recent projects yet. Create a new project or open a folder to begin."
-                    }
+                    p { class: "page-empty", "No projects yet." }
                 }
             }
         }
@@ -537,22 +535,14 @@ const NEW_SESSION_PROGRAMS: &[Program] = &[
 /// dialog.
 fn program_choice(program: Program) -> (&'static str, &'static str, &'static str) {
     match program {
-        Program::Claude => (
-            "new-program-claude",
-            "Claude Code",
-            "Claude Code with your own sign-in",
-        ),
+        Program::Claude => ("new-program-claude", "Claude Code", ""),
         Program::ClaudeApiKey => (
             "new-program-claude-api-key",
             "Claude Code with the API key",
-            "Claude Code billed by the token with your stored Anthropic API key",
+            "Billed per token",
         ),
-        Program::Agy => ("new-program-agy", "agy", "Google's Antigravity CLI"),
-        Program::Opencode => (
-            "new-program-opencode",
-            "opencode",
-            "opencode in this folder",
-        ),
+        Program::Agy => ("new-program-agy", "agy", ""),
+        Program::Opencode => ("new-program-opencode", "opencode", ""),
     }
 }
 
@@ -722,7 +712,7 @@ pub fn Switcher(onclose: EventHandler<()>) -> Element {
                     "aria-expanded": "true",
                     "aria-controls": SWITCHER_LIST,
                     "aria-activedescendant": (count > 0).then(|| format!("{SWITCHER_LIST}-{at}")),
-                    placeholder: "Switch session… (type project or title)",
+                    placeholder: "Switch session",
                     "aria-label": "Switch session",
                     value: "{query}",
                     onmounted: take_focus,
@@ -759,11 +749,7 @@ pub fn Switcher(onclose: EventHandler<()>) -> Element {
             }
             if shown.is_empty() {
                 p { class: "page-empty",
-                    if query().trim().is_empty() {
-                        "No sessions available yet."
-                    } else {
-                        "No sessions match the filter."
-                    }
+                    if query().trim().is_empty() { "No sessions." } else { "No matches." }
                 }
             }
             div { class: "dialog-list", id: SWITCHER_LIST, role: "listbox",

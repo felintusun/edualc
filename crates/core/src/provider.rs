@@ -143,20 +143,15 @@ impl Backend {
     pub fn sign_in_help(self) -> (&'static str, &'static str) {
         match self {
             Self::Claude => (
-                "Run this in a terminal and follow its steps, then try again. Claude Code starts \
-                 again with your sign-in, and the message that failed is sent again.",
+                "Run this in a terminal, then try again.",
                 "claude auth login",
             ),
             Self::Agy => (
-                "agy renews its sign-in by itself, so trying again often works. If it keeps \
-                 failing, run agy in a terminal and sign in when it asks, then try again. The \
-                 message that failed is sent again.",
+                "Try again. If it keeps failing, sign in with this in a terminal.",
                 "agy",
             ),
             Self::Opencode => (
-                "opencode keeps its own sign-in, so trying again often works. If it keeps \
-                 failing, run opencode in a terminal and sign in when it asks, then try again. \
-                 The message that failed is sent again.",
+                "Try again. If it keeps failing, sign in with this in a terminal.",
                 "opencode",
             ),
         }
@@ -165,8 +160,8 @@ impl Backend {
     /// Returns the usage bar's and panel's words where usage limits aren't reported.
     pub fn limits_note(self, sign_in: SignInWith) -> &'static str {
         match (self, sign_in) {
-            (Self::Opencode, _) => "opencode reports no usage limits",
-            (Self::Claude, SignInWith::ApiKey) => "API key · billed by the token",
+            (Self::Opencode, _) => "No usage limits",
+            (Self::Claude, SignInWith::ApiKey) => "API key",
             (Self::Claude, SignInWith::Account) | (Self::Agy, _) => "Usage",
         }
     }
