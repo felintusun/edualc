@@ -9,6 +9,7 @@ use tokio::time::Instant;
 
 use crate::agent;
 use crate::driver::{Decoded, Driver};
+use crate::external::wire::System;
 use crate::ids::SessionId;
 use crate::ipc::{FromDaemon, Generation, HostedId, HostedState, StartFailure, Stream};
 use crate::provider::Launch;
@@ -92,8 +93,26 @@ pub(super) struct Reporting {
 #[derive(Debug)]
 pub(super) struct Place {
     pub(super) cwd: PathBuf,
-    /// The id it started under: its changes are kept under it.
+    /// The id its program goes by: its changes are kept under it.
     pub(super) session: SessionId,
+}
+
+impl Place {
+    /// Takes an event the process wrote. Where it names the session otherwise (an ACP agent
+    /// names its own once it opened the session), returns the move of its changes to that name.
+    pub(super) fn saw(&mut self, event: &agent::Event) -> Option<snapshots::Job> {
+        let agent::Event::System(System::Init { session_id, .. }) = event else {
+            return None;
+        };
+        if *session_id == self.session {
+            return None;
+        }
+        let from = std::mem::replace(&mut self.session, session_id.clone());
+        Some(snapshots::Job::Renamed {
+            from,
+            to: session_id.clone(),
+        })
+    }
 }
 
 /// Starts a session's process and runs it, telling the window it is shown in.
@@ -114,7 +133,7 @@ pub(super) async fn host(
     let failure = match spawned {
         Ok(Ok(spawned)) => {
             return session
-                .event_loop(&place, spawned, commands, shown, reporting)
+                .event_loop(place, spawned, commands, shown, reporting)
                 .await;
         }
         Ok(Err(error)) => StartFailure::from(error),
@@ -230,13 +249,13 @@ impl Session {
     /// that shows it, and its end.
     pub(super) async fn event_loop(
         mut self,
-        place: &Place,
+        mut place: Place,
         spawned: spawn::Spawned,
         mut commands: mpsc::Receiver<Command>,
         shown: Option<(Generation, mpsc::Sender<FromDaemon>)>,
         reporting: Reporting,
     ) -> Self {
-        let cwd = place.cwd.as_path();
+        let cwd = place.cwd.clone();
         let Reporting { states, keeper } = reporting;
         let mut doing = Doing::default();
         // What the keeper says a turn changed; this loop keeps a sender, so it stays open.
@@ -296,7 +315,7 @@ impl Session {
                             Ok(command) => {
                                 self.pending.sent(&command);
                                 self.publish_state(&mut last_state, states.as_ref());
-                                if let Some(job) = doing.follow(self.pending.in_turn(), place, &changed) {
+                                if let Some(job) = doing.follow(self.pending.in_turn(), &place, &changed) {
                                     keep(&keeper, job).await;
                                 }
                                 match self.driver.encode_command(command) {
@@ -340,9 +359,12 @@ impl Session {
                         match self.driver.decode_output(line) {
                             Decoded::Event { event, wire_line } => {
                                 doing.saw(&event);
-                                self.pending.saw(&event, &wire_line, cwd);
+                                if let Some(job) = place.saw(&event) {
+                                    keep(&keeper, job).await;
+                                }
+                                self.pending.saw(&event, &wire_line, &cwd);
                                 self.publish_state(&mut last_state, states.as_ref());
-                                if let Some(job) = doing.follow(self.pending.in_turn(), place, &changed) {
+                                if let Some(job) = doing.follow(self.pending.in_turn(), &place, &changed) {
                                     keep(&keeper, job).await;
                                 }
                                 if let Some((key, outbox)) = &shown {
@@ -408,6 +430,9 @@ impl Session {
                 match self.driver.decode_output(line) {
                     Decoded::Event { event, wire_line } => {
                         doing.saw(&event);
+                        if let Some(job) = place.saw(&event) {
+                            keep(&keeper, job).await;
+                        }
                         if let Some((key, outbox)) = &shown {
                             send_line(outbox, *key, Stream::Out, &wire_line).await;
                         }
@@ -430,7 +455,7 @@ impl Session {
             }
         }
         // A turn the process ended in ends with it.
-        if let Some(job) = doing.follow(false, place, &changed) {
+        if let Some(job) = doing.follow(false, &place, &changed) {
             keep(&keeper, job).await;
         }
         if let Some((key, outbox)) = &shown {

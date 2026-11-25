@@ -612,6 +612,11 @@ pub enum Job {
         path: PathBuf,
         mark: Mark,
     },
+    /// The session goes by `to` from now on; what is kept under `from` moves there.
+    Renamed {
+        from: SessionId,
+        to: SessionId,
+    },
 }
 
 /// A review mark: on, for the file as it holds `ContentId` (none: deleted), or taken off.
@@ -639,33 +644,65 @@ pub async fn keep(home: PathBuf, claude: ClaudeHome, mut jobs: mpsc::Receiver<Jo
 }
 
 fn apply(home: &Path, claude: &ClaudeHome, job: Job) {
-    let session = match &job {
-        Job::TurnStarted { session, .. }
-        | Job::TurnEnded { session, .. }
-        | Job::Looked { session }
-        | Job::Reviewed { session, .. } => session.clone(),
-    };
-    let done = match Store::open(home, &session) {
-        Ok(mut store) => match job {
-            Job::TurnStarted { cwd, .. } => {
+    let (session, done) = match job {
+        Job::TurnStarted { session, cwd } => {
+            let done = Store::open(home, &session).and_then(|mut store| {
                 let worktree = sessions::find_transcript(claude, &cwd, &session)
                     .and_then(|transcript| sessions::worktree_of(&transcript));
                 store.turn_started(&worktree.map_or(cwd, |worktree| worktree.path))
-            }
-            Job::TurnEnded { touched, done, .. } => store.turn_ended(touched).map(|summary| {
-                if let Some(summary) = summary.filter(|summary| summary.files > 0)
-                    && done.try_send(summary).is_err()
-                {
-                    tracing::debug!("the session ended before its turn's changes were known");
-                }
-            }),
-            Job::Looked { .. } => store.looked(),
-            Job::Reviewed { path, mark, .. } => store.mark_reviewed(path, mark),
-        },
-        Err(error) => Err(error),
+            });
+            (session, done)
+        }
+        Job::TurnEnded {
+            session,
+            touched,
+            done,
+        } => {
+            let ended = Store::open(home, &session)
+                .and_then(|mut store| store.turn_ended(touched))
+                .map(|summary| {
+                    if let Some(summary) = summary.filter(|summary| summary.files > 0)
+                        && done.try_send(summary).is_err()
+                    {
+                        tracing::debug!("the session ended before its turn's changes were known");
+                    }
+                });
+            (session, ended)
+        }
+        Job::Looked { session } => {
+            let done = Store::open(home, &session).and_then(|mut store| store.looked());
+            (session, done)
+        }
+        Job::Reviewed {
+            session,
+            path,
+            mark,
+        } => {
+            let done =
+                Store::open(home, &session).and_then(|mut store| store.mark_reviewed(path, mark));
+            (session, done)
+        }
+        Job::Renamed { from, to } => {
+            let done = rename(home, &from, &to);
+            (to, done)
+        }
     };
     if let Err(error) = done {
         tracing::warn!(%error, session = %session, "a session's changes weren't kept");
+    }
+}
+
+/// Moves the changes kept for `from` to `to`, if it has any.
+///
+/// # Errors
+///
+/// Fails if they can't be moved, as where `to` has changes of its own.
+fn rename(home: &Path, from: &SessionId, to: &SessionId) -> Result<(), Error> {
+    let sessions = home.join("sessions");
+    let moved = sessions.join(to.as_str());
+    match std::fs::rename(sessions.join(from.as_str()), &moved) {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        result => result.map_err(io(&moved)),
     }
 }
 
@@ -813,6 +850,34 @@ mod tests {
                 tracing::debug!(%error, "a scratch folder stays");
             }
         }
+    }
+
+    #[test]
+    fn a_turn_begun_under_the_first_id_ends_under_the_agents() {
+        let mut bench = Bench::new("renamed");
+        bench.write("a.txt", "one\n");
+        bench
+            .store()
+            .turn_started(&bench.root)
+            .expect("before the turn");
+        bench.write("a.txt", "two\n");
+        let agents = SessionId::try_from("66666666-7777-4888-9999-aaaaaaaaaaaa".to_owned())
+            .expect("a session id");
+        rename(&bench.home, &bench.session, &agents).expect("moved");
+        let first = std::mem::replace(&mut bench.session, agents);
+        let summary = bench
+            .store()
+            .turn_ended(BTreeSet::new())
+            .expect("after the turn");
+        assert_eq!(summary.map(|summary| summary.files), Some(1));
+        let left = Store::open(&bench.home, &first).expect("the first id's store");
+        assert!(
+            left.changes(Scope::Session)
+                .expect("the changes")
+                .files
+                .is_empty()
+        );
+        rename(&bench.home, &first, &bench.session).expect("nothing to move");
     }
 
     #[test]

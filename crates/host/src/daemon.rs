@@ -383,6 +383,31 @@ mod tests {
         assert_eq!(doing, Doing::BetweenTurns);
     }
 
+    #[test]
+    fn a_session_named_anew_moves_its_changes_once() {
+        let mut place = place();
+        let first = place.session.clone();
+        let init = |session: &str| {
+            let line = format!(
+                r#"{{"type":"system","subtype":"init","session_id":"{session}","model":"big-pickle","permissionMode":"default","cwd":"/p"}}"#
+            );
+            match Driver::Claude.decode_output(line) {
+                Decoded::Event { event, .. } => event,
+                other @ (Decoded::UnreadableRequest { .. } | Decoded::Log(_)) => {
+                    panic!("expected event, got {other:?}")
+                }
+            }
+        };
+        assert!(place.saw(&init(first.as_str())).is_none());
+        let agents = "66666666-7777-4888-9999-aaaaaaaaaaaa";
+        let Some(snapshots::Job::Renamed { from, to }) = place.saw(&init(agents)) else {
+            panic!("the changes move");
+        };
+        assert_eq!((from, to.as_str()), (first, agents));
+        assert_eq!(place.session, to);
+        assert!(place.saw(&init(agents)).is_none());
+    }
+
     fn piece(key: Generation, text: &str, last: bool) -> ToDaemon {
         ToDaemon::Command {
             key,
@@ -865,6 +890,34 @@ mod tests {
     }
 
     #[tokio::test(flavor = "current_thread")]
+    async fn a_session_tells_the_keeper_the_name_its_program_gives() {
+        let first = place().session;
+        let agents = "66666666-7777-4888-9999-aaaaaaaaaaaa";
+        let init = format!(
+            r#"{{"type":"system","subtype":"init","session_id":"{agents}","model":"big-pickle","permissionMode":"default","cwd":"/p"}}"#
+        );
+        let (_orders, commands) = mpsc::channel(8);
+        let (keeper, mut jobs) = mpsc::channel(8);
+        let reporting = Reporting {
+            states: None,
+            keeper,
+        };
+        Session::new(HostedId::default().next())
+            .event_loop(
+                place(),
+                running("printf", &["%s\\n", &init]),
+                commands,
+                None,
+                reporting,
+            )
+            .await;
+        let Ok(snapshots::Job::Renamed { from, to }) = jobs.try_recv() else {
+            panic!("the keeper hears the agent's id");
+        };
+        assert_eq!((from, to.as_str()), (first, agents));
+    }
+
+    #[tokio::test(flavor = "current_thread")]
     async fn a_session_asks_again_what_a_window_missed() {
         let (orders, commands) = mpsc::channel(8);
         let (outbox, mut answers) = mpsc::channel(32);
@@ -899,7 +952,7 @@ mod tests {
             orders.send(Command::Line(bye)).await.expect("queued");
         });
         let session = Session::new(HostedId::default().next())
-            .event_loop(&place(), process, commands, None, reporting())
+            .event_loop(place(), process, commands, None, reporting())
             .await;
         attach.await.expect("the attaching task");
         assert_eq!(session.lines_in, 1);
@@ -930,7 +983,7 @@ mod tests {
         let session = tokio::spawn(async move {
             Session::new(HostedId::default().next())
                 .event_loop(
-                    &place,
+                    place,
                     running("sleep", &["30"]),
                     commands,
                     None,
