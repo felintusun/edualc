@@ -142,6 +142,11 @@ fn read(mut channel: Channel, mut deframer: Deframer<FromDaemon>, events: &Sende
             Ok(message) => message,
             Err(error) => {
                 tracing::warn!(%error, "lost the daemon");
+                // The sending thread's end would keep the line open, and the daemon would take
+                // the window to be there still.
+                if let Err(error) = channel.hang_up() {
+                    tracing::debug!(%error, "the line was closed already");
+                }
                 if events.send_blocking(Event::DaemonLost).is_err() {
                     tracing::debug!("the window closed with the daemon");
                 }

@@ -1427,7 +1427,11 @@ impl<F: Frontend> App<F> {
                 }
             }
             Event::DaemonLost => {
-                self.process = None;
+                // The line may write still as it can't be read: ending the session down it
+                // would end it in the daemon.
+                if let Some(process) = self.process.take() {
+                    process.lost();
+                }
                 self.forget_process();
                 match self.daemon {
                     Daemon::Running => {
@@ -1439,7 +1443,9 @@ impl<F: Frontend> App<F> {
                 }
             }
             Event::LineLost => {
-                self.process = None;
+                if let Some(process) = self.process.take() {
+                    process.lost();
+                }
                 self.forget_process();
                 // Asked on the lost line: no answer comes.
                 self.answers.clear();
@@ -2612,6 +2618,24 @@ mod tests {
         };
         assert_eq!(offered(false), 1);
         assert_eq!(offered(true), 0);
+    }
+
+    #[test]
+    fn a_lost_line_leaves_the_session_running() {
+        for lost in [Event::DaemonLost, Event::LineLost] {
+            let (mut driven, _generation) = started();
+            driven.take(Event::Action(Action::Send("Run the tests".to_owned())));
+            driven.sent();
+            driven.take(lost);
+            let sent = driven.sent();
+            assert!(
+                !sent.iter().any(|message| matches!(
+                    message,
+                    ToDaemon::End { .. } | ToDaemon::Command { .. }
+                )),
+                "{sent:?}"
+            );
+        }
     }
 
     #[test]

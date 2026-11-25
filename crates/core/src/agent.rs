@@ -193,6 +193,9 @@ enum Use {
 enum Leaving {
     End,
     LetGo,
+    /// The line is gone: nothing is sent, and the daemon lets go of the window's sessions as it
+    /// hangs up.
+    Lost,
 }
 
 impl Agent {
@@ -237,6 +240,11 @@ impl Agent {
 
     pub fn detach(mut self) {
         self.leaving = Leaving::LetGo;
+    }
+
+    /// Drops the session as the line to the daemon is lost, leaving it running there.
+    pub fn lost(mut self) {
+        self.leaving = Leaving::Lost;
     }
 
     fn send(&self, command: &Command) -> Result<(), Error> {
@@ -321,6 +329,7 @@ impl Drop for Agent {
                 ToDaemon::End { key: self.key }
             }
             Leaving::LetGo => ToDaemon::Detach { key: self.key },
+            Leaving::Lost => return,
         };
         if link::send(&self.link, leave).is_err() {
             tracing::debug!("the daemon was gone as a window let go of a session");

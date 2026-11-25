@@ -262,6 +262,17 @@ impl Channel {
         self.stream.write_all(&frame).map_err(closed_or)
     }
 
+    /// Closes the connection both ways, for every end of it.
+    ///
+    /// # Errors
+    ///
+    /// Fails as the socket does, as where the daemon hung up already.
+    pub fn hang_up(&self) -> Result<(), Error> {
+        self.stream
+            .shutdown(std::net::Shutdown::Both)
+            .map_err(Error::Io)
+    }
+
     /// Waits for the next message.
     pub fn recv<T: DeserializeOwned>(&mut self, deframer: &mut Deframer<T>) -> Result<T, Error> {
         let mut bytes = [0u8; READ];
@@ -535,6 +546,29 @@ mod tests {
             recv::<String>(&mut reading, &mut Deframer::default()).await,
             Err(Error::Closed)
         ));
+        std::fs::remove_dir_all(&folder.path).expect("the scratch folder goes");
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn a_window_hanging_up_ends_the_line_though_another_end_is_open() {
+        let folder = scratch("hang-up");
+        let (listener, _lock) = Listener::bind(&folder)
+            .expect("binds")
+            .expect("is the daemon")
+            .into_tokio()
+            .expect("for tokio");
+        let reading_end = Channel::connect(&folder).expect("connects");
+        let mut sending_end = reading_end.try_clone().expect("cloned");
+        let (mut reading, _writing) = AsyncChannel::accept(&listener)
+            .await
+            .expect("a peer of ours")
+            .split();
+        reading_end.hang_up().expect("hung up");
+        assert!(matches!(
+            recv::<String>(&mut reading, &mut Deframer::default()).await,
+            Err(Error::Closed)
+        ));
+        assert!(sending_end.send(&"late").is_err(), "nothing goes out after");
         std::fs::remove_dir_all(&folder.path).expect("the scratch folder goes");
     }
 
