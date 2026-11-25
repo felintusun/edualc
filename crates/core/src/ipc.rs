@@ -143,7 +143,7 @@ pub fn chunks(text: &str) -> impl Iterator<Item = &str> {
 
 /// Bumped with any change to the messages below, or to their framing: postcard isn't
 /// self-describing, so both ends must agree on every type.
-pub const PROTOCOL: u32 = 38;
+pub const PROTOCOL: u32 = 39;
 
 /// A window's key for a process it shows, new for each one, so that what an earlier process
 /// still says is dropped.
@@ -847,5 +847,26 @@ mod tests {
         assert!(pieces.iter().all(|piece| piece.len() <= MAX_CHUNK));
         assert_eq!(pieces.concat(), text);
         assert_eq!(chunks("").collect::<Vec<_>>(), [""]);
+    }
+
+    #[test]
+    fn a_usage_report_reaches_the_window_as_claude_code_gave_it() {
+        let report: crate::external::wire::UsageReport = serde_json::from_str(
+            r#"{
+                "rate_limits": { "limits": [
+                    { "kind": "session", "percent": 12.0, "resets_at": "2026-11-25T03:00:00Z", "scope": null },
+                    { "kind": "weekly_scoped", "percent": 40.0, "resets_at": null,
+                      "scope": { "model": { "display_name": "Opus" } }, "label": "Opus, week" }
+                ] },
+                "behaviors": { "day": { "request_count": 3, "session_count": 1 }, "week": null }
+            }"#,
+        )
+        .expect("Claude Code's answer");
+        let sent = FromDaemon::Answer {
+            request: ActId(7),
+            answer: Answer::ProviderUsage(ProviderUsage::reported(report)),
+        };
+        let received: FromDaemon = deframe(&frame(&sent).expect("framed")).expect("deframed");
+        assert_eq!(received, sent);
     }
 }

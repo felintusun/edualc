@@ -1000,10 +1000,18 @@ pub struct UsageReport {
     pub session: Option<SessionUsage>,
     /// Null where the sign-in is a token handed to Claude Code, which may not ask for them
     /// (Claude Code 2.1.316).
-    #[serde(default, deserialize_with = "null_as_default")]
+    #[serde(
+        default,
+        deserialize_with = "null_as_default",
+        serialize_with = "present"
+    )]
     pub rate_limits: RateLimitReport,
     /// Null where nobody is signed in (Claude Code 2.1.316).
-    #[serde(default, deserialize_with = "null_as_default")]
+    #[serde(
+        default,
+        deserialize_with = "null_as_default",
+        serialize_with = "present"
+    )]
     pub behaviors: Behaviors,
 }
 
@@ -1054,7 +1062,7 @@ pub struct PlanLimit {
     pub scope: Option<LimitScope>,
     /// What the limit is called, where its kind doesn't say: edualc's ACP adapter names agy's
     /// quotas so. Claude Code sends none.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
     pub label: Option<String>,
 }
 
@@ -1298,6 +1306,15 @@ fn null_as_default<'de, D: serde::Deserializer<'de>, T: Default + Deserialize<'d
     deserializer: D,
 ) -> Result<T, D::Error> {
     Option::<T>::deserialize(deserializer).map(Option::unwrap_or_default)
+}
+
+/// Writes a [`null_as_default`] field as the `Option` it reads: JSON gets the bare value, and
+/// postcard, which isn't self-describing, the `Some` it reads back.
+fn present<S: serde::Serializer, T: Serialize>(
+    value: &T,
+    serializer: S,
+) -> Result<S::Ok, S::Error> {
+    Some(value).serialize(serializer)
 }
 
 /// ExitPlanMode's input, given back with the plan as the user annotated it.
