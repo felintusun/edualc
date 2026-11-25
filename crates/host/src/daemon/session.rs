@@ -406,7 +406,14 @@ impl Session {
                         tell(outbox, FromDaemon::TurnChanged { key: *key, summary }).await;
                     }
                 },
-                ended = child.wait() => break ended.ok().and_then(|status| status.code()),
+                ended = child.wait() => {
+                    // Its error output went only to a window showing it; how it ended is kept here.
+                    match &ended {
+                        Ok(status) => tracing::info!(id = ?self.id, phase = ?self.phase, %status, "a session's process ended"),
+                        Err(error) => tracing::warn!(id = ?self.id, phase = ?self.phase, %error, "a session's process ended unseen"),
+                    }
+                    break ended.ok().and_then(|status| status.code());
+                }
                 () = deadline => {
                     if self.phase == Phase::Running {
                         // Alone and quiet for long: ended as a closed input ends it.
