@@ -29,9 +29,8 @@ pub enum Error {
     Io(#[source] std::io::Error),
     #[error("a message bigger than {MAX_MESSAGE} bytes")]
     Oversized,
-    /// postcard's accumulator says no more than that.
-    #[error("a message that doesn't parse")]
-    Unreadable,
+    #[error("a message that doesn't parse: {0}")]
+    Unreadable(#[source] postcard::Error),
     #[error("couldn't encode a message: {0}")]
     Encode(#[source] postcard::Error),
     #[error("the other side hung up")]
@@ -84,8 +83,8 @@ impl<Message: DeserializeOwned> Deframer<Message> {
         while let Some(end) = rest.iter().position(|&byte| byte == 0) {
             let (last, after) = rest.split_at(end);
             self.add(last)?;
-            let message = postcard::from_bytes_cobs::<Message>(&mut self.frame)
-                .map_err(|_unreadable| Error::Unreadable)?;
+            let message =
+                postcard::from_bytes_cobs::<Message>(&mut self.frame).map_err(Error::Unreadable)?;
             self.frame.clear();
             self.ready.push_back(message);
             rest = after.get(1..).unwrap_or_default();
@@ -112,7 +111,7 @@ impl<Message: DeserializeOwned> Deframer<Message> {
 /// that came whole, such as the first of a line.
 pub fn deframe<T: DeserializeOwned>(frame: &[u8]) -> Result<T, Error> {
     let mut bytes = frame.strip_suffix(&[0]).unwrap_or(frame).to_vec();
-    postcard::from_bytes_cobs::<T>(&mut bytes).map_err(|_unreadable| Error::Unreadable)
+    postcard::from_bytes_cobs::<T>(&mut bytes).map_err(Error::Unreadable)
 }
 
 /// Writes a message as a frame: postcard's COBS, ended by a `0`.

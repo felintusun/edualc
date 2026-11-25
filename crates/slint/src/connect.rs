@@ -61,7 +61,7 @@ pub(crate) fn connect() -> Result<Connected, Error> {
     let hello = match channel.recv(&mut deframer) {
         Ok(hello) => hello,
         // A daemon of another version may frame messages otherwise, and hang up on ours.
-        Err(ipc::Error::Closed | ipc::Error::Oversized | ipc::Error::Unreadable) => {
+        Err(ipc::Error::Closed | ipc::Error::Oversized | ipc::Error::Unreadable(_)) => {
             return Err(Error::Version);
         }
         Err(error) => return Err(error.into()),

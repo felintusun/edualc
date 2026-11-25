@@ -447,10 +447,10 @@ mod tests {
             let frames = bytes.iter().filter(|&&byte| byte == 0).count();
             let (to_daemon, error) = fed::<ToDaemon>(&bytes, &cuts);
             proptest::prop_assert!(to_daemon.len() <= frames);
-            proptest::prop_assert!(matches!(error, None | Some(Error::Oversized | Error::Unreadable)));
+            proptest::prop_assert!(matches!(error, None | Some(Error::Oversized | Error::Unreadable(_))));
             let (from_daemon, error) = fed::<FromDaemon>(&bytes, &cuts);
             proptest::prop_assert!(from_daemon.len() <= frames);
-            proptest::prop_assert!(matches!(error, None | Some(Error::Oversized | Error::Unreadable)));
+            proptest::prop_assert!(matches!(error, None | Some(Error::Oversized | Error::Unreadable(_))));
         }
 
         /// A frame longer than any message is refused however it comes, unended or not, and
@@ -488,7 +488,7 @@ mod tests {
         // A frame ended by its 0, but not a message of this kind.
         assert!(matches!(
             Deframer::<(String, u32)>::default().push(&[2, 0xff, 0]),
-            Err(Error::Unreadable)
+            Err(Error::Unreadable(_))
         ));
     }
 

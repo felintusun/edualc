@@ -163,7 +163,7 @@ async fn greet(
             // An edualcd of another version may speak otherwise. One that only hangs up, or a
             // line that breaks, is the network's doing (edualcd refuses another version before
             // the line opens, HTTP 409): reached again, not given up on for good.
-            Err(ws::Error::Frame(ipc::Error::Unreadable)) => {
+            Err(ws::Error::Frame(ipc::Error::Unreadable(_))) => {
                 return Err(NotGreeted::Version.into());
             }
             Err(error) => return Err(error.into()),
