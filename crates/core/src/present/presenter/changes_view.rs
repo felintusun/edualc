@@ -103,7 +103,9 @@ impl<F: Frontend> Presenter<F> {
         last_turn: Option<changes::Summary>,
     ) {
         let global = &mut self.changes;
-        global.last_turn = last_turn.map_or_else(String::new, summary_words);
+        global.last_turn = last_turn
+            .filter(|summary| summary.files > 0)
+            .map_or_else(String::new, summary_words);
         global.comments = index_for_slint(comments.len());
         let Some(view) = view else {
             *global = model::Changes {

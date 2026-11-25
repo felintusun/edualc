@@ -598,7 +598,7 @@ pub enum Job {
         session: SessionId,
         cwd: PathBuf,
     },
-    /// Its changes in short go to `done`, unless it changed nothing.
+    /// Its changes in short go to `done`, none if it changed nothing.
     TurnEnded {
         session: SessionId,
         touched: BTreeSet<PathBuf>,
@@ -661,7 +661,7 @@ fn apply(home: &Path, claude: &ClaudeHome, job: Job) {
             let ended = Store::open(home, &session)
                 .and_then(|mut store| store.turn_ended(touched))
                 .map(|summary| {
-                    if let Some(summary) = summary.filter(|summary| summary.files > 0)
+                    if let Some(summary) = summary
                         && done.try_send(summary).is_err()
                     {
                         tracing::debug!("the session ended before its turn's changes were known");
@@ -878,6 +878,36 @@ mod tests {
                 .is_empty()
         );
         rename(&bench.home, &first, &bench.session).expect("nothing to move");
+    }
+
+    #[test]
+    fn a_turn_that_changed_nothing_says_so() {
+        let bench = Bench::new("unchanged");
+        bench.write("a.txt", "one\n");
+        let claude = ClaudeHome::moved_to(PathBuf::from("/nowhere"));
+        let (done, mut summaries) = mpsc::channel(1);
+        apply(
+            &bench.home,
+            &claude,
+            Job::TurnStarted {
+                session: bench.session.clone(),
+                cwd: bench.root.clone(),
+            },
+        );
+        apply(
+            &bench.home,
+            &claude,
+            Job::TurnEnded {
+                session: bench.session.clone(),
+                touched: BTreeSet::new(),
+                done,
+            },
+        );
+        assert_eq!(
+            summaries.try_recv().map(|summary| summary.files),
+            Ok(0),
+            "the window's last turn is this one, not one before"
+        );
     }
 
     #[test]
